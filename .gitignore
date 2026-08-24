@@ -1,0 +1,40 @@
+# Operating-system files
+.DS_Store
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Local Supabase state
+supabase/.branches/
+supabase/.temp/
+supabase/.env.local
+
+# Dependencies, caches, and test output
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Generated media, builds, and evaluation results
+media/
+uploads/
+dist/
+build/
+out/
+eval-results/
+playwright-report/
+test-results/
+
+# Controller-owned task workspace
+.superpowers/sdd/
