@@ -33,8 +33,12 @@ dist/
 build/
 out/
 eval-results/
+evals/results/
 playwright-report/
 test-results/
+
+# Local linked worktrees
+.worktrees/
 
 # Controller-owned task workspace
 .superpowers/sdd/
