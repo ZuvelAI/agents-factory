@@ -1,8 +1,10 @@
+import re
 from collections.abc import Iterable
+from ipaddress import ip_address
 from typing import Annotated, Literal
 from urllib.parse import SplitResult, urlsplit
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +12,7 @@ Environment = Literal["development", "test", "staging", "production"]
 LogLevel = Literal["debug", "info", "warning", "error", "critical"]
 NonEmptySecret = Annotated[SecretStr, Field(min_length=1)]
 NonEmptyString = Annotated[str, Field(min_length=1)]
+_HOST_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 
 REQUIRED_ENVIRONMENT_VARIABLES = (
     "ENVIRONMENT",
@@ -49,7 +52,7 @@ class Settings(BaseSettings):
         parsed = _split_url(value.get_secret_value())
         if (
             parsed.scheme != "postgresql+asyncpg"
-            or parsed.hostname is None
+            or not _has_valid_host_and_port(parsed)
             or parsed.path in {"", "/"}
         ):
             raise ValueError("must be a postgresql+asyncpg database URL")
@@ -59,32 +62,79 @@ class Settings(BaseSettings):
     @classmethod
     def validate_redis_url(cls, value: SecretStr) -> SecretStr:
         parsed = _split_url(value.get_secret_value())
-        if parsed.scheme not in {"redis", "rediss"} or parsed.hostname is None:
+        if parsed.scheme not in {"redis", "rediss"} or not _has_valid_host_and_port(
+            parsed
+        ):
             raise ValueError("must be a Redis URL")
         return value
 
     @field_validator("supabase_url", "supabase_jwt_issuer")
     @classmethod
-    def validate_supabase_https_url(cls, value: str) -> str:
+    def validate_supabase_https_url(cls, value: str, info: ValidationInfo) -> str:
         parsed = _split_url(value)
-        is_https = parsed.scheme == "https" and parsed.hostname is not None
-        is_local_http = parsed.scheme == "http" and parsed.hostname in {
-            "127.0.0.1",
-            "::1",
-            "localhost",
+        has_valid_endpoint = _has_valid_host_and_port(parsed)
+        is_https = parsed.scheme == "https" and has_valid_endpoint
+        is_local_environment = info.data.get("environment") in {
+            "development",
+            "test",
         }
+        is_local_http = (
+            parsed.scheme == "http"
+            and parsed.hostname
+            in {
+                "127.0.0.1",
+                "::1",
+                "localhost",
+            }
+            and has_valid_endpoint
+            and is_local_environment
+        )
         if not (is_https or is_local_http):
             raise ValueError("must use HTTPS except for a loopback development URL")
         return value
 
 
 def _split_url(value: str) -> SplitResult:
+    if any(character.isspace() for character in value):
+        return SplitResult("", "", "", "", "")
     try:
         parsed = urlsplit(value)
         parsed.port
         return parsed
     except ValueError:
         return SplitResult("", "", "", "", "")
+
+
+def _has_valid_host_and_port(parsed: SplitResult) -> bool:
+    hostname = parsed.hostname
+    if hostname is None or _has_explicit_empty_port(parsed):
+        return False
+
+    port = parsed.port
+    if port is not None and not 1 <= port <= 65535:
+        return False
+
+    try:
+        ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii").rstrip(".")
+    except UnicodeError:
+        return False
+    if not ascii_hostname or len(ascii_hostname) > 253:
+        return False
+    return all(_HOST_LABEL.fullmatch(label) for label in ascii_hostname.split("."))
+
+
+def _has_explicit_empty_port(parsed: SplitResult) -> bool:
+    authority = parsed.netloc.rsplit("@", maxsplit=1)[-1]
+    if authority.startswith("["):
+        closing_bracket = authority.find("]")
+        return closing_bracket >= 0 and authority[closing_bracket + 1 :] == ":"
+    return authority.endswith(":")
 
 
 def _in_contract_order(names: Iterable[str]) -> tuple[str, ...]:

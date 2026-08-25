@@ -21,26 +21,68 @@ class ReadinessProbe(Protocol):
 
 
 ComponentState = Literal["up", "down"]
+COMPOSE_HEALTHCHECK_CLIENT_TIMEOUT_SECONDS = 2.0
+DEFAULT_READINESS_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
 class ReadinessChecks:
     database: ReadinessProbe
     redis: ReadinessProbe
+    timeout_seconds: float = DEFAULT_READINESS_TIMEOUT_SECONDS
+
+    def __post_init__(self) -> None:
+        if not 0 < self.timeout_seconds < COMPOSE_HEALTHCHECK_CLIENT_TIMEOUT_SECONDS:
+            raise ValueError(
+                "readiness timeout must be positive and shorter than the "
+                "Compose healthcheck client timeout"
+            )
 
     async def evaluate(self) -> dict[str, ComponentState]:
-        outcomes = await asyncio.gather(
-            self.database(),
-            self.redis(),
-            return_exceptions=True,
+        tasks = (
+            asyncio.create_task(self._evaluate_probe(self.database)),
+            asyncio.create_task(self._evaluate_probe(self.redis)),
         )
+        try:
+            outcomes = await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         return {
-            "database": "down" if isinstance(outcomes[0], BaseException) else "up",
-            "redis": "down" if isinstance(outcomes[1], BaseException) else "up",
+            "database": outcomes[0],
+            "redis": outcomes[1],
         }
+
+    async def _evaluate_probe(self, probe: ReadinessProbe) -> ComponentState:
+        probe_task = asyncio.create_task(probe())
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(probe_task),
+                timeout=self.timeout_seconds,
+            )
+        except TimeoutError:
+            await _cancel_probe(probe_task)
+            return "down"
+        except asyncio.CancelledError:
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                await _cancel_probe(probe_task)
+                raise
+            return "down"
+        except Exception:
+            return "down"
+        return "up"
 
 
 SettingsLoader = Callable[[], Settings]
+
+
+async def _cancel_probe(probe_task: asyncio.Task[None]) -> None:
+    if not probe_task.done():
+        probe_task.cancel()
+    await asyncio.gather(probe_task, return_exceptions=True)
 
 
 async def _probe_redis(client: Redis) -> None:
@@ -108,6 +150,26 @@ def create_app(
             status_code=error.status,
             content=error.to_problem_details(correlation_id=correlation_id),
             media_type="application/problem+json",
+        )
+
+    @application.exception_handler(Exception)
+    async def handle_unexpected_error(
+        request: Request,
+        _error: Exception,
+    ) -> JSONResponse:
+        correlation_id = str(request.state.correlation_id)
+        error = DomainError(
+            type="https://agents-factory.dev/problems/internal-server-error",
+            title="Internal Server Error",
+            status=500,
+            detail="An unexpected error occurred.",
+            code="internal_server_error",
+        )
+        return JSONResponse(
+            status_code=error.status,
+            content=error.to_problem_details(correlation_id=correlation_id),
+            media_type="application/problem+json",
+            headers={"X-Correlation-ID": correlation_id},
         )
 
     @application.get("/health/live")

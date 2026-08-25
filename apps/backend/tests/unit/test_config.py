@@ -76,8 +76,18 @@ def test_load_settings_never_exposes_invalid_values(
             "DATABASE_URL",
             "postgresql+asyncpg://app:secret@database:notaport/app",
         ),
+        ("DATABASE_URL", "postgresql+asyncpg://app:secret@database:0/app"),
+        ("DATABASE_URL", "postgresql+asyncpg://app:secret@database:/app"),
+        ("DATABASE_URL", "postgresql+asyncpg://app:secret@database:65536/app"),
+        ("DATABASE_URL", "postgresql+asyncpg://app:secret@data base/app"),
+        ("DATABASE_URL", "postgresql+asyncpg://app:secret@-database/app"),
         ("REDIS_URL", "invalid-redis-url-secret-sentinel"),
         ("REDIS_URL", "redis://redis:notaport/0"),
+        ("REDIS_URL", "redis://redis:0/0"),
+        ("REDIS_URL", "redis://redis:/0"),
+        ("REDIS_URL", "redis://redis:65536/0"),
+        ("REDIS_URL", "redis://redis host/0"),
+        ("REDIS_URL", "redis://redis_/0"),
         ("SUPABASE_URL", "http://invalid-supabase-url-secret-sentinel"),
         ("SUPABASE_URL", "https://example.supabase.co:notaport"),
         ("SUPABASE_JWT_ISSUER", "invalid-jwt-issuer-secret-sentinel"),
@@ -98,6 +108,66 @@ def test_load_settings_rejects_malformed_urls_without_exposing_them(
 
     assert captured.value.invalid_variables == (variable,)
     assert invalid_value not in str(captured.value)
+
+
+def test_load_settings_accepts_dependency_urls_without_explicit_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _valid_environment()
+    environment["DATABASE_URL"] = "postgresql+asyncpg://app:secret@database/app"
+    environment["REDIS_URL"] = "redis://redis/0"
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    settings = load_settings()
+
+    assert settings.database_url.get_secret_value() == environment["DATABASE_URL"]
+    assert settings.redis_url.get_secret_value() == environment["REDIS_URL"]
+
+
+@pytest.mark.parametrize("environment_name", ["staging", "production"])
+@pytest.mark.parametrize(
+    ("variable", "insecure_value"),
+    [
+        ("SUPABASE_URL", "http://127.0.0.1:54321"),
+        ("SUPABASE_JWT_ISSUER", "http://localhost:54321/auth/v1"),
+    ],
+)
+def test_production_like_environments_reject_loopback_http(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_name: str,
+    variable: str,
+    insecure_value: str,
+) -> None:
+    environment = _valid_environment()
+    environment["ENVIRONMENT"] = environment_name
+    environment[variable] = insecure_value
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(ConfigurationError) as captured:
+        load_settings()
+
+    assert captured.value.invalid_variables == (variable,)
+    assert insecure_value not in str(captured.value)
+
+
+@pytest.mark.parametrize("environment_name", ["development", "test"])
+def test_local_environments_allow_loopback_http_for_supabase_urls(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_name: str,
+) -> None:
+    environment = _valid_environment()
+    environment["ENVIRONMENT"] = environment_name
+    environment["SUPABASE_URL"] = "http://127.0.0.1:54321"
+    environment["SUPABASE_JWT_ISSUER"] = "http://localhost:54321/auth/v1"
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    settings = load_settings()
+
+    assert settings.supabase_url == environment["SUPABASE_URL"]
+    assert settings.supabase_jwt_issuer == environment["SUPABASE_JWT_ISSUER"]
 
 
 def test_settings_keep_credential_bearing_values_secret(
