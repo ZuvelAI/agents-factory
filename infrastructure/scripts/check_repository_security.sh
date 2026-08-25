@@ -48,6 +48,8 @@ ALLOWED_RUNS = [
   'make test-security'
 ].freeze
 
+SECRET_EXPRESSION = /\$\{\{\s*secrets(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*|\s*\[\s*['"][^'"]+['"]\s*\])/i
+
 def fail(message)
   abort("check_repository_security: #{message}")
 end
@@ -73,6 +75,20 @@ def walk(value, path = [], &block)
     end
   when Array
     value.each_with_index { |child, index| walk(child, path + [index.to_s], &block) }
+  end
+end
+
+def walk_strings(value, path = [], &block)
+  case value
+  when Hash
+    value.each do |key, child|
+      yield key, path + ['<key>'] if key.is_a?(String)
+      walk_strings(child, path + [key_name(key)], &block)
+    end
+  when Array
+    value.each_with_index { |child, index| walk_strings(child, path + [index.to_s], &block) }
+  when String
+    yield value, path
   end
 end
 
@@ -106,6 +122,12 @@ workflow_paths.each do |workflow_path|
     fail("root permissions must be exactly contents: read: #{workflow_path}")
   end
 
+  walk_strings(workflow) do |string, path|
+    if string.match?(SECRET_EXPRESSION)
+      fail("workflow secret reference is forbidden at #{workflow_path}:#{path.join('.')}")
+    end
+  end
+
   walk(workflow) do |key, value, path|
     if key == 'uses'
       action = value.is_a?(String) ? value : nil
@@ -133,9 +155,6 @@ workflow_paths.each do |workflow_path|
       fail("provider credential is forbidden at #{workflow_path}:#{path.join('.')}")
     end
 
-    if value.is_a?(String) && value.match?(/\$\{\{\s*secrets\./i)
-      fail("workflow secret reference is forbidden at #{workflow_path}:#{path.join('.')}")
-    end
   end
 end
 RUBY

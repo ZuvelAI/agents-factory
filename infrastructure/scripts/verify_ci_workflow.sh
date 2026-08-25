@@ -27,6 +27,8 @@ REQUIRED_RUNS = [
   'make test-security'
 ].freeze
 
+SECRET_EXPRESSION = /\$\{\{\s*secrets(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*|\s*\[\s*['"][^'"]+['"]\s*\])/i
+
 def fail(message)
   abort("verify_ci_workflow: #{message}")
 end
@@ -52,6 +54,20 @@ def scalar!(value, label)
   value
 end
 
+def walk_strings(value, path = [], &block)
+  case value
+  when Hash
+    value.each do |key, child|
+      yield key, path + ['<key>'] if key.is_a?(String)
+      walk_strings(child, path + [key_name(key)], &block)
+    end
+  when Array
+    value.each_with_index { |child, index| walk_strings(child, path + [index.to_s], &block) }
+  when String
+    yield value, path
+  end
+end
+
 begin
   workflow = Psych.safe_load(File.read(workflow_path), aliases: false)
 rescue Psych::Exception => error
@@ -59,6 +75,12 @@ rescue Psych::Exception => error
 end
 
 workflow = mapping!(workflow, 'workflow root')
+
+walk_strings(workflow) do |string, path|
+  if string.match?(SECRET_EXPRESSION)
+    fail("GitHub secret expression is forbidden at #{path.join('.')}")
+  end
+end
 
 triggers = mapping!(value_for(workflow, 'on'), 'on')
 trigger_names = triggers.keys.map { |key| key_name(key) }.sort
