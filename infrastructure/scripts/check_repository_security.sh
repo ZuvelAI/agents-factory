@@ -38,7 +38,9 @@ if git grep --untracked -nEi \
   fail 'backend runtime must not depend on Supabase privileged or migration credentials'
 fi
 
-set -- .github/workflows/*.yml .github/workflows/*.yaml
+if test "$#" -eq 0; then
+  set -- .github/workflows/*.yml .github/workflows/*.yaml
+fi
 ruby -rpsych - "$@" <<'RUBY'
 APPROVED_ACTIONS = [
   'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
@@ -55,6 +57,7 @@ ALLOWED_RUNS = [
   'make lint',
   'make typecheck',
   'make test-unit',
+  'make test-integration',
   'docker compose config --quiet',
   'make test-security'
 ].freeze
@@ -139,6 +142,7 @@ workflow_paths.each do |workflow_path|
     end
   end
 
+  runs = []
   walk(workflow) do |key, value, path|
     if key == 'uses'
       action = value.is_a?(String) ? value : nil
@@ -152,6 +156,7 @@ workflow_paths.each do |workflow_path|
       unless ALLOWED_RUNS.include?(command)
         fail("workflow run command is not in the locked baseline allowlist at #{workflow_path}:#{path.join('.')}")
       end
+      runs << command
     end
 
     if key == 'permissions' && path.include?('jobs') && contains_write?(value)
@@ -166,6 +171,9 @@ workflow_paths.each do |workflow_path|
       fail("provider credential is forbidden at #{workflow_path}:#{path.join('.')}")
     end
 
+  end
+  unless runs == ALLOWED_RUNS
+    fail("CI run commands must exactly match the locked baseline sequence: #{workflow_path}")
   end
 end
 RUBY

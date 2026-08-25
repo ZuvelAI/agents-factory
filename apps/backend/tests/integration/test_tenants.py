@@ -13,8 +13,8 @@ from agents_factory.modules.tenants.repository import TenantRepository
 from agents_factory.modules.tenants.service import TenantService
 
 
-async def _set_application_role(session: AsyncSession) -> None:
-    await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+async def _set_role(session: AsyncSession, role: str) -> None:
+    await session.execute(text(f"SET LOCAL ROLE {role}"))
 
 
 async def _seed_tenant(
@@ -46,7 +46,7 @@ async def test_repository_isolates_rows_and_transaction_local_context_resets(
     await _seed_tenant(session_factory, tenant_b)
 
     async with session_factory.begin() as session:
-        await _set_application_role(session)
+        await _set_role(session, "agents_factory_app")
         repository = TenantRepository(session)
         await repository.set_tenant_context(tenant_a.id)
 
@@ -55,25 +55,24 @@ async def test_repository_isolates_rows_and_transaction_local_context_resets(
         assert [tenant.id for tenant in visible] == [tenant_a.id]
 
     async with session_factory.begin() as session:
-        await _set_application_role(session)
+        await _set_role(session, "agents_factory_app")
         visible_without_context = await TenantRepository(session).list_visible()
 
         assert visible_without_context == []
 
 
 @pytest.mark.asyncio
-async def test_repository_rejects_cross_tenant_insert(
+async def test_application_role_rejects_tenant_insert_with_matching_context(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    tenant_a_id = new_uuid7()
-    tenant_b = Tenant.new(slug="tenant-b", name="Tenant B")
+    tenant = Tenant.new(slug="tenant-a", name="Tenant A")
 
     with pytest.raises(DBAPIError):
         async with session_factory.begin() as session:
-            await _set_application_role(session)
+            await _set_role(session, "agents_factory_app")
             repository = TenantRepository(session)
-            await repository.set_tenant_context(tenant_a_id)
-            await repository.create(tenant_b)
+            await repository.set_tenant_context(tenant.id)
+            await repository.create(tenant)
 
 
 @pytest.mark.asyncio
@@ -84,7 +83,7 @@ async def test_tenant_service_commits_business_audit_and_outbox_together(
     actor_id = new_uuid7()
 
     async with session_factory.begin() as session:
-        await _set_application_role(session)
+        await _set_role(session, "agents_factory_admin")
         created = await TenantService(session).create_tenant(
             slug="atomic-tenant",
             name="Atomic Tenant",
@@ -129,7 +128,7 @@ async def test_tenant_service_rolls_back_all_rows_when_outbox_insert_fails(
 
     with pytest.raises(IntegrityError):
         async with session_factory.begin() as session:
-            await _set_application_role(session)
+            await _set_role(session, "agents_factory_admin")
             await TenantService(session).create_tenant(
                 slug="rollback-tenant",
                 name="Rollback Tenant",
@@ -168,7 +167,7 @@ async def test_new_tenant_ids_are_uuid7(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory.begin() as session:
-        await _set_application_role(session)
+        await _set_role(session, "agents_factory_admin")
         tenant = await TenantService(session).create_tenant(
             slug="uuid7-tenant",
             name="UUID7 Tenant",

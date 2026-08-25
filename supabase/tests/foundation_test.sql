@@ -187,6 +187,13 @@ select ok(
 );
 
 select ok(
+  has_table_privilege('agents_factory_app', 'public.tenants', 'SELECT')
+    and not has_table_privilege('agents_factory_app', 'public.tenants', 'INSERT')
+    and not has_table_privilege('agents_factory_app', 'public.tenants', 'UPDATE'),
+  'the app role can read but cannot provision or mutate tenants'
+);
+
+select ok(
   not exists (
     select 1
     from information_schema.role_table_grants
@@ -241,9 +248,19 @@ select ok(
 from unnest(
   array[
     'audit_events_tenant_id_idx',
-    'job_attempts_outbox_job_id_idx',
-    'dead_letter_jobs_outbox_job_id_idx',
     'outbox_jobs_pending_due_idx'
+  ]
+) as expected(index_name);
+
+select hasnt_index(
+  'public',
+  expected.index_name,
+  format('%s redundant index is absent', expected.index_name)
+)
+from unnest(
+  array[
+    'job_attempts_outbox_job_id_idx',
+    'dead_letter_jobs_outbox_job_id_idx'
   ]
 ) as expected(index_name);
 
@@ -253,10 +270,36 @@ select ok(
     from pg_indexes
     where schemaname = 'public'
       and indexname = 'outbox_jobs_pending_due_idx'
-      and indexdef like '%(tenant_id, available_at, created_at)%'
+      and indexdef like '%(available_at, created_at, tenant_id, id)%'
       and indexdef like '%WHERE (status = ''pending''::text)%'
   ),
-  'pending outbox queue has a tenant/status/due-time partial index'
+  'pending outbox queue index matches global claim order'
+);
+
+create function pg_temp.task3_global_claim_plan()
+returns jsonb
+language plpgsql
+as $function$
+declare
+  query_plan jsonb;
+begin
+  execute $explain$
+    explain (format json, costs off)
+    select id
+    from public.outbox_jobs
+    where status = 'pending' and available_at <= now()
+    order by available_at, created_at, tenant_id, id
+    limit 1
+    for update skip locked
+  $explain$ into query_plan;
+  return query_plan;
+end
+$function$;
+
+set local enable_seqscan = off;
+select ok(
+  pg_temp.task3_global_claim_plan()::text not like '%"Node Type": "Sort"%',
+  'global pending claim plan uses index order without Sort'
 );
 
 select ok(
@@ -275,6 +318,113 @@ select ok(
       and cmd = 'ALL'
   ),
   'foundation RLS uses explicit command policies'
+);
+
+select ok(
+  not exists (
+    (
+      select
+        tablename::text,
+        policyname::text,
+        cmd::text,
+        array_to_string(roles, ',')
+      from pg_policies
+      where schemaname = 'public'
+        and tablename in (
+          'tenants',
+          'platform_admins',
+          'audit_events',
+          'outbox_jobs',
+          'job_attempts',
+          'dead_letter_jobs'
+        )
+      except
+      select * from (
+        values
+          ('audit_events', 'audit_events_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('audit_events', 'audit_events_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('audit_events', 'audit_events_app_insert', 'INSERT', 'agents_factory_app'),
+          ('audit_events', 'audit_events_app_select', 'SELECT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_insert', 'INSERT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_select', 'SELECT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_update', 'UPDATE', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_app_insert', 'INSERT', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_app_select', 'SELECT', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_app_update', 'UPDATE', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_app_insert', 'INSERT', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_app_select', 'SELECT', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_app_update', 'UPDATE', 'agents_factory_app'),
+          ('platform_admins', 'platform_admins_admin_delete', 'DELETE', 'agents_factory_admin'),
+          ('platform_admins', 'platform_admins_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('platform_admins', 'platform_admins_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('tenants', 'tenants_app_select', 'SELECT', 'agents_factory_app')
+      ) as expected(tablename, policyname, cmd, roles)
+    )
+    union all
+    (
+      select * from (
+        values
+          ('audit_events', 'audit_events_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('audit_events', 'audit_events_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('audit_events', 'audit_events_app_insert', 'INSERT', 'agents_factory_app'),
+          ('audit_events', 'audit_events_app_select', 'SELECT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_insert', 'INSERT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_select', 'SELECT', 'agents_factory_app'),
+          ('dead_letter_jobs', 'dead_letter_jobs_app_update', 'UPDATE', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('job_attempts', 'job_attempts_app_insert', 'INSERT', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_app_select', 'SELECT', 'agents_factory_app'),
+          ('job_attempts', 'job_attempts_app_update', 'UPDATE', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('outbox_jobs', 'outbox_jobs_app_insert', 'INSERT', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_app_select', 'SELECT', 'agents_factory_app'),
+          ('outbox_jobs', 'outbox_jobs_app_update', 'UPDATE', 'agents_factory_app'),
+          ('platform_admins', 'platform_admins_admin_delete', 'DELETE', 'agents_factory_admin'),
+          ('platform_admins', 'platform_admins_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('platform_admins', 'platform_admins_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_insert', 'INSERT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_select', 'SELECT', 'agents_factory_admin'),
+          ('tenants', 'tenants_admin_update', 'UPDATE', 'agents_factory_admin'),
+          ('tenants', 'tenants_app_select', 'SELECT', 'agents_factory_app')
+      ) as expected(tablename, policyname, cmd, roles)
+      except
+      select
+        tablename::text,
+        policyname::text,
+        cmd::text,
+        array_to_string(roles, ',')
+      from pg_policies
+      where schemaname = 'public'
+        and tablename in (
+          'tenants',
+          'platform_admins',
+          'audit_events',
+          'outbox_jobs',
+          'job_attempts',
+          'dead_letter_jobs'
+        )
+    )
+  ),
+  'foundation policy name, role, and command inventory is exact'
 );
 
 select ok(
@@ -309,6 +459,43 @@ select ok(
   'foundation defines no SECURITY DEFINER functions'
 );
 
+create function public.task3_default_privilege_probe()
+returns integer
+language sql
+as 'select 1';
+
+create function agents_factory_private.task3_default_privilege_probe()
+returns integer
+language sql
+as 'select 1';
+
+select ok(
+  not has_function_privilege(
+    expected.role_name,
+    format('%I.task3_default_privilege_probe()', expected.schema_name),
+    'EXECUTE'
+  ),
+  format(
+    '%s cannot execute a new %s function without an explicit grant',
+    expected.role_name,
+    expected.schema_name
+  )
+)
+from (
+  select role_name, schema_name
+  from unnest(
+    array[
+      'anon',
+      'authenticated',
+      'service_role',
+      'agents_factory_app',
+      'agents_factory_admin'
+    ]
+  ) as role_names(role_name)
+  cross join unnest(array['public', 'agents_factory_private'])
+    as schema_names(schema_name)
+) as expected;
+
 select (
   to_regclass('public.tenants') is not null
   and to_regclass('public.platform_admins') is not null
@@ -330,47 +517,6 @@ select (
     ('0198f3df-cbb5-7ec9-98f8-4ca608db0f5d', 'tenant-a', 'Tenant A', 'active'),
     ('0198f3df-cbb5-7ec9-98f8-4ca608db0f5e', 'tenant-b', 'Tenant B', 'active');
 
-  set local role agents_factory_app;
-
-  select results_eq(
-    'select count(*)::bigint from public.tenants',
-    array[0::bigint],
-    'tenant reads fail closed when app.tenant_id is absent'
-  );
-
-  select set_config('app.tenant_id', '', true);
-  select results_eq(
-    'select count(*)::bigint from public.tenants',
-    array[0::bigint],
-    'tenant reads fail closed when app.tenant_id is empty'
-  );
-
-  select set_config(
-    'app.tenant_id',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
-    true
-  );
-  select results_eq(
-    'select id from public.tenants order by id',
-    array['0198f3df-cbb5-7ec9-98f8-4ca608db0f5d'::uuid],
-    'the app role sees only its transaction-local tenant'
-  );
-  select throws_ok(
-    $$
-      insert into public.tenants (id, slug, name, status)
-      values (
-        '0198f3df-cbb5-7ec9-98f8-4ca608db0f60',
-        'wrong-tenant',
-        'Wrong Tenant',
-        'active'
-      )
-    $$,
-    '42501',
-    null,
-    'the app role cannot insert outside its tenant context'
-  );
-
-  reset role;
   insert into public.audit_events (
     id,
     tenant_id,
@@ -382,37 +528,29 @@ select (
     correlation_id,
     payload
   )
-  values (
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f61',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
-    null,
-    'system',
-    'tenant.created',
-    'tenant',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f62',
-    '{}'::jsonb
-  );
-
-  set local role agents_factory_app;
-  select set_config(
-    'app.tenant_id',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
-    true
-  );
-  reset role;
-  select throws_ok(
-    $$update public.audit_events set event_type = 'changed'$$,
-    '55000',
-    'audit_events are append-only',
-    'audit events cannot be updated'
-  );
-  select throws_ok(
-    $$delete from public.audit_events$$,
-    '55000',
-    'audit_events are append-only',
-    'audit events cannot be deleted'
-  );
+  values
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f61',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      null,
+      'system',
+      'tenant.created',
+      'tenant',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f62',
+      '{}'::jsonb
+    ),
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f71',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      null,
+      'system',
+      'tenant.created',
+      'tenant',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f72',
+      '{}'::jsonb
+    );
 
   insert into public.outbox_jobs (
     id,
@@ -423,15 +561,192 @@ select (
     status,
     available_at
   )
-  values (
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f63',
-    '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
-    'same-key',
-    'tenant.created',
-    '{}'::jsonb,
-    'pending',
-    now()
+  values
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f63',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      'same-key',
+      'tenant.created',
+      '{}'::jsonb,
+      'pending',
+      now()
+    ),
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f65',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      'same-key',
+      'tenant.created',
+      '{}'::jsonb,
+      'pending',
+      now()
+    );
+
+  insert into public.job_attempts (
+    id, tenant_id, outbox_job_id, attempt_number, status
+  )
+  values
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f66',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f63',
+      1,
+      'started'
+    ),
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f67',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f65',
+      1,
+      'started'
+    );
+
+  insert into public.dead_letter_jobs (
+    id, tenant_id, outbox_job_id, reason_code, status
+  )
+  values
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f68',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f63',
+      'test',
+      'open'
+    ),
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f69',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f65',
+      'test',
+      'open'
+    );
+
+  set local role agents_factory_app;
+  select results_eq(
+    format('select count(*)::bigint from public.%I', expected.table_name),
+    array[0::bigint],
+    format('%s reads fail closed when tenant context is absent', expected.table_name)
+  )
+  from unnest(
+    array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
+  ) as expected(table_name);
+
+  select set_config('app.tenant_id', '', true);
+  select results_eq(
+    format('select count(*)::bigint from public.%I', expected.table_name),
+    array[0::bigint],
+    format('%s reads fail closed when tenant context is empty', expected.table_name)
+  )
+  from unnest(
+    array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
+  ) as expected(table_name);
+
+  select set_config('app.tenant_id', '0198f3df-cbb5-7ec9-98f8-4ca608db0f99', true);
+  select results_eq(
+    format('select count(*)::bigint from public.%I', expected.table_name),
+    array[0::bigint],
+    format('%s reads fail closed for the wrong tenant context', expected.table_name)
+  )
+  from unnest(
+    array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
+  ) as expected(table_name);
+
+  select set_config('app.tenant_id', 'not-a-uuid', true);
+  select throws_ok(
+    format('select count(*)::bigint from public.%I', expected.table_name),
+    '22P02',
+    null,
+    format('%s rejects an invalid tenant context', expected.table_name)
+  )
+  from unnest(
+    array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
+  ) as expected(table_name);
+
+  select set_config('app.tenant_id', '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d', true);
+  select results_eq(
+    format('select count(*)::bigint from public.%I', expected.table_name),
+    array[1::bigint],
+    format('%s exposes only the correct tenant row', expected.table_name)
+  )
+  from unnest(
+    array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
+  ) as expected(table_name);
+
+  select set_config('app.tenant_id', '0198f3df-cbb5-7ec9-98f8-4ca608db0f70', true);
+  select throws_ok(
+    $$
+      insert into public.tenants (id, slug, name, status)
+      values (
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f70',
+        'matching-context',
+        'Matching Context',
+        'active'
+      )
+    $$,
+    '42501',
+    null,
+    'the app role cannot provision a tenant even with matching context'
   );
+
+  select set_config('app.tenant_id', '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d', true);
+  select throws_ok(
+    $$update public.audit_events set event_type = 'changed'$$,
+    '42501',
+    null,
+    'the app role cannot update audit events'
+  );
+  select throws_ok(
+    $$delete from public.audit_events$$,
+    '42501',
+    null,
+    'the app role cannot delete audit events'
+  );
+  select throws_ok(
+    $$truncate public.audit_events$$,
+    '42501',
+    null,
+    'the app role cannot truncate audit events'
+  );
+
+  reset role;
+  select throws_ok(
+    $$update public.audit_events set event_type = 'changed'$$,
+    '55000',
+    'audit_events are append-only',
+    'the owner cannot update audit events'
+  );
+  select throws_ok(
+    $$delete from public.audit_events$$,
+    '55000',
+    'audit_events are append-only',
+    'the owner cannot delete audit events'
+  );
+  select throws_ok(
+    $$truncate public.audit_events$$,
+    '55000',
+    'audit_events are append-only',
+    'the owner cannot truncate audit events'
+  );
+
+  set local role agents_factory_admin;
+  select throws_ok(
+    $$update public.audit_events set event_type = 'changed'$$,
+    '42501',
+    null,
+    'the admin role cannot update audit events'
+  );
+  select throws_ok(
+    $$delete from public.audit_events$$,
+    '42501',
+    null,
+    'the admin role cannot delete audit events'
+  );
+  select throws_ok(
+    $$truncate public.audit_events$$,
+    '42501',
+    null,
+    'the admin role cannot truncate audit events'
+  );
+  reset role;
+
   select throws_ok(
     $$
       insert into public.outbox_jobs (
@@ -457,28 +772,10 @@ select (
     null,
     'an idempotency key cannot repeat within a tenant'
   );
-  select lives_ok(
-    $$
-      insert into public.outbox_jobs (
-        id,
-        tenant_id,
-        idempotency_key,
-        topic,
-        payload,
-        status,
-        available_at
-      )
-      values (
-        '0198f3df-cbb5-7ec9-98f8-4ca608db0f65',
-        '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
-        'same-key',
-        'tenant.created',
-        '{}'::jsonb,
-        'pending',
-        now()
-      )
-    $$,
-    'the same idempotency key is valid in another tenant'
+  select results_eq(
+    $$select count(*)::bigint from public.outbox_jobs where idempotency_key = 'same-key'$$,
+    array[2::bigint],
+    'the same idempotency key is valid in two tenants'
   );
 
   set local role agents_factory_admin;
@@ -488,7 +785,7 @@ select (
     'the non-bypass admin role has explicit cross-tenant read access'
   );
 \else
-  select * from skip(10, 'foundation schema is intentionally absent during RED');
+  select * from skip(1, 'foundation schema is intentionally absent during RED');
 \endif
 
 select * from finish();

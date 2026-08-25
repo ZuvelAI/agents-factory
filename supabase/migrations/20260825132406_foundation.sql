@@ -110,14 +110,8 @@ create table public.dead_letter_jobs (
 create index audit_events_tenant_id_idx
 on public.audit_events (tenant_id);
 
-create index job_attempts_outbox_job_id_idx
-on public.job_attempts (tenant_id, outbox_job_id);
-
-create index dead_letter_jobs_outbox_job_id_idx
-on public.dead_letter_jobs (tenant_id, outbox_job_id);
-
 create index outbox_jobs_pending_due_idx
-on public.outbox_jobs (tenant_id, available_at, created_at)
+on public.outbox_jobs (available_at, created_at, tenant_id, id)
 where status = 'pending';
 
 create function agents_factory_private.reject_audit_mutation()
@@ -139,6 +133,10 @@ create trigger audit_events_reject_mutation
 before update or delete on public.audit_events
 for each row execute function agents_factory_private.reject_audit_mutation();
 
+create trigger audit_events_reject_truncate
+before truncate on public.audit_events
+for each statement execute function agents_factory_private.reject_audit_mutation();
+
 alter table public.tenants enable row level security;
 alter table public.platform_admins enable row level security;
 alter table public.audit_events enable row level security;
@@ -157,17 +155,6 @@ create policy tenants_app_select
 on public.tenants for select
 to agents_factory_app
 using (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
-
-create policy tenants_app_insert
-on public.tenants for insert
-to agents_factory_app
-with check (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
-
-create policy tenants_app_update
-on public.tenants for update
-to agents_factory_app
-using (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid)
-with check (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
 
 create policy tenants_admin_select
 on public.tenants for select
@@ -320,8 +307,11 @@ with check (true);
 revoke all on all tables in schema public
 from public, anon, authenticated, service_role, agents_factory_app, agents_factory_admin;
 
+grant select on public.tenants
+to agents_factory_app;
+
 grant select, insert, update on public.tenants
-to agents_factory_app, agents_factory_admin;
+to agents_factory_admin;
 
 grant select, insert on public.audit_events
 to agents_factory_app, agents_factory_admin;
@@ -340,6 +330,9 @@ to agents_factory_admin;
 
 alter default privileges in schema public
 revoke all on tables from public, anon, authenticated, service_role;
+
+alter default privileges
+revoke execute on functions from public;
 
 alter default privileges in schema public
 revoke execute on functions from public, anon, authenticated, service_role;

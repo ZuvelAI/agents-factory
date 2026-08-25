@@ -3,17 +3,6 @@ on public.tenants for select
 to agents_factory_app
 using (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
 
-create policy tenants_app_insert
-on public.tenants for insert
-to agents_factory_app
-with check (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
-
-create policy tenants_app_update
-on public.tenants for update
-to agents_factory_app
-using (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid)
-with check (id = nullif((select current_setting('app.tenant_id', true)), '')::uuid);
-
 create policy tenants_admin_select
 on public.tenants for select
 to agents_factory_admin

@@ -5,7 +5,9 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repository_root"
 
-exec ruby -rpsych - .github/workflows/ci.yml <<'RUBY'
+workflow_path=${1:-.github/workflows/ci.yml}
+
+exec ruby -rpsych - "$workflow_path" <<'RUBY'
 workflow_path = ARGV.fetch(0)
 
 APPROVED_ACTIONS = {
@@ -23,6 +25,7 @@ REQUIRED_RUNS = [
   'make lint',
   'make typecheck',
   'make test-unit',
+  'make test-integration',
   'docker compose config --quiet',
   'make test-security'
 ].freeze

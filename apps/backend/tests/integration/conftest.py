@@ -8,11 +8,38 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+
+
+async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
+    await connection.execute(
+        text(
+            "ALTER TABLE public.audit_events "
+            "DISABLE TRIGGER audit_events_reject_truncate"
+        )
+    )
+    await connection.execute(
+        text(
+            "TRUNCATE TABLE "
+            "public.dead_letter_jobs, "
+            "public.job_attempts, "
+            "public.outbox_jobs, "
+            "public.audit_events, "
+            "public.platform_admins, "
+            "public.tenants CASCADE"
+        )
+    )
+    await connection.execute(
+        text(
+            "ALTER TABLE public.audit_events "
+            "ENABLE TRIGGER audit_events_reject_truncate"
+        )
+    )
 
 
 @pytest.fixture(scope="session")
@@ -59,30 +86,10 @@ async def clean_foundation_tables(database_engine: AsyncEngine) -> AsyncIterator
                 "WITH INHERIT FALSE, SET TRUE"
             )
         )
-        await connection.execute(
-            text(
-                "TRUNCATE TABLE "
-                "public.dead_letter_jobs, "
-                "public.job_attempts, "
-                "public.outbox_jobs, "
-                "public.audit_events, "
-                "public.platform_admins, "
-                "public.tenants CASCADE"
-            )
-        )
+        await _truncate_foundation_tables(connection)
     yield
     async with database_engine.begin() as connection:
-        await connection.execute(
-            text(
-                "TRUNCATE TABLE "
-                "public.dead_letter_jobs, "
-                "public.job_attempts, "
-                "public.outbox_jobs, "
-                "public.audit_events, "
-                "public.platform_admins, "
-                "public.tenants CASCADE"
-            )
-        )
+        await _truncate_foundation_tables(connection)
         await connection.execute(
             text(
                 "GRANT agents_factory_app, agents_factory_admin TO CURRENT_USER "
