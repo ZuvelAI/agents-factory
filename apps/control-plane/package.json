@@ -6,6 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "next dev",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

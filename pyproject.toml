@@ -16,6 +16,7 @@ dev = [
 
 [tool.uv]
 package = false
+required-version = "==0.12.5"
 
 [tool.uv.workspace]
 members = ["apps/backend", "workers/*"]

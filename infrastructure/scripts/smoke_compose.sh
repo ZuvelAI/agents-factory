@@ -38,10 +38,12 @@ do
 done
 
 require_line pyproject.toml 'requires-python = ">=3.12,<3.14"'
+require_line pyproject.toml 'required-version = "==0.12.5"'
 require_line package.json '  "packageManager": "pnpm@11.24.0",'
 require_line package.json '    "node": ">=22",'
 require_line package.json '    "supabase": "2.115.0"'
 require_line apps/backend/pyproject.toml '  "openai-agents==0.22.0",'
+require_line apps/control-plane/package.json '    "dev": "next dev",'
 require_line apps/control-plane/package.json '    "next": "16.3.2",'
 
 require_line .env.example 'ENVIRONMENT='
