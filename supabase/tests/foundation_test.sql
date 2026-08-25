@@ -320,111 +320,107 @@ select ok(
   'foundation RLS uses explicit command policies'
 );
 
-select ok(
-  not exists (
-    (
-      select
+create temp table task3_expected_policy_catalog (
+  tablename text not null,
+  policyname text not null,
+  permissive text not null,
+  roles text not null,
+  cmd text not null,
+  qual text not null,
+  with_check text not null
+) on commit drop;
+
+with predicates as (
+  select
+    '(id=(NULLIF((SELECTcurrent_setting(''app.tenant_id''::text,true)AScurrent_setting),''''::text))::uuid)'::text as id,
+    '(tenant_id=(NULLIF((SELECTcurrent_setting(''app.tenant_id''::text,true)AScurrent_setting),''''::text))::uuid)'::text as tenant_id
+), expected_rows(tablename, policyname, permissive, roles, cmd, qual, with_check) as (
+  values
+    ('audit_events', 'audit_events_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('audit_events', 'audit_events_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('audit_events', 'audit_events_app_insert', 'PERMISSIVE', 'agents_factory_app', 'INSERT', '<null>', '@tenant_id'),
+    ('audit_events', 'audit_events_app_select', 'PERMISSIVE', 'agents_factory_app', 'SELECT', '@tenant_id', '<null>'),
+    ('dead_letter_jobs', 'dead_letter_jobs_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('dead_letter_jobs', 'dead_letter_jobs_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('dead_letter_jobs', 'dead_letter_jobs_admin_update', 'PERMISSIVE', 'agents_factory_admin', 'UPDATE', 'true', 'true'),
+    ('dead_letter_jobs', 'dead_letter_jobs_app_insert', 'PERMISSIVE', 'agents_factory_app', 'INSERT', '<null>', '@tenant_id'),
+    ('dead_letter_jobs', 'dead_letter_jobs_app_select', 'PERMISSIVE', 'agents_factory_app', 'SELECT', '@tenant_id', '<null>'),
+    ('dead_letter_jobs', 'dead_letter_jobs_app_update', 'PERMISSIVE', 'agents_factory_app', 'UPDATE', '@tenant_id', '@tenant_id'),
+    ('job_attempts', 'job_attempts_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('job_attempts', 'job_attempts_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('job_attempts', 'job_attempts_admin_update', 'PERMISSIVE', 'agents_factory_admin', 'UPDATE', 'true', 'true'),
+    ('job_attempts', 'job_attempts_app_insert', 'PERMISSIVE', 'agents_factory_app', 'INSERT', '<null>', '@tenant_id'),
+    ('job_attempts', 'job_attempts_app_select', 'PERMISSIVE', 'agents_factory_app', 'SELECT', '@tenant_id', '<null>'),
+    ('job_attempts', 'job_attempts_app_update', 'PERMISSIVE', 'agents_factory_app', 'UPDATE', '@tenant_id', '@tenant_id'),
+    ('outbox_jobs', 'outbox_jobs_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('outbox_jobs', 'outbox_jobs_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('outbox_jobs', 'outbox_jobs_admin_update', 'PERMISSIVE', 'agents_factory_admin', 'UPDATE', 'true', 'true'),
+    ('outbox_jobs', 'outbox_jobs_app_insert', 'PERMISSIVE', 'agents_factory_app', 'INSERT', '<null>', '@tenant_id'),
+    ('outbox_jobs', 'outbox_jobs_app_select', 'PERMISSIVE', 'agents_factory_app', 'SELECT', '@tenant_id', '<null>'),
+    ('outbox_jobs', 'outbox_jobs_app_update', 'PERMISSIVE', 'agents_factory_app', 'UPDATE', '@tenant_id', '@tenant_id'),
+    ('platform_admins', 'platform_admins_admin_delete', 'PERMISSIVE', 'agents_factory_admin', 'DELETE', 'true', '<null>'),
+    ('platform_admins', 'platform_admins_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('platform_admins', 'platform_admins_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('tenants', 'tenants_admin_insert', 'PERMISSIVE', 'agents_factory_admin', 'INSERT', '<null>', 'true'),
+    ('tenants', 'tenants_admin_select', 'PERMISSIVE', 'agents_factory_admin', 'SELECT', 'true', '<null>'),
+    ('tenants', 'tenants_admin_update', 'PERMISSIVE', 'agents_factory_admin', 'UPDATE', 'true', 'true'),
+    ('tenants', 'tenants_app_select', 'PERMISSIVE', 'agents_factory_app', 'SELECT', '@id', '<null>')
+)
+insert into task3_expected_policy_catalog
+select
+  expected_rows.tablename,
+  expected_rows.policyname,
+  expected_rows.permissive,
+  expected_rows.roles,
+  expected_rows.cmd,
+  case expected_rows.qual
+    when '@id' then predicates.id
+    when '@tenant_id' then predicates.tenant_id
+    else expected_rows.qual
+  end,
+  case expected_rows.with_check
+    when '@id' then predicates.id
+    when '@tenant_id' then predicates.tenant_id
+    else expected_rows.with_check
+  end
+from expected_rows
+cross join predicates;
+
+select is(
+  (
+    select jsonb_agg(
+      jsonb_build_array(
         tablename::text,
         policyname::text,
+        permissive::text,
+        array_to_string(roles, ','),
         cmd::text,
-        array_to_string(roles, ',')
-      from pg_policies
-      where schemaname = 'public'
-        and tablename in (
-          'tenants',
-          'platform_admins',
-          'audit_events',
-          'outbox_jobs',
-          'job_attempts',
-          'dead_letter_jobs'
-        )
-      except
-      select * from (
-        values
-          ('audit_events', 'audit_events_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('audit_events', 'audit_events_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('audit_events', 'audit_events_app_insert', 'INSERT', 'agents_factory_app'),
-          ('audit_events', 'audit_events_app_select', 'SELECT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_insert', 'INSERT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_select', 'SELECT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_update', 'UPDATE', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_app_insert', 'INSERT', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_app_select', 'SELECT', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_app_update', 'UPDATE', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_app_insert', 'INSERT', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_app_select', 'SELECT', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_app_update', 'UPDATE', 'agents_factory_app'),
-          ('platform_admins', 'platform_admins_admin_delete', 'DELETE', 'agents_factory_admin'),
-          ('platform_admins', 'platform_admins_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('platform_admins', 'platform_admins_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('tenants', 'tenants_app_select', 'SELECT', 'agents_factory_app')
-      ) as expected(tablename, policyname, cmd, roles)
+        regexp_replace(coalesce(qual, '<null>'), '\s+', '', 'g'),
+        regexp_replace(coalesce(with_check, '<null>'), '\s+', '', 'g')
+      )
+      order by tablename, policyname
     )
-    union all
-    (
-      select * from (
-        values
-          ('audit_events', 'audit_events_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('audit_events', 'audit_events_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('audit_events', 'audit_events_app_insert', 'INSERT', 'agents_factory_app'),
-          ('audit_events', 'audit_events_app_select', 'SELECT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_insert', 'INSERT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_select', 'SELECT', 'agents_factory_app'),
-          ('dead_letter_jobs', 'dead_letter_jobs_app_update', 'UPDATE', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('job_attempts', 'job_attempts_app_insert', 'INSERT', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_app_select', 'SELECT', 'agents_factory_app'),
-          ('job_attempts', 'job_attempts_app_update', 'UPDATE', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('outbox_jobs', 'outbox_jobs_app_insert', 'INSERT', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_app_select', 'SELECT', 'agents_factory_app'),
-          ('outbox_jobs', 'outbox_jobs_app_update', 'UPDATE', 'agents_factory_app'),
-          ('platform_admins', 'platform_admins_admin_delete', 'DELETE', 'agents_factory_admin'),
-          ('platform_admins', 'platform_admins_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('platform_admins', 'platform_admins_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_insert', 'INSERT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_select', 'SELECT', 'agents_factory_admin'),
-          ('tenants', 'tenants_admin_update', 'UPDATE', 'agents_factory_admin'),
-          ('tenants', 'tenants_app_select', 'SELECT', 'agents_factory_app')
-      ) as expected(tablename, policyname, cmd, roles)
-      except
-      select
-        tablename::text,
-        policyname::text,
-        cmd::text,
-        array_to_string(roles, ',')
-      from pg_policies
-      where schemaname = 'public'
-        and tablename in (
-          'tenants',
-          'platform_admins',
-          'audit_events',
-          'outbox_jobs',
-          'job_attempts',
-          'dead_letter_jobs'
-        )
-    )
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in (
+        'tenants',
+        'platform_admins',
+        'audit_events',
+        'outbox_jobs',
+        'job_attempts',
+        'dead_letter_jobs'
+      )
   ),
-  'foundation policy name, role, and command inventory is exact'
+  (
+    select jsonb_agg(
+      jsonb_build_array(
+        tablename, policyname, permissive, roles, cmd, qual, with_check
+      )
+      order by tablename, policyname
+    )
+    from task3_expected_policy_catalog
+  ),
+  'foundation policy catalog including predicates is exact'
 );
 
 select ok(
@@ -579,6 +575,15 @@ select (
       '{}'::jsonb,
       'pending',
       now()
+    ),
+    (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f73',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+      'write-target',
+      'tenant.created',
+      '{}'::jsonb,
+      'pending',
+      now()
     );
 
   insert into public.job_attempts (
@@ -669,6 +674,105 @@ select (
   from unnest(
     array['tenants', 'audit_events', 'outbox_jobs', 'job_attempts', 'dead_letter_jobs']
   ) as expected(table_name);
+
+  select throws_ok(
+    $$
+      insert into public.audit_events (
+        id, tenant_id, actor_type, event_type, entity_type, correlation_id, payload
+      ) values (
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f74',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+        'system',
+        'cross_tenant',
+        'tenant',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f75',
+        '{}'::jsonb
+      )
+    $$,
+    '42501',
+    null,
+    'the app role cannot cross-tenant insert audit events'
+  );
+  select throws_ok(
+    $$
+      insert into public.outbox_jobs (
+        id, tenant_id, idempotency_key, topic, payload, status, available_at
+      ) values (
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f76',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+        'cross-tenant',
+        'cross.tenant',
+        '{}'::jsonb,
+        'pending',
+        now()
+      )
+    $$,
+    '42501',
+    null,
+    'the app role cannot cross-tenant insert outbox jobs'
+  );
+  select results_eq(
+    $$
+      update public.outbox_jobs
+      set topic = 'cross.tenant'
+      where id = '0198f3df-cbb5-7ec9-98f8-4ca608db0f65'
+      returning id
+    $$,
+    array[]::uuid[],
+    'the app role cannot cross-tenant update outbox jobs'
+  );
+  select throws_ok(
+    $$
+      insert into public.job_attempts (
+        id, tenant_id, outbox_job_id, attempt_number, status
+      ) values (
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f77',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f65',
+        2,
+        'started'
+      )
+    $$,
+    '42501',
+    null,
+    'the app role cannot cross-tenant insert job attempts'
+  );
+  select results_eq(
+    $$
+      update public.job_attempts
+      set status = 'failed'
+      where id = '0198f3df-cbb5-7ec9-98f8-4ca608db0f67'
+      returning id
+    $$,
+    array[]::uuid[],
+    'the app role cannot cross-tenant update job attempts'
+  );
+  select throws_ok(
+    $$
+      insert into public.dead_letter_jobs (
+        id, tenant_id, outbox_job_id, reason_code, status
+      ) values (
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f78',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e',
+        '0198f3df-cbb5-7ec9-98f8-4ca608db0f73',
+        'cross_tenant',
+        'open'
+      )
+    $$,
+    '42501',
+    null,
+    'the app role cannot cross-tenant insert dead-letter jobs'
+  );
+  select results_eq(
+    $$
+      update public.dead_letter_jobs
+      set status = 'discarded'
+      where id = '0198f3df-cbb5-7ec9-98f8-4ca608db0f69'
+      returning id
+    $$,
+    array[]::uuid[],
+    'the app role cannot cross-tenant update dead-letter jobs'
+  );
 
   select set_config('app.tenant_id', '0198f3df-cbb5-7ec9-98f8-4ca608db0f70', true);
   select throws_ok(

@@ -25,6 +25,127 @@ def fail(message)
   abort("check_supabase_policy_drift: #{message}")
 end
 
+def mask_non_executable_sql(sql, visible_identifiers)
+  masked = +''
+  index = 0
+  state = :normal
+  block_depth = 0
+  dollar_tag = nil
+
+  while index < sql.length
+    case state
+    when :normal
+      if sql[index, 2] == '--'
+        masked << '  '
+        index += 2
+        state = :line_comment
+      elsif sql[index, 2] == '/*'
+        masked << '  '
+        index += 2
+        block_depth = 1
+        state = :block_comment
+      elsif sql[index] == '"'
+        identifier = +''
+        cursor = index + 1
+        terminated = false
+        while cursor < sql.length
+          if sql[cursor, 2] == '""'
+            identifier << '"'
+            cursor += 2
+          elsif sql[cursor] == '"'
+            cursor += 1
+            terminated = true
+            break
+          else
+            identifier << sql[cursor]
+            cursor += 1
+          end
+        end
+        segment = sql[index...cursor]
+        if terminated && visible_identifiers.include?(identifier)
+          masked << segment
+        else
+          masked << segment.each_char.map { |character| character == "\n" ? "\n" : ' ' }.join
+        end
+        index = cursor
+      elsif sql[index] == "'"
+        masked << ' '
+        escape_prefix = index.positive? && sql[index - 1].match?(/[eE]/) &&
+          (index == 1 || !sql[index - 2].match?(/[A-Za-z0-9_$]/))
+        index += 1
+        state = escape_prefix ? :escape_single_quote : :single_quote
+      elsif (index.zero? || !sql[index - 1].match?(/[A-Za-z0-9_$]/)) &&
+          (match = sql[index..].match(/\A\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/))
+        dollar_tag = match[0]
+        masked << (' ' * dollar_tag.length)
+        index += dollar_tag.length
+        state = :dollar_quote
+      else
+        masked << sql[index]
+        index += 1
+      end
+    when :line_comment
+      if sql[index] == "\n"
+        masked << "\n"
+        state = :normal
+      else
+        masked << ' '
+      end
+      index += 1
+    when :block_comment
+      if sql[index, 2] == '/*'
+        masked << '  '
+        index += 2
+        block_depth += 1
+      elsif sql[index, 2] == '*/'
+        masked << '  '
+        index += 2
+        block_depth -= 1
+        state = :normal if block_depth.zero?
+      else
+        masked << (sql[index] == "\n" ? "\n" : ' ')
+        index += 1
+      end
+    when :single_quote
+      if sql[index, 2] == "''"
+        masked << '  '
+        index += 2
+      elsif sql[index] == "'"
+        masked << ' '
+        index += 1
+        state = :normal
+      else
+        masked << (sql[index] == "\n" ? "\n" : ' ')
+        index += 1
+      end
+    when :escape_single_quote
+      if sql[index, 2] == "''" || sql[index] == '\\'
+        width = sql[index, 2] == "''" ? 2 : [2, sql.length - index].min
+        masked << (' ' * width)
+        index += width
+      elsif sql[index] == "'"
+        masked << ' '
+        index += 1
+        state = :normal
+      else
+        masked << (sql[index] == "\n" ? "\n" : ' ')
+        index += 1
+      end
+    when :dollar_quote
+      if sql[index, dollar_tag.length] == dollar_tag
+        masked << (' ' * dollar_tag.length)
+        index += dollar_tag.length
+        state = :normal
+      else
+        masked << (sql[index] == "\n" ? "\n" : ' ')
+        index += 1
+      end
+    end
+  end
+
+  masked
+end
+
 migration_path, policy_path = ARGV
 migration_lines = File.readlines(migration_path)
 policy = File.read(policy_path)
@@ -47,16 +168,23 @@ fragment = migration_lines[(begin_index + 1)...end_index].join
 fail('canonical policy fragment differs from deployable migration') unless fragment == policy
 
 outside = (migration_lines[0...begin_index] + migration_lines[(end_index + 1)..]).join
-foundation_tables = %w[
+foundation_table_names = %w[
   tenants
   platform_admins
   audit_events
   outbox_jobs
   job_attempts
   dead_letter_jobs
-].join('|')
-extra_policy = /\bcreate\s+policy\b[^;]*?\bon\s+(?:"?public"?\s*\.\s*)?"?(?:#{foundation_tables})"?\b/im
-fail('foundation CREATE POLICY found outside canonical block') if outside.match?(extra_policy)
+]
+foundation_tables = foundation_table_names.join('|')
+executable_outside = mask_non_executable_sql(
+  outside,
+  ['public'] + foundation_table_names
+)
+policy_mutation = /\b(?:create|alter|drop)\s+policy\b[^;]*?\bon\s+(?:only\s+)?(?:(?:"public"|public)\s*\.\s*)?(?:"(?:#{foundation_tables})"|(?:#{foundation_tables}))(?![A-Za-z0-9_$])/im
+if executable_outside.match?(policy_mutation)
+  fail('foundation policy authorization mutation found outside canonical block')
+end
 
 puts 'check_supabase_policy_drift: canonical policy inventory is exclusive and mirrored verbatim'
 RUBY
