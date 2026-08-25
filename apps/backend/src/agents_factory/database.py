@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 from pydantic import SecretStr
 from sqlalchemy import text
@@ -26,6 +27,18 @@ class Database:
 
     async def dispose(self) -> None:
         await self._engine.dispose()
+
+
+async def set_tenant_context(session: AsyncSession, tenant_id: UUID) -> None:
+    """Set a transaction-local tenant boundary using bound parameters."""
+
+    await session.execute(
+        text("SELECT set_config(:setting_name, :tenant_id, true)"),
+        {
+            "setting_name": "app.tenant_id",
+            "tenant_id": str(tenant_id),
+        },
+    )
 
 
 async def transaction(

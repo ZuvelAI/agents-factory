@@ -18,7 +18,8 @@ test-unit:
 	@uv run --all-packages pytest apps/backend/tests/unit apps/backend/tests/contract
 
 test-integration:
-	@printf '%s\n' 'test-integration: no integration-test-owned source files exist in Task 1.'
+	@sh infrastructure/scripts/ensure_local_database.sh
+	@python3 infrastructure/scripts/run_backend_integration.py
 
 test-security:
 	@sh infrastructure/scripts/check_repository_security.sh

@@ -27,6 +27,17 @@ if git grep --untracked -nEi \
   fail 'credential-like value is forbidden'
 fi
 
+if find supabase/migrations -type f -name '*_foundation.sql' -exec \
+  grep -Eni 'create[[:space:]]+extension|gen_random_uuid|uuid_generate' {} + >/dev/null; then
+  fail 'foundation migrations must not install extensions or generate application UUIDs'
+fi
+
+if git grep --untracked -nEi \
+  -- '(service[_-]?role|bypassrls|postgresql(\+asyncpg)?://postgres|migration[_-]?(url|password|credential))' \
+  -- apps/backend/src >/dev/null; then
+  fail 'backend runtime must not depend on Supabase privileged or migration credentials'
+fi
+
 set -- .github/workflows/*.yml .github/workflows/*.yaml
 ruby -rpsych - "$@" <<'RUBY'
 APPROVED_ACTIONS = [
@@ -169,7 +180,11 @@ fi
 
 if test -d supabase/tests && find supabase/tests -type f -print -quit | grep -q .; then
   printf '%s\n' 'Supabase DB security suite: running'
-  pnpm supabase test db
+  sh infrastructure/scripts/check_supabase_policy_drift.sh
+  sh infrastructure/scripts/ensure_local_database.sh
+  pnpm supabase test db --local
+  pnpm supabase db lint --local --level warning --fail-on error
+  pnpm supabase db advisors --local --type all --level info --fail-on error
 else
   printf '%s\n' 'Supabase DB security suite: not present'
 fi
