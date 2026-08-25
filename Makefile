@@ -21,7 +21,7 @@ test-integration:
 	@printf '%s\n' 'test-integration: no integration-test-owned source files exist in Task 1.'
 
 test-security:
-	@printf '%s\n' 'test-security: no security-test-owned source files exist in Task 1.'
+	@sh infrastructure/scripts/check_repository_security.sh
 
 test-e2e:
 	@printf '%s\n' 'test-e2e: no end-to-end-test-owned source files exist in Task 1.'
