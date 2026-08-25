@@ -102,6 +102,17 @@ POLICY_MUTATIONS = (
     "DrOp\n  PoLiCy existing_policy\nON public.{table};",
     'AlTeR\n  PoLiCy quoted_policy\nON "public"."{table}"\nUSING (true);',
     "AlTeR\n  PoLiCy unqualified_policy\nON {table}\nUSING (true);",
+    'CrEaTe PoLiCy unicode_create ON U&"{table}" USING (true);',
+    'AlTeR PoLiCy unicode_alter ON U&"{table}" USING (true);',
+    'DrOp PoLiCy unicode_drop ON U&"{table}";',
+    'AlTeR PoLiCy unicode_escape ON U&"{unicode_table}" USING (true);',
+    'AlTeR PoLiCy unicode_long_escape ON U&"{unicode_plus_table}" USING (true);',
+    "AlTeR PoLiCy unicode_custom_escape ON "
+    "U&\"{custom_escape_table}\" UESCAPE '!' USING (true);",
+    "AlTeR PoLiCy unicode_commented_escape ON "
+    "U&\"{custom_escape_table}\" /* gap */ UESCAPE /* nested /* gap */ */ '!' "
+    "USING (true);",
+    'AlTeR PoLiCy unicode_schema ON U&"publ\\0069c".U&"{unicode_table}" USING (true);',
 )
 
 
@@ -118,7 +129,14 @@ def test_policy_drift_rejects_authorization_mutation_outside_markers(
         (
             REPOSITORY_ROOT / "supabase/migrations/20260825132406_foundation.sql"
         ).read_text()
-        + f"\n{mutation.format(table=table_name)}\n"
+        + "\n"
+        + mutation.format(
+            table=table_name,
+            unicode_table=f"\\{ord(table_name[0]):04x}{table_name[1:]}",
+            unicode_plus_table=f"\\+{ord(table_name[0]):06x}{table_name[1:]}",
+            custom_escape_table=f"!{ord(table_name[0]):04x}{table_name[1:]}",
+        )
+        + "\n"
     )
     policy.write_text(
         (REPOSITORY_ROOT / "supabase/policies/tenant_isolation.sql").read_text()
@@ -144,6 +162,7 @@ def test_policy_drift_ignores_comments_strings_and_unrelated_identifiers(
         "select 'CREATE POLICY string_only ON public.tenants';\n"
         "select $body$ALTER POLICY dollar_string ON public.outbox_jobs;$body$;\n"
         "create policy unrelated_policy on public.audit_events_archive using (true);\n"
+        'alter policy unicode_unrelated on U&"audit_events_archive" using (true);\n'
         "alter table public.outbox_jobs_archive add column policy_note text;\n"
         'create table "CREATE POLICY identifier_only ON public.tenants" (id int);\n'
     )

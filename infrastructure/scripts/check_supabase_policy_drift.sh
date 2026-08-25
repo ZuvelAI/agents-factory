@@ -25,6 +25,92 @@ def fail(message)
   abort("check_supabase_policy_drift: #{message}")
 end
 
+def identifier_character?(character)
+  character && character.match?(/[A-Za-z0-9_$]/)
+end
+
+def skip_sql_spacing(sql, index)
+  loop do
+    previous = index
+    index += 1 while index < sql.length && sql[index].match?(/\s/)
+
+    if sql[index, 2] == '--'
+      index += 2
+      index += 1 while index < sql.length && sql[index] != "\n"
+    elsif sql[index, 2] == '/*'
+      index += 2
+      depth = 1
+      while index < sql.length && depth.positive?
+        if sql[index, 2] == '/*'
+          depth += 1
+          index += 2
+        elsif sql[index, 2] == '*/'
+          depth -= 1
+          index += 2
+        else
+          index += 1
+        end
+      end
+    end
+
+    break if index == previous
+  end
+  index
+end
+
+def unicode_escape_clause(sql, index)
+  clause_start = skip_sql_spacing(sql, index)
+  keyword = sql[clause_start, 7]
+  return ['\\', index] unless keyword&.casecmp?('UESCAPE')
+
+  keyword_end = clause_start + 7
+  return ['\\', index] if identifier_character?(sql[keyword_end])
+
+  literal_start = skip_sql_spacing(sql, keyword_end)
+  return ['\\', index] unless sql[literal_start] == "'"
+
+  escape_character = sql[literal_start + 1]
+  return ['\\', index] unless escape_character && sql[literal_start + 2] == "'"
+
+  [escape_character, literal_start + 3]
+end
+
+def decode_unicode_identifier(identifier, escape_character)
+  decoded = +''
+  index = 0
+  while index < identifier.length
+    unless identifier[index] == escape_character
+      decoded << identifier[index]
+      index += 1
+      next
+    end
+
+    if identifier[index + 1] == escape_character
+      decoded << escape_character
+      index += 2
+      next
+    end
+
+    if identifier[index + 1] == '+'
+      digits = identifier[index + 2, 6]
+      width = 8
+    else
+      digits = identifier[index + 1, 4]
+      width = 5
+    end
+    return nil unless digits&.match?(/\A[0-9A-Fa-f]{#{width == 8 ? 6 : 4}}\z/)
+
+    codepoint = digits.to_i(16)
+    return nil if codepoint > 0x10ffff || (0xd800..0xdfff).cover?(codepoint)
+
+    decoded << codepoint.chr(Encoding::UTF_8)
+    index += width
+  end
+  decoded
+rescue RangeError
+  nil
+end
+
 def mask_non_executable_sql(sql, visible_identifiers)
   masked = +''
   index = 0
@@ -45,6 +131,8 @@ def mask_non_executable_sql(sql, visible_identifiers)
         block_depth = 1
         state = :block_comment
       elsif sql[index] == '"'
+        unicode_identifier = index >= 2 && sql[index - 2, 2]&.casecmp?('U&') &&
+          (index == 2 || !identifier_character?(sql[index - 3]))
         identifier = +''
         cursor = index + 1
         terminated = false
@@ -61,9 +149,18 @@ def mask_non_executable_sql(sql, visible_identifiers)
             cursor += 1
           end
         end
-        segment = sql[index...cursor]
-        if terminated && visible_identifiers.include?(identifier)
-          masked << segment
+
+        segment_start = unicode_identifier ? index - 2 : index
+        escape_character = '\\'
+        if terminated && unicode_identifier
+          escape_character, cursor = unicode_escape_clause(sql, cursor)
+          identifier = decode_unicode_identifier(identifier, escape_character)
+          masked.slice!(-2, 2)
+        end
+
+        segment = sql[segment_start...cursor]
+        if terminated && identifier && visible_identifiers.include?(identifier)
+          masked << %Q{"#{identifier}"}
         else
           masked << segment.each_char.map { |character| character == "\n" ? "\n" : ' ' }.join
         end
