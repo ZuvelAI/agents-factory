@@ -44,7 +44,7 @@ services:
 
   backend:
     <<: *python-application
-    command: ["uv", "run", "--locked", "--package", "agents-factory-backend", "uvicorn", "agents_factory.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uv", "run", "--locked", "--package", "agents-factory-backend", "uvicorn", "--app-dir", "apps/backend/src", "agents_factory.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     healthcheck:

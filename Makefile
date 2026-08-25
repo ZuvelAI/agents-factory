@@ -6,16 +6,16 @@ help:
 	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-e2e eval build smoke'
 
 format-check:
-	@printf '%s\n' 'format-check: no formatter-owned source files exist in Task 1.'
+	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests
 
 lint:
-	@printf '%s\n' 'lint: no linter-owned source files exist in Task 1.'
+	@uv run --all-packages ruff check apps/backend/src apps/backend/tests
 
 typecheck:
-	@printf '%s\n' 'typecheck: no typecheck-owned source files exist in Task 1.'
+	@uv run --all-packages mypy apps/backend/src
 
 test-unit:
-	@printf '%s\n' 'test-unit: no unit-test-owned source files exist in Task 1.'
+	@uv run --all-packages pytest apps/backend/tests/unit apps/backend/tests/contract
 
 test-integration:
 	@printf '%s\n' 'test-integration: no integration-test-owned source files exist in Task 1.'
