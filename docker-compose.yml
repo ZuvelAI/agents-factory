@@ -1,0 +1,107 @@
+name: agents-factory
+
+x-python-application: &python-application
+  image: ghcr.io/astral-sh/uv:0.12.5-python3.12-bookworm-slim
+  working_dir: /workspace
+  volumes:
+    - ./:/workspace:ro
+  environment: &runtime-environment
+    ENVIRONMENT: ${ENVIRONMENT:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    DATABASE_URL: ${DATABASE_URL:-}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    SUPABASE_URL: ${SUPABASE_URL:-}
+    SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
+    SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:-}
+    SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-}
+    APP_MASTER_KEY: ${APP_MASTER_KEY:-}
+  depends_on:
+    redis:
+      condition: service_healthy
+
+x-python-healthcheck: &python-healthcheck
+  test:
+    - CMD
+    - python
+    - -c
+    - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health/ready', timeout=2)"
+  interval: 10s
+  timeout: 3s
+  retries: 3
+  start_period: 10s
+
+services:
+  redis:
+    image: redis:8.0.5-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    <<: *python-application
+    command: ["uv", "run", "--locked", "--package", "agents-factory-backend", "uvicorn", "agents_factory.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  control-plane:
+    image: node:24.19.0-bookworm-slim
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace:ro
+    command: ["corepack", "pnpm", "--filter", "@agents-factory/control-plane", "dev", "--hostname", "0.0.0.0"]
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  agent-worker:
+    <<: *python-application
+    command: ["uv", "run", "--locked", "--package", "agents-factory-agent-worker", "python", "-m", "agent_worker.worker"]
+    healthcheck: *python-healthcheck
+
+  knowledge-worker:
+    <<: *python-application
+    command: ["uv", "run", "--locked", "--package", "agents-factory-knowledge-worker", "python", "-m", "knowledge_worker.worker"]
+    healthcheck: *python-healthcheck
+
+  outbound-worker:
+    <<: *python-application
+    command: ["uv", "run", "--locked", "--package", "agents-factory-outbound-worker", "python", "-m", "outbound_worker.worker"]
+    healthcheck: *python-healthcheck
+
+  scheduler:
+    <<: *python-application
+    command: ["uv", "run", "--locked", "--package", "agents-factory-scheduler", "python", "-m", "scheduler.worker"]
+    healthcheck: *python-healthcheck
+
+volumes:
+  redis-data:
