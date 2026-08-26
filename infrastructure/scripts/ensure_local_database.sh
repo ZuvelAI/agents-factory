@@ -11,7 +11,7 @@ fail() {
 }
 
 test "$(pnpm --version)" = "11.24.0" || fail 'pnpm 11.24.0 is required'
-test "$(pnpm supabase --version)" = "2.115.0" || \
+test "$(pnpm --silent supabase --version)" = "2.115.0" || \
   fail 'Supabase CLI 2.115.0 is required'
 test ! -f supabase/.temp/project-ref || \
   fail 'linked Supabase projects are forbidden for local test gates'
