@@ -12,8 +12,14 @@ from starlette.responses import Response
 
 from agents_factory.common.errors import DomainError
 from agents_factory.common.ids import correlation_id_from_header
+from agents_factory.common.security import (
+    JwksTokenVerifier,
+    PlatformAdminAuthorizer,
+    TokenVerifier,
+)
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
+from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 
 
 class ReadinessProbe(Protocol):
@@ -94,11 +100,17 @@ def create_app(
     *,
     settings_loader: SettingsLoader = load_settings,
     readiness_checks: ReadinessChecks | None = None,
+    token_verifier: TokenVerifier | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         settings = settings_loader()
         application.state.settings = settings
+        verifier = token_verifier or JwksTokenVerifier(
+            issuer=settings.supabase_jwt_issuer,
+            audience=settings.supabase_jwt_audience,
+        )
+        application.state.platform_admin_authorizer = PlatformAdminAuthorizer(verifier)
         database: Database | None = None
         redis_client: Redis | None = None
 
@@ -126,6 +138,7 @@ def create_app(
                 await database.dispose()
 
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
+    application.include_router(admin_tenant_router)
 
     @application.middleware("http")
     async def correlate_request(

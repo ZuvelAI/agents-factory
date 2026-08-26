@@ -7,15 +7,19 @@ help:
 
 format-check:
 	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests
+	@pnpm run format:check
 
 lint:
 	@uv run --all-packages ruff check apps/backend/src apps/backend/tests
+	@pnpm run lint
 
 typecheck:
 	@uv run --all-packages mypy apps/backend/src
+	@pnpm run typecheck
 
 test-unit:
 	@uv run --all-packages pytest apps/backend/tests/unit apps/backend/tests/contract
+	@pnpm run test:unit
 
 test-integration:
 	@sh infrastructure/scripts/ensure_local_database.sh
@@ -25,7 +29,7 @@ test-security:
 	@sh infrastructure/scripts/check_repository_security.sh
 
 test-e2e:
-	@printf '%s\n' 'test-e2e: no end-to-end-test-owned source files exist in Task 1.'
+	@pnpm run test:e2e
 
 eval:
 	@printf '%s\n' 'eval: no eval-runner-owned surface exists in Task 1.'
