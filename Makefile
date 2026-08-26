@@ -29,7 +29,7 @@ test-security:
 	@sh infrastructure/scripts/check_repository_security.sh
 
 test-tenant-isolation:
-	@python3 infrastructure/scripts/run_tenant_isolation.py
+	@uv run --all-packages python infrastructure/scripts/run_tenant_isolation.py
 
 test-e2e:
 	@pnpm run test:e2e

@@ -18,6 +18,30 @@ values
   ('public.job_attempts', 'tenant_id'),
   ('public.dead_letter_jobs', 'tenant_id');
 
+create function pg_temp.tenant_owned_catalog()
+returns table (qualified_name text, owner_column text)
+language sql
+stable
+set search_path = pg_catalog
+as $function$
+  select
+    format('%I.%I', namespace.nspname, relation.relname) as qualified_name,
+    attribute.attname as owner_column
+  from pg_class as relation
+  join pg_namespace as namespace on namespace.oid = relation.relnamespace
+  join pg_attribute as attribute on attribute.attrelid = relation.oid
+  where namespace.nspname = 'public'
+    and relation.relkind in ('r', 'p')
+    and not attribute.attisdropped
+    and (
+      attribute.attname = 'tenant_id'
+      or (
+        relation.relname = 'tenants'
+        and attribute.attname = 'id'
+      )
+    )
+$function$;
+
 create function pg_temp.assert_tenant_isolated(
   table_name text,
   owner_column text default 'tenant_id'
@@ -175,26 +199,61 @@ cross join lateral pg_temp.assert_tenant_isolated(
 ) as result(assertion)
 order by registration.table_name, assertion;
 
+create view public.task5_pgtap_tenant_projection
+with (security_invoker = true)
+as select tenant_id from public.audit_events;
+
 select is(
   (
     select jsonb_agg(
       jsonb_build_array(qualified_name, owner_column)
       order by qualified_name
     )
-    from (
-      select
-        format('%I.%I', columns.table_schema, columns.table_name) as qualified_name,
-        columns.column_name as owner_column
-      from information_schema.columns as columns
-      where columns.table_schema = 'public'
-        and (
-          columns.column_name = 'tenant_id'
-          or (
-            columns.table_name = 'tenants'
-            and columns.column_name = 'id'
-          )
-        )
-    ) as tenant_catalog
+    from pg_temp.tenant_owned_catalog()
+  ),
+  (
+    select jsonb_agg(
+      jsonb_build_array(table_name, owner_column)
+      order by table_name
+    )
+    from task5_tenant_isolation_registry
+  ),
+  'security_invoker tenant views are excluded from the base-table catalog'
+);
+
+create table public.task5_pgtap_unregistered_tenant_data (
+  id uuid primary key,
+  tenant_id uuid not null
+);
+
+select isnt(
+  (
+    select jsonb_agg(
+      jsonb_build_array(qualified_name, owner_column)
+      order by qualified_name
+    )
+    from pg_temp.tenant_owned_catalog()
+  ),
+  (
+    select jsonb_agg(
+      jsonb_build_array(table_name, owner_column)
+      order by table_name
+    )
+    from task5_tenant_isolation_registry
+  ),
+  'an unregistered tenant-owned base table makes catalog completeness fail'
+);
+
+drop table public.task5_pgtap_unregistered_tenant_data;
+drop view public.task5_pgtap_tenant_projection;
+
+select is(
+  (
+    select jsonb_agg(
+      jsonb_build_array(qualified_name, owner_column)
+      order by qualified_name
+    )
+    from pg_temp.tenant_owned_catalog()
   ),
   (
     select jsonb_agg(

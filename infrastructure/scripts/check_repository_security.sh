@@ -10,6 +10,8 @@ fail() {
   exit 1
 }
 
+python3 infrastructure/scripts/verify_tenant_isolation_wiring.py "$0"
+
 if prohibited_env_files=$(git ls-files --cached --others --exclude-standard | \
   grep -E '(^|/)\.env($|\.)' | grep -Ev '(^|/)\.env\.example$'); then
   fail "tracked environment file is forbidden: $(printf '%s\n' "$prohibited_env_files" | sed -n '1p')"
@@ -190,8 +192,7 @@ fi
 if test -d supabase/tests && find supabase/tests -type f -print -quit | grep -q .; then
   printf '%s\n' 'Supabase DB security suite: running'
   sh infrastructure/scripts/check_supabase_policy_drift.sh
-  sh infrastructure/scripts/ensure_local_database.sh
-  python3 infrastructure/scripts/run_tenant_isolation.py --database-ready
+  uv run --all-packages python infrastructure/scripts/run_tenant_isolation.py
   pnpm supabase test db --local supabase/tests/foundation_test.sql
   pnpm supabase db lint --local --level warning --fail-on error
   pnpm supabase db advisors --local --type all --level info --fail-on error

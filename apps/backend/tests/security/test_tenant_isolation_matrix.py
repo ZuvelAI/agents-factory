@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import re
 import sys
+import tomllib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,6 +15,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -27,9 +28,21 @@ from agents_factory.modules.tenants.repository import TenantRepository
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-RUNNER = REPOSITORY_ROOT / "infrastructure/scripts/run_tenant_isolation.py"
-LOOPBACK_HOSTS: Final = frozenset({"127.0.0.1", "::1", "localhost"})
+sys.path.insert(0, str(REPOSITORY_ROOT / "infrastructure/scripts"))
+
+from local_database_url import (  # noqa: E402
+    LocalDatabaseUrlError,
+    validate_test_database_url,
+)
+
+
 MISSING_CONTEXT: Final = object()
+RESET_CONTEXT: Final = object()
+EXPECTED_DATABASE: Final = "postgres"
+UUID_PATTERN: Final = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +51,7 @@ class TenantIsolationRegistration:
     owner_column: str = "tenant_id"
     insert_allowed: bool = True
     update_allowed: bool = True
+    delete_allowed: bool = False
 
 
 TENANT_ISOLATION_REGISTRY = (
@@ -46,16 +60,29 @@ TENANT_ISOLATION_REGISTRY = (
         "id",
         insert_allowed=False,
         update_allowed=False,
+        delete_allowed=False,
     ),
     TenantIsolationRegistration(
         "public.audit_events",
         insert_allowed=True,
         update_allowed=False,
+        delete_allowed=False,
     ),
-    TenantIsolationRegistration("public.outbox_jobs"),
-    TenantIsolationRegistration("public.job_attempts"),
-    TenantIsolationRegistration("public.dead_letter_jobs"),
+    TenantIsolationRegistration("public.outbox_jobs", delete_allowed=False),
+    TenantIsolationRegistration("public.job_attempts", delete_allowed=False),
+    TenantIsolationRegistration("public.dead_letter_jobs", delete_allowed=False),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DenialFingerprint:
+    exception_type: str
+    sqlstate: str
+    message: str
+    detail: str | None
+    schema_name: str | None
+    table_name: str | None
+    constraint_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,12 +100,28 @@ def local_database_url() -> str:
     database_url = os.environ.get("TEST_DATABASE_URL")
     if database_url is None:
         pytest.fail("TEST_DATABASE_URL must be supplied by the local matrix runner")
-    parsed = urlsplit(database_url)
-    if parsed.scheme != "postgresql+asyncpg" or parsed.hostname not in LOOPBACK_HOSTS:
-        pytest.fail("tenant isolation tests require loopback PostgreSQL")
     if (REPOSITORY_ROOT / "supabase/.temp/project-ref").exists():
         pytest.fail("linked Supabase projects are forbidden for tenant isolation tests")
-    return database_url
+    try:
+        with (REPOSITORY_ROOT / "supabase/config.toml").open("rb") as config_file:
+            expected_port = tomllib.load(config_file)["db"]["port"]
+        if not isinstance(expected_port, int):
+            raise TypeError
+        return validate_test_database_url(
+            database_url,
+            expected_port=expected_port,
+            expected_database=EXPECTED_DATABASE,
+        )
+    except (
+        KeyError,
+        LocalDatabaseUrlError,
+        OSError,
+        TypeError,
+        tomllib.TOMLDecodeError,
+    ):
+        pytest.fail(
+            "tenant isolation tests require canonical local Supabase PostgreSQL"
+        )
 
 
 @pytest_asyncio.fixture
@@ -236,31 +279,109 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
 
 async def _prepare_app_session(session: AsyncSession, context: object) -> None:
     await session.execute(text("SET LOCAL ROLE agents_factory_app"))
-    if context is not MISSING_CONTEXT:
+    if context not in (MISSING_CONTEXT, RESET_CONTEXT):
         await session.execute(
             text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
             {"tenant_id": str(context)},
         )
 
 
-def _sqlstate(error: DBAPIError) -> str:
-    sqlstate = getattr(error.orig, "sqlstate", None)
+def _normalize_error_text(value: object) -> str | None:
+    if value is None:
+        return None
+    return UUID_PATTERN.sub("<uuid>", str(value))
+
+
+def _denial_fingerprint(error: DBAPIError) -> DenialFingerprint:
+    origin = error.orig
+    assert origin is not None
+    cause = origin.__cause__ or origin
+    sqlstate = getattr(cause, "sqlstate", None) or getattr(origin, "sqlstate", None)
     assert isinstance(sqlstate, str)
-    return sqlstate
+    return DenialFingerprint(
+        exception_type=type(cause).__name__,
+        sqlstate=sqlstate,
+        message=_normalize_error_text(cause) or "",
+        detail=_normalize_error_text(getattr(cause, "detail", None)),
+        schema_name=_normalize_error_text(getattr(cause, "schema_name", None)),
+        table_name=_normalize_error_text(getattr(cause, "table_name", None)),
+        constraint_name=_normalize_error_text(getattr(cause, "constraint_name", None)),
+    )
 
 
-async def _denied_sqlstate(
+async def _resolve_context_after_optional_reset(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     context: object,
+    reset_tenant_id: UUID,
+) -> object:
+    if context is not RESET_CONTEXT:
+        return context
+    async with session_factory.begin() as session:
+        await _prepare_app_session(session, reset_tenant_id)
+        await session.execute(text("SELECT 1"))
+    return MISSING_CONTEXT
+
+
+async def _denied_fingerprint(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    context: object,
+    reset_tenant_id: UUID,
     statement: str,
     parameters: dict[str, object],
-) -> str:
+) -> DenialFingerprint:
+    effective_context = await _resolve_context_after_optional_reset(
+        session_factory,
+        context=context,
+        reset_tenant_id=reset_tenant_id,
+    )
     with pytest.raises(DBAPIError) as caught:
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, context)
+            await _prepare_app_session(session, effective_context)
             await session.execute(text(statement), parameters)
-    return _sqlstate(caught.value)
+    return _denial_fingerprint(caught.value)
+
+
+async def _returning_ids(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    context: object,
+    reset_tenant_id: UUID,
+    statement: str,
+    parameters: dict[str, object],
+) -> list[UUID]:
+    effective_context = await _resolve_context_after_optional_reset(
+        session_factory,
+        context=context,
+        reset_tenant_id=reset_tenant_id,
+    )
+    async with session_factory.begin() as session:
+        await _prepare_app_session(session, effective_context)
+        result = await session.execute(text(statement), parameters)
+    return list(result.scalars())
+
+
+async def _discover_tenant_owned_tables(
+    connection: AsyncConnection,
+) -> set[tuple[str, str]]:
+    rows = (
+        await connection.execute(
+            text(
+                "SELECT format('%I.%I', namespace.nspname, relation.relname), "
+                "attribute.attname "
+                "FROM pg_class AS relation "
+                "JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace "
+                "JOIN pg_attribute AS attribute ON attribute.attrelid = relation.oid "
+                "WHERE namespace.nspname = 'public' "
+                "AND relation.relkind IN ('r', 'p') "
+                "AND NOT attribute.attisdropped "
+                "AND (attribute.attname = 'tenant_id' "
+                "OR (relation.relname = 'tenants' AND attribute.attname = 'id'))"
+            )
+        )
+    ).all()
+    return {(str(row[0]), str(row[1])) for row in rows}
 
 
 def _insert_statement(table_name: str) -> str:
@@ -361,19 +482,25 @@ async def assert_tenant_isolated(
             )
         assert visible_count == 0
 
-    invalid_select_state = await _denied_sqlstate(
+    invalid_select = await _denied_fingerprint(
         session_factory,
         context="not-a-uuid",
+        reset_tenant_id=world.tenant_a,
         statement=f"SELECT count(*) FROM {table_name}",
         parameters={},
     )
-    assert invalid_select_state == "22P02"
+    assert invalid_select.sqlstate == "22P02"
 
     async with session_factory.begin() as session:
         await _prepare_app_session(session, world.tenant_a)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) >= 1
+    reset_context = await _resolve_context_after_optional_reset(
+        session_factory,
+        context=RESET_CONTEXT,
+        reset_tenant_id=world.tenant_a,
+    )
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, MISSING_CONTEXT)
+        await _prepare_app_session(session, reset_context)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) == 0
 
     matching_owner = uuid4() if table_name == "public.tenants" else world.tenant_a
@@ -392,13 +519,14 @@ async def assert_tenant_isolated(
             )
         assert result.scalar_one() == matching_parameters["id"]
     else:
-        matching_insert_state = await _denied_sqlstate(
+        matching_insert = await _denied_fingerprint(
             session_factory,
             context=matching_owner,
+            reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=matching_parameters,
         )
-        assert matching_insert_state == "42501"
+        assert matching_insert.sqlstate == "42501"
 
     foreign_parameters = _insert_parameters(
         table_name,
@@ -412,29 +540,34 @@ async def assert_tenant_isolated(
         parent_id=uuid4(),
         nonce=f"absent-{uuid4().hex}",
     )
-    foreign_insert_state = await _denied_sqlstate(
+    foreign_insert = await _denied_fingerprint(
         session_factory,
         context=world.tenant_a,
+        reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=foreign_parameters,
     )
-    absent_insert_state = await _denied_sqlstate(
+    absent_insert = await _denied_fingerprint(
         session_factory,
         context=world.tenant_a,
+        reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=nonexistent_parameters,
     )
-    assert foreign_insert_state == absent_insert_state == "42501"
+    assert foreign_insert == absent_insert
+    assert foreign_insert.sqlstate == "42501"
 
     for context, expected_state in (
         (MISSING_CONTEXT, "42501"),
         ("", "42501"),
         (uuid4(), "42501"),
+        (RESET_CONTEXT, "42501"),
         ("not-a-uuid", "22P02" if registration.insert_allowed else "42501"),
     ):
-        state = await _denied_sqlstate(
+        denial = await _denied_fingerprint(
             session_factory,
             context=context,
+            reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=_insert_parameters(
                 table_name,
@@ -443,75 +576,175 @@ async def assert_tenant_isolated(
                 nonce=f"context-{uuid4().hex}",
             ),
         )
-        assert state == expected_state
+        assert denial.sqlstate == expected_state
+
+    if table_name in {"public.job_attempts", "public.dead_letter_jobs"}:
+        foreign_parent_parameters = _insert_parameters(
+            table_name,
+            tenant_id=world.tenant_a,
+            parent_id=world.insert_parent_b,
+            nonce=f"foreign-parent-{uuid4().hex}",
+        )
+        absent_parent_parameters = _insert_parameters(
+            table_name,
+            tenant_id=world.tenant_a,
+            parent_id=uuid4(),
+            nonce=f"absent-parent-{uuid4().hex}",
+        )
+        foreign_parent_denial = await _denied_fingerprint(
+            session_factory,
+            context=world.tenant_a,
+            reset_tenant_id=world.tenant_a,
+            statement=_insert_statement(table_name),
+            parameters=foreign_parent_parameters,
+        )
+        absent_parent_denial = await _denied_fingerprint(
+            session_factory,
+            context=world.tenant_a,
+            reset_tenant_id=world.tenant_a,
+            statement=_insert_statement(table_name),
+            parameters=absent_parent_parameters,
+        )
+        assert foreign_parent_denial == absent_parent_denial
+        assert foreign_parent_denial.sqlstate == "23503"
 
     update_assignment = _matching_update(table_name)
+    update_statement = (
+        f"UPDATE {table_name} SET {update_assignment or f'{owner_column} = :owner'} "
+        "WHERE id = :row_id RETURNING id"
+    )
     if registration.update_allowed:
         assert update_assignment is not None
-        async with session_factory.begin() as session:
-            await _prepare_app_session(session, world.tenant_a)
-            result = await session.execute(
-                text(
-                    f"UPDATE {table_name} SET {update_assignment} "
-                    "WHERE id = :row_id RETURNING id"
-                ),
-                {"row_id": own_id},
+        assert await _returning_ids(
+            session_factory,
+            context=world.tenant_a,
+            reset_tenant_id=world.tenant_a,
+            statement=update_statement,
+            parameters={"row_id": own_id},
+        ) == [own_id]
+        for row_id in (foreign_id, nonexistent_id):
+            assert (
+                await _returning_ids(
+                    session_factory,
+                    context=world.tenant_a,
+                    reset_tenant_id=world.tenant_a,
+                    statement=update_statement,
+                    parameters={"row_id": row_id},
+                )
+                == []
             )
-        assert result.scalar_one() == own_id
-        async with session_factory.begin() as session:
-            await _prepare_app_session(session, world.tenant_a)
-            foreign_result = await session.execute(
-                text(
-                    f"UPDATE {table_name} SET {update_assignment} "
-                    "WHERE id = :row_id RETURNING id"
-                ),
-                {"row_id": foreign_id},
+        for context in (MISSING_CONTEXT, "", uuid4(), RESET_CONTEXT):
+            assert (
+                await _returning_ids(
+                    session_factory,
+                    context=context,
+                    reset_tenant_id=world.tenant_a,
+                    statement=update_statement,
+                    parameters={"row_id": own_id},
+                )
+                == []
             )
-            absent_result = await session.execute(
-                text(
-                    f"UPDATE {table_name} SET {update_assignment} "
-                    "WHERE id = :row_id RETURNING id"
-                ),
-                {"row_id": nonexistent_id},
-            )
-        assert (
-            foreign_result.scalar_one_or_none(),
-            absent_result.scalar_one_or_none(),
-        ) == (None, None)
+        invalid_update = await _denied_fingerprint(
+            session_factory,
+            context="not-a-uuid",
+            reset_tenant_id=world.tenant_a,
+            statement=update_statement,
+            parameters={"row_id": own_id},
+        )
+        assert invalid_update.sqlstate == "22P02"
     else:
-        own_update_state = await _denied_sqlstate(
-            session_factory,
-            context=world.tenant_a,
-            statement=f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id",
-            parameters={"owner": world.tenant_a, "row_id": own_id},
-        )
-        foreign_update_state = await _denied_sqlstate(
-            session_factory,
-            context=world.tenant_a,
-            statement=f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id",
-            parameters={"owner": world.tenant_a, "row_id": foreign_id},
-        )
-        assert own_update_state == foreign_update_state == "42501"
+        update_denials = [
+            await _denied_fingerprint(
+                session_factory,
+                context=context,
+                reset_tenant_id=world.tenant_a,
+                statement=update_statement,
+                parameters={"owner": world.tenant_a, "row_id": row_id},
+            )
+            for context in (
+                world.tenant_a,
+                MISSING_CONTEXT,
+                "",
+                "not-a-uuid",
+                uuid4(),
+                RESET_CONTEXT,
+            )
+            for row_id in (own_id, foreign_id, nonexistent_id)
+        ]
+        assert all(denial == update_denials[0] for denial in update_denials)
+        assert update_denials[0].sqlstate == "42501"
 
-    reassignment_state = await _denied_sqlstate(
+    reassignment = await _denied_fingerprint(
         session_factory,
         context=world.tenant_a,
-        statement=f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id",
+        reset_tenant_id=world.tenant_a,
+        statement=(
+            f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id"
+        ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
     )
-    assert reassignment_state == "42501"
+    assert reassignment.sqlstate == "42501"
 
-    delete_states = []
-    for row_id in (own_id, foreign_id, nonexistent_id):
-        delete_states.append(
-            await _denied_sqlstate(
+    delete_statement = f"DELETE FROM {table_name} WHERE id = :row_id RETURNING id"
+    if registration.delete_allowed:
+        for row_id in (foreign_id, nonexistent_id):
+            assert (
+                await _returning_ids(
+                    session_factory,
+                    context=world.tenant_a,
+                    reset_tenant_id=world.tenant_a,
+                    statement=delete_statement,
+                    parameters={"row_id": row_id},
+                )
+                == []
+            )
+        for context in (MISSING_CONTEXT, "", uuid4(), RESET_CONTEXT):
+            assert (
+                await _returning_ids(
+                    session_factory,
+                    context=context,
+                    reset_tenant_id=world.tenant_a,
+                    statement=delete_statement,
+                    parameters={"row_id": own_id},
+                )
+                == []
+            )
+        invalid_delete = await _denied_fingerprint(
+            session_factory,
+            context="not-a-uuid",
+            reset_tenant_id=world.tenant_a,
+            statement=delete_statement,
+            parameters={"row_id": own_id},
+        )
+        assert invalid_delete.sqlstate == "22P02"
+        assert await _returning_ids(
+            session_factory,
+            context=world.tenant_a,
+            reset_tenant_id=world.tenant_a,
+            statement=delete_statement,
+            parameters={"row_id": own_id},
+        ) == [own_id]
+    else:
+        delete_denials = [
+            await _denied_fingerprint(
                 session_factory,
-                context=world.tenant_a,
-                statement=f"DELETE FROM {table_name} WHERE id = :row_id",
+                context=context,
+                reset_tenant_id=world.tenant_a,
+                statement=delete_statement,
                 parameters={"row_id": row_id},
             )
-        )
-    assert delete_states == ["42501", "42501", "42501"]
+            for context in (
+                world.tenant_a,
+                MISSING_CONTEXT,
+                "",
+                "not-a-uuid",
+                uuid4(),
+                RESET_CONTEXT,
+            )
+            for row_id in (own_id, foreign_id, nonexistent_id)
+        ]
+        assert all(denial == delete_denials[0] for denial in delete_denials)
+        assert delete_denials[0].sqlstate == "42501"
 
     async with session_factory.begin() as session:
         own_survives = await session.scalar(
@@ -522,7 +755,10 @@ async def assert_tenant_isolated(
             text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
             {"row_id": foreign_id},
         )
-    assert (own_survives, foreign_survives) == (1, 1)
+    assert (own_survives, foreign_survives) == (
+        0 if registration.delete_allowed else 1,
+        1,
+    )
 
 
 @pytest.mark.asyncio
@@ -530,24 +766,48 @@ async def test_every_public_tenant_owned_table_is_registered(
     database_engine: AsyncEngine,
 ) -> None:
     async with database_engine.connect() as connection:
-        tenant_owned = (
-            await connection.execute(
-                text(
-                    "SELECT format('%I.%I', table_schema, table_name), column_name "
-                    "FROM information_schema.columns "
-                    "WHERE table_schema = 'public' "
-                    "AND (column_name = 'tenant_id' "
-                    "OR (table_name = 'tenants' AND column_name = 'id')) "
-                    "ORDER BY table_name"
-                )
-            )
-        ).all()
+        tenant_owned = await _discover_tenant_owned_tables(connection)
 
     registered = {
         (registration.table_name, registration.owner_column)
         for registration in TENANT_ISOLATION_REGISTRY
     }
-    assert registered == set(tenant_owned)
+    assert registered == tenant_owned
+
+
+@pytest.mark.asyncio
+async def test_catalog_excludes_security_invoker_views_and_detects_base_tables(
+    database_engine: AsyncEngine,
+) -> None:
+    registered = {
+        (registration.table_name, registration.owner_column)
+        for registration in TENANT_ISOLATION_REGISTRY
+    }
+    async with database_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "CREATE VIEW public.task5_tenant_projection "
+                "WITH (security_invoker = true) AS "
+                "SELECT tenant_id FROM public.audit_events"
+            )
+        )
+        with_view = await _discover_tenant_owned_tables(connection)
+        await connection.execute(
+            text(
+                "CREATE TABLE public.task5_unregistered_tenant_data "
+                "(id uuid PRIMARY KEY, tenant_id uuid NOT NULL)"
+            )
+        )
+        with_base_table = await _discover_tenant_owned_tables(connection)
+        await connection.execute(text("DROP VIEW public.task5_tenant_projection"))
+        await connection.execute(
+            text("DROP TABLE public.task5_unregistered_tenant_data")
+        )
+
+    assert with_view == registered
+    assert with_base_table - registered == {
+        ("public.task5_unregistered_tenant_data", "tenant_id")
+    }
 
 
 @pytest.mark.parametrize(
@@ -618,8 +878,18 @@ async def test_cross_tenant_admin_read_requires_claim_and_database_membership(
                 authorization="Bearer signed-platform-admin",
                 session=session,
             )
-    assert (claim_only.value.status, claim_only.value.code) == (
+    claim_only_problem = (
+        claim_only.value.type,
+        claim_only.value.title,
+        claim_only.value.status,
+        claim_only.value.detail,
+        claim_only.value.code,
+    )
+    assert claim_only_problem == (
+        "https://agents-factory.dev/problems/platform-admin-required",
+        "Platform Admin Required",
         403,
+        "Platform administrator access is required.",
         "platform_admin_required",
     )
 
@@ -635,10 +905,14 @@ async def test_cross_tenant_admin_read_requires_claim_and_database_membership(
                 authorization="Bearer signed-without-platform-role",
                 session=session,
             )
-    assert (table_only.value.status, table_only.value.code) == (
-        403,
-        "platform_admin_required",
+    table_only_problem = (
+        table_only.value.type,
+        table_only.value.title,
+        table_only.value.status,
+        table_only.value.detail,
+        table_only.value.code,
     )
+    assert table_only_problem == claim_only_problem
 
     async with session_factory.begin() as session:
         authorized = await PlatformAdminAuthorizer(
@@ -654,120 +928,3 @@ async def test_cross_tenant_admin_read_requires_claim_and_database_membership(
         seeded_world.tenant_a,
         seeded_world.tenant_b,
     }
-
-
-def _write_executable(path: Path, body: str) -> None:
-    path.write_text(body)
-    path.chmod(0o755)
-
-
-@pytest.mark.parametrize(
-    ("python_exit", "pgtap_exit", "expected_exit", "expected_command"),
-    (
-        (
-            19,
-            0,
-            19,
-            "uv run --all-packages pytest "
-            "apps/backend/tests/security/test_tenant_isolation_matrix.py",
-        ),
-        (
-            0,
-            23,
-            23,
-            "pnpm supabase test db --local supabase/tests/rls_matrix_test.sql",
-        ),
-    ),
-)
-def test_focused_runner_propagates_a_red_matrix(
-    tmp_path: Path,
-    python_exit: int,
-    pgtap_exit: int,
-    expected_exit: int,
-    expected_command: str,
-) -> None:
-    command_log = tmp_path / "commands.log"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "uv",
-        "#!/bin/sh\n"
-        'printf "uv %s\\n" "$*" >> "$TASK5_COMMAND_LOG"\n'
-        'exit "$TASK5_PYTHON_EXIT"\n',
-    )
-    _write_executable(
-        fake_bin / "pnpm",
-        "#!/bin/sh\n"
-        'printf "pnpm %s\\n" "$*" >> "$TASK5_COMMAND_LOG"\n'
-        'if test "$1 $2 $3 $4" = "supabase status -o json"; then\n'
-        "  printf '%s\\n' "
-        '\'{"DB_URL":"postgresql://local@127.0.0.1:54322/postgres"}\'\n'
-        "  exit 0\n"
-        "fi\n"
-        'if test "$1 $2 $3" = "supabase test db"; then\n'
-        '  exit "$TASK5_PGTAP_EXIT"\n'
-        "fi\n"
-        "exit 1\n",
-    )
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
-            "TASK5_COMMAND_LOG": str(command_log),
-            "TASK5_PYTHON_EXIT": str(python_exit),
-            "TASK5_PGTAP_EXIT": str(pgtap_exit),
-        }
-    )
-
-    result = subprocess.run(
-        [sys.executable, str(RUNNER), "--database-ready"],
-        cwd=REPOSITORY_ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == expected_exit
-    assert expected_command in command_log.read_text()
-
-
-def test_security_aggregate_cannot_skip_the_focused_runner(tmp_path: Path) -> None:
-    command_log = tmp_path / "aggregate.log"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    _write_executable(fake_bin / "git", "#!/bin/sh\nexit 1\n")
-    for command in ("sh", "uv", "pnpm"):
-        _write_executable(fake_bin / command, "#!/bin/sh\nexit 0\n")
-    _write_executable(
-        fake_bin / "python3",
-        '#!/bin/sh\nprintf "python3 %s\\n" "$*" >> "$TASK5_COMMAND_LOG"\nexit 29\n',
-    )
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
-            "TASK5_COMMAND_LOG": str(command_log),
-        }
-    )
-
-    result = subprocess.run(
-        [
-            "/bin/sh",
-            str(
-                REPOSITORY_ROOT / "infrastructure/scripts/check_repository_security.sh"
-            ),
-            str(REPOSITORY_ROOT / ".github/workflows/ci.yml"),
-        ],
-        cwd=REPOSITORY_ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 29, result.stderr
-    assert (
-        "python3 infrastructure/scripts/run_tenant_isolation.py --database-ready"
-        in command_log.read_text()
-    )

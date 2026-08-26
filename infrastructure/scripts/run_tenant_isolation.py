@@ -5,14 +5,19 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
-from urllib.parse import urlsplit
+
+from local_database_url import (
+    LocalDatabaseUrlError,
+    normalize_status_database_url,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MATRIX_TEST = "apps/backend/tests/security/test_tenant_isolation_matrix.py"
 PGTAP_TEST = "supabase/tests/rls_matrix_test.sql"
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+EXPECTED_DATABASE = "postgres"
 
 
 def _run(command: list[str], *, environment: dict[str, str] | None = None) -> int:
@@ -22,6 +27,18 @@ def _run(command: list[str], *, environment: dict[str, str] | None = None) -> in
         env=environment,
         check=False,
     ).returncode
+
+
+def _expected_local_port() -> int:
+    try:
+        with (REPOSITORY_ROOT / "supabase/config.toml").open("rb") as config_file:
+            config = tomllib.load(config_file)
+        port = config["db"]["port"]
+    except (KeyError, OSError, TypeError, tomllib.TOMLDecodeError) as error:
+        raise RuntimeError("local Supabase database port is unavailable") from error
+    if not isinstance(port, int):
+        raise RuntimeError("local Supabase database port is invalid")
+    return port
 
 
 def _local_database_url() -> str:
@@ -46,27 +63,25 @@ def _local_database_url() -> str:
         database_url = status_payload["DB_URL"]
         if not isinstance(database_url, str):
             raise TypeError
-        parsed = urlsplit(database_url)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise RuntimeError("local Supabase database status is invalid") from error
-    if parsed.scheme != "postgresql" or parsed.hostname not in LOOPBACK_HOSTS:
-        raise RuntimeError("tenant isolation tests require loopback PostgreSQL")
-    return database_url
+    try:
+        return normalize_status_database_url(
+            database_url,
+            expected_port=_expected_local_port(),
+            expected_database=EXPECTED_DATABASE,
+        )
+    except LocalDatabaseUrlError as error:
+        raise RuntimeError("local Supabase database target is unsafe") from error
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--database-ready",
-        action="store_true",
-        help="reuse a database already reset by the aggregate security runner",
-    )
-    arguments = parser.parse_args()
+    parser.parse_args()
 
-    if not arguments.database_ready:
-        reset_result = _run(["sh", "infrastructure/scripts/ensure_local_database.sh"])
-        if reset_result != 0:
-            return reset_result
+    reset_result = _run(["sh", "infrastructure/scripts/ensure_local_database.sh"])
+    if reset_result != 0:
+        return reset_result
 
     try:
         database_url = _local_database_url()
@@ -75,11 +90,7 @@ def main() -> int:
         return 1
 
     environment = os.environ.copy()
-    environment["TEST_DATABASE_URL"] = database_url.replace(
-        "postgresql://",
-        "postgresql+asyncpg://",
-        1,
-    )
+    environment["TEST_DATABASE_URL"] = database_url
     python_result = _run(
         ["uv", "run", "--all-packages", "pytest", MATRIX_TEST],
         environment=environment,
