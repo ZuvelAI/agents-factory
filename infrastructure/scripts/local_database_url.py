@@ -58,19 +58,19 @@ def _canonicalize_database_url(
     if effective.get("database") != expected_database:
         raise LocalDatabaseUrlError("effective database name is unexpected")
     username = effective.get("username")
-    password = effective.get("password")
+    auth_value = effective.get("password")
     if not isinstance(username, str) or not username:
         raise LocalDatabaseUrlError("local database username is missing")
-    if password is not None and not isinstance(password, str):
+    if auth_value is not None and not isinstance(auth_value, str):
         raise LocalDatabaseUrlError("local database password is invalid")
 
     normalized = URL.create(
         target_scheme,
-        username=username,
-        password=password,
-        host=split_hostname,
-        port=expected_port,
-        database=expected_database,
+        username,
+        auth_value,
+        split_hostname,
+        expected_port,
+        expected_database,
     )
     positional, asyncpg_arguments = asyncpg_dialect().create_connect_args(  # type: ignore[no-untyped-call]
         normalized
@@ -81,7 +81,7 @@ def _canonicalize_database_url(
         "host": split_hostname,
         "database": expected_database,
         "user": username,
-        "password": password,
+        "password": auth_value,
         "port": expected_port,
     }:
         raise LocalDatabaseUrlError("effective asyncpg target is unexpected")
