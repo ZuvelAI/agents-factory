@@ -181,7 +181,8 @@ RUBY
 if test -d apps/backend/tests/security && \
   find apps/backend/tests/security -type f -name '*.py' -print -quit | grep -q .; then
   printf '%s\n' 'backend security suite: running'
-  uv run pytest apps/backend/tests/security
+  uv run pytest apps/backend/tests/security \
+    --ignore=apps/backend/tests/security/test_tenant_isolation_matrix.py
 else
   printf '%s\n' 'backend security suite: not present'
 fi
@@ -190,7 +191,8 @@ if test -d supabase/tests && find supabase/tests -type f -print -quit | grep -q 
   printf '%s\n' 'Supabase DB security suite: running'
   sh infrastructure/scripts/check_supabase_policy_drift.sh
   sh infrastructure/scripts/ensure_local_database.sh
-  pnpm supabase test db --local
+  python3 infrastructure/scripts/run_tenant_isolation.py --database-ready
+  pnpm supabase test db --local supabase/tests/foundation_test.sql
   pnpm supabase db lint --local --level warning --fail-on error
   pnpm supabase db advisors --local --type all --level info --fail-on error
 else
