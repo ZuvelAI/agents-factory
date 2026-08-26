@@ -9,6 +9,18 @@ test("a direct private-route request redirects to login", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("public-route descendants still require authentication", async ({
+  page,
+}) => {
+  const finalPaths: string[] = [];
+  for (const path of ["/login/child", "/health/ready/child"]) {
+    await page.goto(path);
+    finalPaths.push(new URL(page.url()).pathname);
+  }
+
+  expect(finalPaths).toEqual(["/login", "/login"]);
+});
+
 test("invalid credentials show a generic login failure", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Email").fill("unknown@example.test");

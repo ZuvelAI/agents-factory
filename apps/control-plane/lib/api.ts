@@ -51,14 +51,32 @@ export async function callBackend<T = unknown>(
   options: BackendRequestOptions,
 ): Promise<T> {
   const { accessToken, headers, ...requestOptions } = options;
-  if (!path.startsWith("/") || path.startsWith("//")) {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
     throw new BackendProblem({
       status: 500,
       code: "backend_path_invalid",
       message: "The backend request path is invalid.",
     });
   }
-  const url = new URL(path, `${baseUrl.replace(/\/$/, "")}/`);
+  let configuredUrl: URL;
+  let url: URL;
+  try {
+    configuredUrl = new URL(baseUrl);
+    url = new URL(path, `${baseUrl.replace(/\/$/, "")}/`);
+  } catch {
+    throw new BackendProblem({
+      status: 500,
+      code: "backend_path_invalid",
+      message: "The backend request path is invalid.",
+    });
+  }
+  if (url.origin !== configuredUrl.origin) {
+    throw new BackendProblem({
+      status: 500,
+      code: "backend_path_invalid",
+      message: "The backend request path is invalid.",
+    });
+  }
   const response = await fetch(url.toString(), {
     ...requestOptions,
     cache: options.cache ?? "no-store",

@@ -135,6 +135,43 @@ describe("server-only backend API", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  describe("backend origin boundary remediation", () => {
+    it("rejects backslash paths before URL normalization can change origin", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      for (const path of ["/\\evil.invalid/data", "/\\\\evil.invalid/data"]) {
+        await expect(
+          callBackend("https://api.example.test", path, {
+            accessToken: "verified-token",
+          }),
+        ).rejects.toMatchObject({ code: "backend_path_invalid" });
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("preserves a valid relative backend route on the configured origin", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "tenant-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await callBackend(
+        "https://api.example.test/internal-base",
+        "/admin/tenants/tenant-1?view=summary",
+        { accessToken: "verified-token" },
+      );
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.example.test/admin/tenants/tenant-1?view=summary",
+        expect.any(Object),
+      );
+    });
+  });
+
   it("forwards the verified bearer token and disables caching", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: "tenant-1" }), {

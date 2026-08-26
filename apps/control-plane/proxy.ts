@@ -4,6 +4,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { hasPlatformAdminRole } from "./lib/auth";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  if (
+    request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname === "/health/ready"
+  ) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -35,7 +42,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: [
-    "/((?!login(?:/|$)|health/ready(?:/|$)|_next/static|_next/image|favicon.ico).*)",
-  ],
+  matcher: ["/((?!_next/static(?:/|$)|_next/image(?:/|$)|favicon\\.ico$).*)"],
 };
