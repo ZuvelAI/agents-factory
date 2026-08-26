@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help format-check lint typecheck test-unit test-integration test-security test-tenant-isolation test-e2e eval build smoke
+.PHONY: help format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke
 
 help:
-	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-tenant-isolation test-e2e eval build smoke'
+	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke'
 
 format-check:
 	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests
@@ -27,6 +27,9 @@ test-integration:
 
 test-security:
 	@sh infrastructure/scripts/check_repository_security.sh
+
+test-secrets:
+	@uv run --all-packages pytest apps/backend/tests/security/test_secret_envelope.py apps/backend/tests/security/test_secret_redaction.py
 
 test-tenant-isolation:
 	@uv run --all-packages python infrastructure/scripts/run_tenant_isolation.py

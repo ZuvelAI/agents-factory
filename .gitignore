@@ -7,7 +7,7 @@
 !.env.example
 *.pem
 *.key
-secrets/
+/secrets/
 
 # Local Supabase state
 supabase/.branches/

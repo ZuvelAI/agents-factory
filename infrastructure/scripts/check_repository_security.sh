@@ -184,7 +184,8 @@ if test -d apps/backend/tests/security && \
   find apps/backend/tests/security -type f -name '*.py' -print -quit | grep -q .; then
   printf '%s\n' 'backend security suite: running'
   uv run pytest apps/backend/tests/security \
-    --ignore=apps/backend/tests/security/test_tenant_isolation_matrix.py
+    --ignore=apps/backend/tests/security/test_tenant_isolation_matrix.py \
+    --ignore=apps/backend/tests/security/test_secret_tenant_isolation.py
 else
   printf '%s\n' 'backend security suite: not present'
 fi

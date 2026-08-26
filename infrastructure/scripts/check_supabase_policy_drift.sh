@@ -11,7 +11,8 @@ fail() {
 }
 
 if test "$#" -eq 0; then
-  set -- supabase/migrations/*_foundation.sql supabase/policies/tenant_isolation.sql
+  set -- supabase/migrations/*[0-9]_foundation.sql \
+    supabase/policies/tenant_isolation.sql
 fi
 test "$#" -eq 2 || \
   fail 'exactly one foundation migration and one policy fragment are required'

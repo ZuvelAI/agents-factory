@@ -71,6 +71,12 @@ TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration("public.outbox_jobs", delete_allowed=False),
     TenantIsolationRegistration("public.job_attempts", delete_allowed=False),
     TenantIsolationRegistration("public.dead_letter_jobs", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.secret_envelopes",
+        insert_allowed=True,
+        update_allowed=False,
+        delete_allowed=True,
+    ),
 )
 
 
@@ -163,9 +169,9 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.dead_letter_jobs, public.job_attempts, "
-                "public.outbox_jobs, public.audit_events, public.platform_admins, "
-                "public.tenants CASCADE"
+                "TRUNCATE TABLE public.secret_envelopes, public.dead_letter_jobs, "
+                "public.job_attempts, public.outbox_jobs, public.audit_events, "
+                "public.platform_admins, public.tenants CASCADE"
             )
         )
         await connection.execute(
@@ -260,6 +266,26 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "id": rows["public.dead_letter_jobs"],
                     "tenant_id": tenant_id,
                     "outbox_job_id": rows["public.outbox_jobs"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.secret_envelopes "
+                    "(id, tenant_id, purpose, record_context, ciphertext, "
+                    "wrapped_data_key, payload_nonce, key_nonce, algorithm, "
+                    "format_version, key_id, key_version) VALUES "
+                    "(:id, :tenant_id, 'task5.seeded', :record_context, "
+                    ":ciphertext, :wrapped_data_key, :payload_nonce, :key_nonce, "
+                    "'AES-256-GCM', 1, 'task5-matrix-key', 1)"
+                ),
+                {
+                    "id": rows["public.secret_envelopes"],
+                    "tenant_id": tenant_id,
+                    "record_context": f"task5-seeded-{label}",
+                    "ciphertext": uuid4().bytes + uuid4().bytes,
+                    "wrapped_data_key": uuid4().bytes * 3,
+                    "payload_nonce": uuid4().bytes[:12],
+                    "key_nonce": uuid4().bytes[:12],
                 },
             )
 
@@ -411,6 +437,15 @@ def _insert_statement(table_name: str) -> str:
             "(id, tenant_id, outbox_job_id, reason_code) "
             "VALUES (:id, :tenant_id, :outbox_job_id, 'task5-insert')"
         ),
+        "public.secret_envelopes": (
+            "INSERT INTO public.secret_envelopes "
+            "(id, tenant_id, purpose, record_context, ciphertext, "
+            "wrapped_data_key, payload_nonce, key_nonce, algorithm, "
+            "format_version, key_id, key_version) VALUES "
+            "(:id, :tenant_id, 'task5.insert', :record_context, :ciphertext, "
+            ":wrapped_data_key, :payload_nonce, :key_nonce, 'AES-256-GCM', "
+            "1, 'task5-matrix-key', 1)"
+        ),
     }
     return statements[table_name]
 
@@ -429,6 +464,11 @@ def _insert_parameters(
         "correlation_id": uuid4(),
         "key": f"task5-{nonce}",
         "outbox_job_id": parent_id,
+        "record_context": f"task5-{nonce}",
+        "ciphertext": uuid4().bytes + uuid4().bytes,
+        "wrapped_data_key": uuid4().bytes * 3,
+        "payload_nonce": uuid4().bytes[:12],
+        "key_nonce": uuid4().bytes[:12],
     }
 
 
@@ -439,6 +479,7 @@ def _matching_update(table_name: str) -> str | None:
         "public.outbox_jobs": "topic = 'task5.updated'",
         "public.job_attempts": "status = 'failed'",
         "public.dead_letter_jobs": "reason_code = 'task5-updated'",
+        "public.secret_envelopes": None,
     }[table_name]
 
 

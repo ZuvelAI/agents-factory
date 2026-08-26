@@ -38,7 +38,7 @@ if parsed.scheme != "postgresql" or parsed.hostname not in {
 }
 
 if ! local_status_is_safe >/dev/null 2>&1; then
-  pnpm supabase db start >/dev/null
+  pnpm supabase start >/dev/null
 fi
 
 local_status_is_safe >/dev/null 2>&1 || \

@@ -16,7 +16,8 @@ values
   ('public.audit_events', 'tenant_id'),
   ('public.outbox_jobs', 'tenant_id'),
   ('public.job_attempts', 'tenant_id'),
-  ('public.dead_letter_jobs', 'tenant_id');
+  ('public.dead_letter_jobs', 'tenant_id'),
+  ('public.secret_envelopes', 'tenant_id');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

@@ -172,7 +172,8 @@ def test_runner_owns_exactly_one_reset_and_has_no_bypass_flag(tmp_path: Path) ->
         "sh infrastructure/scripts/ensure_local_database.sh",
         "pnpm supabase status -o json",
         "uv run --all-packages pytest "
-        "apps/backend/tests/security/test_tenant_isolation_matrix.py",
+        "apps/backend/tests/security/test_tenant_isolation_matrix.py "
+        "apps/backend/tests/security/test_secret_tenant_isolation.py",
         "pnpm supabase test db --local supabase/tests/rls_matrix_test.sql",
     ]
     assert bypass.returncode == 2

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -16,6 +17,7 @@ from local_database_url import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MATRIX_TEST = "apps/backend/tests/security/test_tenant_isolation_matrix.py"
+SECRET_DATABASE_TEST = "apps/backend/tests/security/test_secret_tenant_isolation.py"
 PGTAP_TEST = "supabase/tests/rls_matrix_test.sql"
 EXPECTED_DATABASE = "postgres"
 
@@ -91,8 +93,18 @@ def main() -> int:
 
     environment = os.environ.copy()
     environment["TEST_DATABASE_URL"] = database_url
+    environment["APP_MASTER_KEY"] = (
+        base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
+    )
     python_result = _run(
-        ["uv", "run", "--all-packages", "pytest", MATRIX_TEST],
+        [
+            "uv",
+            "run",
+            "--all-packages",
+            "pytest",
+            MATRIX_TEST,
+            SECRET_DATABASE_TEST,
+        ],
         environment=environment,
     )
     if python_result != 0:
