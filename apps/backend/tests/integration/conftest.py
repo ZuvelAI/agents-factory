@@ -26,6 +26,8 @@ async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             "TRUNCATE TABLE "
+            "public.whatsapp_webhook_events, "
+            "public.whatsapp_accounts, "
             "public.dead_letter_jobs, "
             "public.job_attempts, "
             "public.outbox_jobs, "

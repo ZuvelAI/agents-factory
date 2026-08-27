@@ -24,6 +24,8 @@ REQUIRED_ENVIRONMENT_VARIABLES = (
     "SUPABASE_JWT_ISSUER",
     "SUPABASE_JWT_AUDIENCE",
     "APP_MASTER_KEY",
+    "META_APP_SECRET",
+    "META_WEBHOOK_VERIFY_TOKEN",
 )
 
 
@@ -45,6 +47,8 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: NonEmptyString
     supabase_jwt_audience: NonEmptyString
     app_master_key: NonEmptySecret
+    meta_app_secret: NonEmptySecret
+    meta_webhook_verify_token: NonEmptySecret
 
     @field_validator("database_url")
     @classmethod

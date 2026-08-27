@@ -58,6 +58,8 @@ def _settings() -> Settings:
         supabase_jwt_issuer="https://example.supabase.co/auth/v1",
         supabase_jwt_audience="authenticated",
         app_master_key=SecretStr("master-secret"),
+        meta_app_secret=SecretStr("meta-app-secret"),
+        meta_webhook_verify_token=SecretStr("verify-token"),
     )
 
 
