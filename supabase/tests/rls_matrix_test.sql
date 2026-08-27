@@ -19,7 +19,10 @@ values
   ('public.dead_letter_jobs', 'tenant_id'),
   ('public.secret_envelopes', 'tenant_id'),
   ('public.whatsapp_accounts', 'tenant_id'),
-  ('public.whatsapp_webhook_events', 'tenant_id');
+  ('public.whatsapp_webhook_events', 'tenant_id'),
+  ('public.conversations', 'tenant_id'),
+  ('public.messages', 'tenant_id'),
+  ('public.conversation_state_events', 'tenant_id');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

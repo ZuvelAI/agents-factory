@@ -63,12 +63,17 @@ class WhatsAppWebhookRepository:
         statement = text(
             "INSERT INTO public.whatsapp_webhook_events "
             "(id, tenant_id, whatsapp_account_id, whatsapp_message_id, "
-            "sender_wa_id, message_type, provider_timestamp, raw_payload) "
+            "sender_wa_id, message_type, normalized_content, "
+            "provider_timestamp, raw_payload) "
             "VALUES (:id, :tenant_id, :account_id, :message_id, :sender_wa_id, "
-            ":message_type, :provider_timestamp, :raw_payload) "
+            ":message_type, :normalized_content, :provider_timestamp, "
+            ":raw_payload) "
             "ON CONFLICT (tenant_id, whatsapp_message_id) DO NOTHING "
             "RETURNING id"
-        ).bindparams(bindparam("raw_payload", type_=JSONB))
+        ).bindparams(
+            bindparam("normalized_content", type_=JSONB),
+            bindparam("raw_payload", type_=JSONB),
+        )
         created_id = await self._session.scalar(
             statement,
             {
@@ -78,6 +83,7 @@ class WhatsAppWebhookRepository:
                 "message_id": event.whatsapp_message_id,
                 "sender_wa_id": event.sender_wa_id,
                 "message_type": event.message_type,
+                "normalized_content": event.content,
                 "provider_timestamp": event.occurred_at,
                 "raw_payload": event.raw_payload,
             },

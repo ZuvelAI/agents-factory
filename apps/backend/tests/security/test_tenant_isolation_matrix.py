@@ -89,6 +89,19 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration("public.conversations", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.messages",
+        insert_allowed=True,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.conversation_state_events",
+        insert_allowed=True,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -183,7 +196,9 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.whatsapp_webhook_events, "
+                "TRUNCATE TABLE public.conversation_state_events, "
+                "public.messages, public.conversations, "
+                "public.whatsapp_webhook_events, "
                 "public.whatsapp_accounts, public.secret_envelopes, "
                 "public.dead_letter_jobs, "
                 "public.job_attempts, public.outbox_jobs, public.audit_events, "
@@ -333,6 +348,51 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "tenant_id": tenant_id,
                     "account_id": rows["public.whatsapp_accounts"],
                     "message_id": f"task5-message-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.conversations "
+                    "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
+                    "VALUES (:id, :tenant_id, :account_id, :customer_wa_id)"
+                ),
+                {
+                    "id": rows["public.conversations"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "customer_wa_id": f"57300000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.conversation_state_events "
+                    "(id, tenant_id, conversation_id, from_state, to_state, "
+                    "version, actor_type, reason) VALUES "
+                    "(:id, :tenant_id, :conversation_id, NULL, 'AI_ACTIVE', "
+                    "1, 'system', 'task5_seeded')"
+                ),
+                {
+                    "id": rows["public.conversation_state_events"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.messages "
+                    "(id, tenant_id, conversation_id, source_event_id, direction, "
+                    "sender_type, provider_message_id, message_type, content, "
+                    "provider_timestamp, arrival_sequence) VALUES "
+                    "(:id, :tenant_id, :conversation_id, :source_event_id, "
+                    "'inbound', 'customer', :provider_message_id, 'text', "
+                    "'{}'::jsonb, now(), 1)"
+                ),
+                {
+                    "id": rows["public.messages"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "source_event_id": rows["public.whatsapp_webhook_events"],
+                    "provider_message_id": f"task5-message-{label}",
                 },
             )
 
@@ -508,6 +568,25 @@ def _insert_statement(table_name: str) -> str:
             "VALUES (:id, :tenant_id, :whatsapp_account_id, :message_id, "
             "'573000000001', 'text', now(), '{}'::jsonb)"
         ),
+        "public.conversations": (
+            "INSERT INTO public.conversations "
+            "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
+            "VALUES (:id, :tenant_id, :whatsapp_account_id, :customer_wa_id)"
+        ),
+        "public.messages": (
+            "INSERT INTO public.messages "
+            "(id, tenant_id, conversation_id, direction, sender_type, "
+            "provider_message_id, message_type, content, provider_timestamp, "
+            "arrival_sequence) VALUES (:id, :tenant_id, :conversation_id, "
+            "'inbound', 'customer', :message_id, 'text', '{}'::jsonb, now(), "
+            ":arrival_sequence)"
+        ),
+        "public.conversation_state_events": (
+            "INSERT INTO public.conversation_state_events "
+            "(id, tenant_id, conversation_id, from_state, to_state, version, "
+            "actor_type, reason) VALUES (:id, :tenant_id, :conversation_id, "
+            "'AI_ACTIVE', 'AWAITING_HUMAN', :version, 'system', 'task5_insert')"
+        ),
     }
     return statements[table_name]
 
@@ -534,7 +613,11 @@ def _insert_parameters(
         "waba_id": f"task5-waba-{nonce}",
         "phone_number_id": f"task5-phone-{nonce}",
         "whatsapp_account_id": parent_id,
+        "conversation_id": parent_id,
+        "customer_wa_id": f"573{uuid4().int % 10**9:09d}",
         "message_id": f"task5-message-{nonce}",
+        "arrival_sequence": uuid4().int % 1_000_000_000 + 2,
+        "version": uuid4().int % 1_000_000_000 + 2,
     }
 
 
@@ -548,6 +631,9 @@ def _matching_update(table_name: str) -> str | None:
         "public.secret_envelopes": None,
         "public.whatsapp_accounts": None,
         "public.whatsapp_webhook_events": None,
+        "public.conversations": "updated_at = now()",
+        "public.messages": None,
+        "public.conversation_state_events": None,
     }[table_name]
 
 
@@ -557,8 +643,14 @@ def _insert_parent_id(
     world: SeededWorld,
     tenant: str,
 ) -> UUID:
-    if table_name == "public.whatsapp_webhook_events":
+    if table_name in {
+        "public.whatsapp_webhook_events",
+        "public.conversations",
+    }:
         return world.whatsapp_account_a if tenant == "a" else world.whatsapp_account_b
+    if table_name in {"public.messages", "public.conversation_state_events"}:
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.conversations"]
     return world.insert_parent_a if tenant == "a" else world.insert_parent_b
 
 
@@ -706,6 +798,9 @@ async def assert_tenant_isolated(
         "public.job_attempts",
         "public.dead_letter_jobs",
         "public.whatsapp_webhook_events",
+        "public.conversations",
+        "public.messages",
+        "public.conversation_state_events",
     }:
         foreign_parent_parameters = _insert_parameters(
             table_name,

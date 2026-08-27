@@ -191,6 +191,7 @@ def test_provider_normalizes_each_v1_inbound_message_type(message_type: str) -> 
     assert event.whatsapp_message_id == "wamid.test.inbound.001"
     assert event.sender_wa_id == "573000000001"
     assert event.message_type == message_type
+    assert event.content == ({"text": "Hola"} if message_type == "text" else {})
     assert event.occurred_at.isoformat() == "2026-08-27T00:00:00+00:00"
     assert batch.delivery_statuses == ()
 

@@ -81,6 +81,7 @@ class MetaCloudApiProvider:
                             whatsapp_message_id=message.id,
                             sender_wa_id=message.sender_wa_id,
                             message_type=cast(WhatsAppMessageType, message.type),
+                            content=_normalized_content(message.model_dump()),
                             occurred_at=_provider_timestamp(message.timestamp),
                             raw_payload=raw_payload,
                         )
@@ -113,3 +114,16 @@ def _provider_timestamp(value: str) -> datetime:
         return datetime.fromtimestamp(seconds, tz=UTC)
     except (OverflowError, ValueError):
         raise InvalidWebhookPayload from None
+
+
+def _normalized_content(message: Mapping[str, object]) -> dict[str, object]:
+    message_type = message.get("type")
+    if message_type != "text":
+        return {}
+    text_content = message.get("text")
+    if not isinstance(text_content, dict):
+        raise InvalidWebhookPayload
+    body = text_content.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise InvalidWebhookPayload
+    return {"text": body}

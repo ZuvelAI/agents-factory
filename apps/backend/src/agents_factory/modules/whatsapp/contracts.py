@@ -24,6 +24,7 @@ class InboundWhatsAppEvent:
     whatsapp_message_id: str
     sender_wa_id: str
     message_type: WhatsAppMessageType
+    content: dict[str, object]
     occurred_at: datetime
     raw_payload: dict[str, object]
 
