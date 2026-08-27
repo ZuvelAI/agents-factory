@@ -6,15 +6,15 @@ help:
 	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke'
 
 format-check:
-	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests
+	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests workers
 	@pnpm run format:check
 
 lint:
-	@uv run --all-packages ruff check apps/backend/src apps/backend/tests
+	@uv run --all-packages ruff check apps/backend/src apps/backend/tests workers
 	@pnpm run lint
 
 typecheck:
-	@uv run --all-packages mypy apps/backend/src
+	@uv run --all-packages mypy apps/backend/src workers/agent-worker/src workers/knowledge-worker/src workers/outbound-worker/src workers/scheduler/src
 	@pnpm run typecheck
 
 test-unit:

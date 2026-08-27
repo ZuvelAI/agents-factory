@@ -137,6 +137,7 @@ class MetaWebhookProcessor:
                 idempotency_key=f"whatsapp.inbound:{event.whatsapp_message_id}",
                 topic="whatsapp.inbound.received",
                 payload={
+                    "aggregate_id": str(persisted.event_id),
                     "event_id": str(persisted.event_id),
                     "whatsapp_account_id": str(mapping.account_id),
                     "whatsapp_message_id": event.whatsapp_message_id,

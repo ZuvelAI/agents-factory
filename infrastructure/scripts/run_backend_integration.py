@@ -23,6 +23,17 @@ def main() -> int:
         )
         return 1
 
+    redis = subprocess.run(
+        ["docker", "compose", "up", "-d", "--wait", "redis"],
+        check=False,
+    )
+    if redis.returncode != 0:
+        print(
+            "run_backend_integration: local Redis failed to start",
+            file=sys.stderr,
+        )
+        return 1
+
     parsed = urlsplit(database_url)
     if parsed.scheme != "postgresql" or parsed.hostname not in {
         "127.0.0.1",
@@ -41,6 +52,7 @@ def main() -> int:
         "postgresql+asyncpg://",
         1,
     )
+    environment["TEST_REDIS_URL"] = "redis://127.0.0.1:6379/15"
     completed = subprocess.run(
         [
             "uv",

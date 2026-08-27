@@ -85,7 +85,7 @@ do
   command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 
-uv sync --locked
+uv sync --locked --all-packages
 pnpm install --frozen-lockfile
 docker compose config --quiet
 
