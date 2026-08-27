@@ -1,0 +1,35 @@
+{
+  "name": "@agents-factory/control-plane",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.12.5",
+    "@supabase/supabase-js": "2.112.4",
+    "next": "16.3.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.3.2",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vitest": "4.0.13"
+  }
+}

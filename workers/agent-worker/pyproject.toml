@@ -1,0 +1,9 @@
+[project]
+name = "agents-factory-agent-worker"
+version = "0.0.0"
+description = "Agents Factory agent worker process"
+requires-python = ">=3.12,<3.14"
+dependencies = []
+
+[tool.uv]
+package = false

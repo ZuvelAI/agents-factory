@@ -1,0 +1,21 @@
+{
+  "name": "agents-factory",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": "11.24.0"
+  },
+  "scripts": {
+    "format:check": "pnpm --filter @agents-factory/control-plane run format:check",
+    "lint": "pnpm --filter @agents-factory/control-plane run lint",
+    "typecheck": "pnpm --filter @agents-factory/control-plane run typecheck",
+    "test:unit": "pnpm --filter @agents-factory/control-plane run test:unit",
+    "test:e2e": "pnpm --filter @agents-factory/control-plane run test:e2e",
+    "supabase": "supabase"
+  },
+  "devDependencies": {
+    "supabase": "2.115.0"
+  }
+}
