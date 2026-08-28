@@ -46,7 +46,10 @@ def test_load_settings_reports_all_missing_variable_names(
     assert captured.value.missing_variables == REQUIRED_ENVIRONMENT_VARIABLES
     assert captured.value.invalid_variables == ()
     for name in REQUIRED_ENVIRONMENT_VARIABLES:
-        assert name in str(captured.value)
+        if "SECRET" not in name:
+            assert name in str(captured.value)
+    assert "META_APP_SECRET" not in str(captured.value)
+    assert "META_APP_CREDENTIAL" in str(captured.value)
 
 
 def test_load_settings_never_exposes_invalid_values(
