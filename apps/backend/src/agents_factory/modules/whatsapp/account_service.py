@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -286,18 +286,24 @@ class WhatsAppAccountRepository:
         return await self._required(context=context, account_id=account_id)
 
     async def deactivate(
-        self, *, context: TenantContext, account_id: UUID, checked_at: datetime
+        self,
+        *,
+        context: TenantContext,
+        account_id: UUID,
+        checked_at: datetime,
+        error_code: str | None = None,
     ) -> ConnectedWhatsAppAccount:
         await set_tenant_context(self._session, context.tenant_id)
         await self._session.execute(
             text(
                 "UPDATE public.whatsapp_accounts SET status = 'inactive', "
                 "health_status = 'REAUTH_REQUIRED', "
-                "last_error_code = NULL, last_health_checked_at = :checked_at, "
+                "last_error_code = :error_code, last_health_checked_at = :checked_at, "
                 "updated_at = now() WHERE tenant_id = :tenant_id AND id = :account_id"
             ),
             {
                 "checked_at": checked_at,
+                "error_code": error_code,
                 "tenant_id": context.tenant_id,
                 "account_id": account_id,
             },
@@ -388,6 +394,173 @@ class SessionFactoryMetaAccessTokenResolver:
             )
 
 
+class WhatsAppDisconnectExecutor(Protocol):
+    async def revoke(
+        self, *, context: TenantContext, account_id: UUID, revoked_at: datetime
+    ) -> ConnectedWhatsAppAccount: ...
+
+
+class WhatsAppDisconnectCoordinator:
+    """Commit local disconnection before any vault or provider cleanup."""
+
+    def __init__(
+        self,
+        *,
+        session_factory: async_sessionmaker[AsyncSession],
+        key_provider: KeyEncryptionProvider,
+        provider: MetaEmbeddedSignupProvider,
+    ) -> None:
+        self._session_factory = session_factory
+        self._key_provider = key_provider
+        self._provider = provider
+
+    async def revoke(
+        self, *, context: TenantContext, account_id: UUID, revoked_at: datetime
+    ) -> ConnectedWhatsAppAccount:
+        original, disconnected = await self._commit_local_disconnect(
+            context=context,
+            account_id=account_id,
+            revoked_at=revoked_at,
+        )
+        secret_ref = original.access_token_secret_ref
+        if secret_ref is None:
+            return disconnected
+
+        resolved_access = await self._load_old_token(
+            context=context,
+            account_id=original.id,
+            secret_ref=secret_ref,
+        )
+        deleted = await self._delete_old_secret(
+            context=context,
+            account_id=original.id,
+            secret_ref=secret_ref,
+        )
+        remote_revoked = False
+        if resolved_access is not None:
+            try:
+                await self._provider.revoke(access_token=resolved_access)
+                remote_revoked = True
+            except Exception:
+                pass
+        if not (deleted and remote_revoked):
+            return disconnected
+        return await self._clear_pending_if_current_disconnect(
+            context=context,
+            account=original,
+            checked_at=revoked_at,
+        )
+
+    async def _commit_local_disconnect(
+        self,
+        *,
+        context: TenantContext,
+        account_id: UUID,
+        revoked_at: datetime,
+    ) -> tuple[ConnectedWhatsAppAccount, ConnectedWhatsAppAccount]:
+        async with self._session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+            repository = WhatsAppAccountRepository(session)
+            initial = await repository.get(context=context, account_id=account_id)
+            if initial is None:
+                raise _account_not_found()
+            await repository.lock_phone_number(phone_number_id=initial.phone_number_id)
+            account = await repository.get(context=context, account_id=account_id)
+            if account is None:
+                raise _account_not_found()
+            if account.status == "inactive" and account.access_token_secret_ref is None:
+                return account, account
+            await repository.deactivate(
+                context=context,
+                account_id=account.id,
+                checked_at=revoked_at,
+                error_code="meta_revoke_pending",
+            )
+            disconnected = await repository.clear_secret_reference(
+                context=context,
+                account_id=account.id,
+            )
+            return account, disconnected
+
+    async def _load_old_token(
+        self,
+        *,
+        context: TenantContext,
+        account_id: UUID,
+        secret_ref: SecretRef,
+    ) -> ResolvedSecret | None:
+        try:
+            async with self._session_factory.begin() as session:
+                await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+                return await SecretVault.for_session(
+                    session, key_provider=self._key_provider
+                ).load(
+                    context=context,
+                    reference=secret_ref,
+                    purpose=ACCESS_TOKEN_PURPOSE,
+                    record_context=_record_context(account_id),
+                )
+        except Exception:
+            return None
+
+    async def _delete_old_secret(
+        self,
+        *,
+        context: TenantContext,
+        account_id: UUID,
+        secret_ref: SecretRef,
+    ) -> bool:
+        try:
+            async with self._session_factory.begin() as session:
+                await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+                await SecretVault.for_session(
+                    session, key_provider=self._key_provider
+                ).delete(
+                    context=context,
+                    reference=secret_ref,
+                    purpose=ACCESS_TOKEN_PURPOSE,
+                    record_context=_record_context(account_id),
+                )
+        except Exception:
+            return False
+        return True
+
+    async def _clear_pending_if_current_disconnect(
+        self,
+        *,
+        context: TenantContext,
+        account: ConnectedWhatsAppAccount,
+        checked_at: datetime,
+    ) -> ConnectedWhatsAppAccount:
+        try:
+            async with self._session_factory.begin() as session:
+                await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+                await set_tenant_context(session, context.tenant_id)
+                await session.execute(
+                    text(
+                        "UPDATE public.whatsapp_accounts SET last_error_code = NULL, "
+                        "last_health_checked_at = :checked_at, updated_at = now() "
+                        "WHERE tenant_id = :tenant_id AND id = :account_id "
+                        "AND status = 'inactive' AND access_token_secret_id IS NULL "
+                        "AND verified_at IS NOT DISTINCT FROM :verified_at"
+                    ),
+                    {
+                        "checked_at": checked_at,
+                        "tenant_id": context.tenant_id,
+                        "account_id": account.id,
+                        "verified_at": account.verified_at,
+                    },
+                )
+                current = await WhatsAppAccountRepository(session).get(
+                    context=context, account_id=account.id
+                )
+                if current is None:
+                    raise _account_not_found()
+                return current
+        except Exception:
+            return account
+
+
 class WhatsAppAccountService:
     def __init__(
         self,
@@ -395,10 +568,12 @@ class WhatsAppAccountService:
         repository: WhatsAppAccountRepository,
         vault: SecretVault,
         provider: MetaEmbeddedSignupProvider,
+        disconnect_executor: WhatsAppDisconnectExecutor,
     ) -> None:
         self._repository = repository
         self._vault = vault
         self._provider = provider
+        self._disconnect_executor = disconnect_executor
 
     async def list_summaries(
         self, *, context: TenantContext
@@ -428,49 +603,12 @@ class WhatsAppAccountService:
     async def revoke(
         self, *, context: TenantContext, account_id: UUID, revoked_at: datetime
     ) -> WhatsAppAccountSummary:
-        account = await self._required(context=context, account_id=account_id)
-        await self._repository.deactivate(
+        disconnected = await self._disconnect_executor.revoke(
             context=context,
-            account_id=account.id,
-            checked_at=revoked_at,
+            account_id=account_id,
+            revoked_at=revoked_at,
         )
-        updated = await self._repository.clear_secret_reference(
-            context=context,
-            account_id=account.id,
-        )
-        secret_ref = account.access_token_secret_ref
-        if secret_ref is None:
-            return WhatsAppAccountSummary.from_account(updated)
-
-        remote_revocation_failed = False
-        try:
-            resolved_access = await self._vault.load(
-                context=context,
-                reference=secret_ref,
-                purpose=ACCESS_TOKEN_PURPOSE,
-                record_context=_record_context(account.id),
-            )
-            await self._provider.revoke(access_token=resolved_access)
-        except Exception:
-            remote_revocation_failed = True
-        try:
-            await self._vault.delete(
-                context=context,
-                reference=secret_ref,
-                purpose=ACCESS_TOKEN_PURPOSE,
-                record_context=_record_context(account.id),
-            )
-        except Exception:
-            remote_revocation_failed = True
-        if remote_revocation_failed:
-            updated = await self._repository.update_health(
-                context=context,
-                account_id=account.id,
-                status="REAUTH_REQUIRED",
-                error_code="meta_revoke_pending",
-                checked_at=revoked_at,
-            )
-        return WhatsAppAccountSummary.from_account(updated)
+        return WhatsAppAccountSummary.from_account(disconnected)
 
     async def _required(
         self, *, context: TenantContext, account_id: UUID

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -349,53 +348,25 @@ async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_busines
     assert authorization.owns_waba is True
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "remote_error",
-    [
-        httpx.ConnectError("Meta unavailable"),
-        RuntimeError("Meta authorization was already revoked"),
-    ],
-)
-async def test_revoke_fails_closed_locally_when_remote_revoke_fails(
-    remote_error: Exception,
-) -> None:
-    active = account()
-    inactive = replace(active, status="inactive", health_status="REAUTH_REQUIRED")
+async def test_revoke_uses_the_durable_disconnect_executor() -> None:
     repository = AsyncMock()
-    repository.get.return_value = active
-    repository.deactivate.return_value = inactive
-    repository.clear_secret_reference.return_value = inactive
-    repository.update_health.return_value = inactive
     vault = AsyncMock()
-    vault.load.return_value = ResolvedSecret(b"client-owned-meta-token")
     provider = AsyncMock()
-    provider.revoke.side_effect = remote_error
+    disconnect_executor = AsyncMock()
+    inactive = account()
+    disconnect_executor.revoke.return_value = inactive
     accounts = WhatsAppAccountService(
         repository=repository,
         vault=vault,
         provider=provider,
+        disconnect_executor=disconnect_executor,
     )
 
     summary = await accounts.revoke(
         context=context(), account_id=ACCOUNT_ID, revoked_at=NOW
     )
 
-    assert summary.status == "inactive"
-    repository.deactivate.assert_awaited_once()
-    repository.clear_secret_reference.assert_awaited_once_with(
-        context=context(), account_id=ACCOUNT_ID
-    )
-    repository.update_health.assert_awaited_once_with(
-        context=context(),
-        account_id=ACCOUNT_ID,
-        status="REAUTH_REQUIRED",
-        error_code="meta_revoke_pending",
-        checked_at=NOW,
-    )
-    vault.delete.assert_awaited_once_with(
-        context=context(),
-        reference=SecretRef(SECRET_ID),
-        purpose="whatsapp.meta_access_token",
-        record_context=f"whatsapp_account:{ACCOUNT_ID}",
+    assert summary.id == ACCOUNT_ID
+    disconnect_executor.revoke.assert_awaited_once_with(
+        context=context(), account_id=ACCOUNT_ID, revoked_at=NOW
     )
