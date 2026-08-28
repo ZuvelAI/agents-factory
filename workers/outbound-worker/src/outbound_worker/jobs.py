@@ -14,6 +14,10 @@ from agents_factory.common.queue import (
 )
 from agents_factory.config import load_settings
 from agents_factory.database import Database, set_tenant_context
+from agents_factory.modules.secrets.envelope import EnvironmentMasterKeyProvider
+from agents_factory.modules.whatsapp.account_service import (
+    SessionFactoryMetaAccessTokenResolver,
+)
 from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
 from agents_factory.modules.whatsapp.outbound_service import (
     OutboundMessageService,
@@ -29,10 +33,20 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
     await configure_durable_worker(context)
     database = cast(Database, context["database"])
     settings = load_settings()
+    key_provider = EnvironmentMasterKeyProvider(
+        environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+    )
     provider = cast(
         OutboundProvider,
         context.get("whatsapp_provider")
-        or MetaCloudApiProvider(app_secret=settings.meta_app_secret),
+        or MetaCloudApiProvider(
+            app_secret=settings.meta_app_secret,
+            access_tokens=SessionFactoryMetaAccessTokenResolver(
+                session_factory=database.session_factory,
+                key_provider=key_provider,
+            ),
+            graph_api_base_url=settings.meta_graph_api_base_url,
+        ),
     )
 
     async def prepare_text_handler(envelope: JobEnvelope) -> None:

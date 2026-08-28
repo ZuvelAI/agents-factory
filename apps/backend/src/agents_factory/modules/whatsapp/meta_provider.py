@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+from contextlib import asynccontextmanager
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Mapping, cast
+from typing import AsyncIterator, Mapping, cast
 from uuid import UUID
 
 import httpx
@@ -17,7 +18,9 @@ from agents_factory.common.errors import DomainError
 from agents_factory.modules.whatsapp.contracts import (
     DeliveryStatus,
     InboundWhatsAppEvent,
+    MetaAuthorizationSnapshot,
     MetaAccessTokenResolver,
+    MetaHealthSnapshot,
     OutboundTemplateRequest,
     OutboundTextRequest,
     ProviderMessageResult,
@@ -25,6 +28,7 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppDeliveryStatusEvent,
     WhatsAppMessageType,
 )
+from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.schemas import MetaWebhookPayload
 
 
@@ -214,6 +218,170 @@ class MetaCloudApiProvider:
         return _provider_result(response)
 
 
+@dataclass(frozen=True, slots=True)
+class MetaEmbeddedSignupClient:
+    """Backend-only Meta authorization exchange and asset verification."""
+
+    app_id: str | None
+    app_secret: SecretStr = field(repr=False)
+    redirect_uri: str | None
+    graph_api_base_url: str
+    http_client: httpx.AsyncClient | None = field(default=None, repr=False)
+
+    async def exchange_and_verify(
+        self,
+        *,
+        code: str,
+        business_id: str,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> MetaAuthorizationSnapshot:
+        if self.app_id is None or self.redirect_uri is None:
+            raise RuntimeError("Meta Embedded Signup is not configured")
+        async with self._client() as client:
+            token_response = await client.post(
+                f"{self.graph_api_base_url.rstrip('/')}/oauth/access_token",
+                data={
+                    "client_id": self.app_id,
+                    "client_secret": self.app_secret.get_secret_value(),
+                    "redirect_uri": self.redirect_uri,
+                    "code": code,
+                },
+            )
+            token_payload = _required_json_mapping(token_response)
+            access_token_value = token_payload.get("access_token")
+            if not isinstance(access_token_value, str) or not access_token_value:
+                raise RuntimeError("Meta authorization did not return a token")
+            access_token = ResolvedSecret(access_token_value.encode("utf-8"))
+
+            debug_response = await client.get(
+                f"{self.graph_api_base_url.rstrip('/')}/debug_token",
+                params={"input_token": access_token_value},
+                headers={
+                    "Authorization": (
+                        f"Bearer {self.app_id}|{self.app_secret.get_secret_value()}"
+                    )
+                },
+            )
+            debug_payload = _required_json_mapping(debug_response)
+            debug_data = debug_payload.get("data")
+            if (
+                not isinstance(debug_data, Mapping)
+                or debug_data.get("is_valid") is not True
+                or str(debug_data.get("app_id")) != self.app_id
+            ):
+                raise RuntimeError("Meta authorization is not valid")
+            scopes = debug_data.get("scopes")
+            granted_scopes = (
+                frozenset(item for item in scopes if isinstance(item, str))
+                if isinstance(scopes, list)
+                else frozenset()
+            )
+
+            authorization_header = {"Authorization": f"Bearer {access_token_value}"}
+            owned_wabas_response = await client.get(
+                f"{self.graph_api_base_url.rstrip('/')}/{business_id}/"
+                "owned_whatsapp_business_accounts",
+                params={"fields": "id"},
+                headers=authorization_header,
+            )
+            owned_wabas_payload = _required_json_mapping(owned_wabas_response)
+            phone_response = await client.get(
+                f"{self.graph_api_base_url.rstrip('/')}/{waba_id}/phone_numbers",
+                params={"fields": "id"},
+                headers=authorization_header,
+            )
+            phone_payload = _required_json_mapping(phone_response)
+
+        expires_at = _optional_provider_expiry(debug_data.get("expires_at"))
+        owned_wabas = owned_wabas_payload.get("data")
+        owns_waba = isinstance(owned_wabas, list) and any(
+            isinstance(item, Mapping) and item.get("id") == waba_id
+            for item in owned_wabas
+        )
+        granular_targets = _granular_scope_targets(
+            debug_data.get("granular_scopes"),
+            scope="whatsapp_business_management",
+        )
+        if granular_targets is not None:
+            owns_waba = owns_waba and (
+                waba_id in granular_targets or business_id in granular_targets
+            )
+        phones = phone_payload.get("data")
+        owns_phone = isinstance(phones, list) and any(
+            isinstance(item, Mapping) and item.get("id") == phone_number_id
+            for item in phones
+        )
+        return MetaAuthorizationSnapshot(
+            access_token=access_token,
+            business_id=business_id,
+            waba_id=waba_id,
+            phone_number_id=phone_number_id,
+            granted_scopes=granted_scopes,
+            token_expires_at=expires_at,
+            owns_waba=owns_waba,
+            owns_phone_number=owns_phone,
+            # Never infer Coexistence from ordinary Cloud API access.
+            coexistence_eligibility="UNKNOWN",
+        )
+
+    async def inspect_health(
+        self,
+        *,
+        access_token: ResolvedSecret,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> MetaHealthSnapshot:
+        try:
+            token = access_token.reveal().decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return MetaHealthSnapshot(
+                status="REAUTH_REQUIRED", error_code="provider_credential_invalid"
+            )
+        try:
+            async with self._client() as client:
+                response = await client.get(
+                    f"{self.graph_api_base_url.rstrip('/')}/{waba_id}/phone_numbers",
+                    params={"fields": "id"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if response.status_code in {401, 403}:
+                return MetaHealthSnapshot(
+                    status="REAUTH_REQUIRED", error_code="meta_authorization_revoked"
+                )
+            payload = _required_json_mapping(response)
+            phones = payload.get("data")
+            if isinstance(phones, list) and any(
+                isinstance(item, Mapping) and item.get("id") == phone_number_id
+                for item in phones
+            ):
+                return MetaHealthSnapshot(status="HEALTHY")
+            return MetaHealthSnapshot(status="ERROR", error_code="meta_phone_missing")
+        except (httpx.RequestError, RuntimeError):
+            return MetaHealthSnapshot(status="ERROR", error_code="meta_health_failed")
+
+    async def revoke(self, *, access_token: ResolvedSecret) -> None:
+        try:
+            token = access_token.reveal().decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise RuntimeError("Meta credential is invalid") from None
+        async with self._client() as client:
+            response = await client.delete(
+                f"{self.graph_api_base_url.rstrip('/')}/me/permissions",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if response.status_code not in {200, 204}:
+            raise RuntimeError("Meta authorization could not be revoked")
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
+        if self.http_client is not None:
+            yield self.http_client
+            return
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            yield client
+
+
 def _provider_timestamp(value: str) -> datetime:
     try:
         seconds = int(value)
@@ -269,6 +437,40 @@ def _provider_result(response: httpx.Response) -> ProviderMessageResult:
         outcome="uncertain" if response.status_code >= 500 else "rejected",
         error_code=error_code,
     )
+
+
+def _required_json_mapping(response: httpx.Response) -> Mapping[str, object]:
+    if not 200 <= response.status_code < 300:
+        raise RuntimeError("Meta request failed")
+    try:
+        payload = response.json()
+    except ValueError:
+        raise RuntimeError("Meta response was invalid") from None
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("Meta response was invalid")
+    return payload
+
+
+def _optional_provider_expiry(value: object) -> datetime | None:
+    if not isinstance(value, (int, float)) or value <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=UTC)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _granular_scope_targets(value: object, *, scope: str) -> frozenset[str] | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if not isinstance(item, Mapping) or item.get("scope") != scope:
+            continue
+        target_ids = item.get("target_ids")
+        if not isinstance(target_ids, list):
+            return frozenset()
+        return frozenset(target for target in target_ids if isinstance(target, str))
+    return None
 
 
 def _delivery_error_code(errors: Sequence[object]) -> str | None:

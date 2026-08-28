@@ -28,6 +28,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .eyebrow {
   color: #48617f;
   font-size: 0.78rem;
@@ -111,6 +116,105 @@ nav li {
   padding: clamp(1.25rem, 4vw, 3rem);
 }
 
+.whatsapp-setup {
+  max-width: 72rem;
+}
+
+.setup-intro {
+  max-width: 48rem;
+  color: #52647c;
+}
+
+.setup-panel,
+.account-card {
+  border: 1px solid #d7dee8;
+  border-radius: 0.75rem;
+  background: white;
+  padding: 1.25rem;
+}
+
+.setup-panel,
+.account-card-heading,
+.account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.signup-action {
+  min-width: 12rem;
+  text-align: right;
+}
+
+.signup-action p {
+  margin-bottom: 0;
+}
+
+.connection-notice {
+  margin: 1rem 0;
+  border-left: 0.25rem solid #7890ad;
+  padding: 0.75rem 1rem;
+  background: #eaf0f7;
+}
+
+.account-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.account-card h2,
+.setup-panel h2 {
+  margin-top: 0;
+}
+
+.account-card dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+}
+
+.account-card dl div {
+  min-width: 0;
+}
+
+.account-card dt {
+  color: #52647c;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.account-card dd {
+  overflow-wrap: anywhere;
+  margin: 0.35rem 0 0;
+}
+
+.health {
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  background: #eaf0f7;
+  color: #314969;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.health-healthy {
+  background: #e2f4e8;
+  color: #176a37;
+}
+
+.health-error,
+.health-reauth_required {
+  background: #fbe7e9;
+  color: #8b1b2c;
+}
+
+.secondary-button {
+  background: #66758a;
+}
+
 @media (max-width: 42rem) {
   .control-plane-shell {
     grid-template-columns: 1fr;
@@ -119,5 +223,16 @@ nav li {
   aside {
     border-right: 0;
     border-bottom: 1px solid #d7dee8;
+  }
+
+  .setup-panel,
+  .account-card-heading,
+  .account-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .signup-action {
+    text-align: left;
   }
 }

@@ -20,7 +20,7 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `pnpm exec next dev --hostname 127.0.0.1 --port ${appPort}`,
+      command: `node_modules/.bin/next dev --hostname 127.0.0.1 --port ${appPort}`,
       port: appPort,
       reuseExistingServer: false,
       env: {

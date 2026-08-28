@@ -20,6 +20,9 @@ WhatsAppMessageType = Literal[
 ]
 DeliveryStatus = Literal["sent", "delivered", "read", "failed", "deleted"]
 ProviderMessageOutcome = Literal["accepted", "rejected", "uncertain"]
+WhatsAppMode = Literal["API_ONLY", "COEXISTENCE"]
+CoexistenceEligibility = Literal["ELIGIBLE", "INELIGIBLE", "UNKNOWN"]
+WhatsAppHealthStatus = Literal["HEALTHY", "REAUTH_REQUIRED", "ERROR", "UNKNOWN"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +92,48 @@ class MetaAccessTokenResolver(Protocol):
         context: TenantContext,
         whatsapp_account_id: UUID,
     ) -> ResolvedSecret: ...
+
+
+@dataclass(frozen=True, slots=True)
+class MetaAuthorizationSnapshot:
+    """Verified provider result; plaintext remains a backend-only wrapper."""
+
+    access_token: ResolvedSecret = field(repr=False)
+    business_id: str
+    waba_id: str
+    phone_number_id: str
+    granted_scopes: frozenset[str]
+    token_expires_at: datetime | None
+    owns_waba: bool
+    owns_phone_number: bool
+    coexistence_eligibility: CoexistenceEligibility = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class MetaHealthSnapshot:
+    status: WhatsAppHealthStatus
+    error_code: str | None = None
+
+
+class MetaEmbeddedSignupProvider(Protocol):
+    async def exchange_and_verify(
+        self,
+        *,
+        code: str,
+        business_id: str,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> MetaAuthorizationSnapshot: ...
+
+    async def inspect_health(
+        self,
+        *,
+        access_token: ResolvedSecret,
+        waba_id: str,
+        phone_number_id: str,
+    ) -> MetaHealthSnapshot: ...
+
+    async def revoke(self, *, access_token: ResolvedSecret) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

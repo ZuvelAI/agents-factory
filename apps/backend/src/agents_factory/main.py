@@ -21,6 +21,7 @@ from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
+from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
 
 
 class ReadinessProbe(Protocol):
@@ -140,6 +141,7 @@ def create_app(
 
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
     application.include_router(admin_tenant_router)
+    application.include_router(admin_whatsapp_router)
     application.include_router(meta_whatsapp_router)
 
     @application.middleware("http")
