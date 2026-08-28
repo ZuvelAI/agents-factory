@@ -3,7 +3,15 @@ name = "agents-factory-agent-worker"
 version = "0.0.0"
 description = "Agents Factory agent worker process"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+  "arq==0.28.0",
+  "asyncpg==0.30.0",
+  "openai-agents==0.22.0",
+  "pydantic-settings==2.10.1",
+  "pydantic==2.12.5",
+  "redis[hiredis]==5.3.1",
+  "SQLAlchemy[asyncio]==2.0.43",
+]
 
 [tool.uv]
 package = false

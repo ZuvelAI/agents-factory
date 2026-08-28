@@ -35,7 +35,8 @@ dist/
 build/
 out/
 eval-results/
-evals/results/
+/evals/results/*
+!/evals/results/.gitignore
 playwright-report/
 test-results/
 *.tsbuildinfo

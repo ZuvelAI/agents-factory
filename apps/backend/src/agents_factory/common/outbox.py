@@ -18,6 +18,8 @@ from agents_factory.database import set_tenant_context
 
 OutboxStatus = Literal[
     "pending",
+    "dispatching",
+    "queued",
     "processing",
     "succeeded",
     "failed",

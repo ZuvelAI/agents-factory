@@ -24,6 +24,14 @@ REQUIRED_ENVIRONMENT_VARIABLES = (
     "SUPABASE_JWT_ISSUER",
     "SUPABASE_JWT_AUDIENCE",
     "APP_MASTER_KEY",
+    "META_APP_SECRET",
+    "META_WEBHOOK_VERIFY_TOKEN",
+)
+_CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
+    "META_APP_ID",
+    "META_CONFIGURATION_ID",
+    "META_REDIRECT_URI",
+    "META_GRAPH_API_BASE_URL",
 )
 
 
@@ -45,6 +53,22 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: NonEmptyString
     supabase_jwt_audience: NonEmptyString
     app_master_key: NonEmptySecret
+    meta_app_secret: NonEmptySecret
+    meta_webhook_verify_token: NonEmptySecret
+    meta_app_id: NonEmptyString | None = None
+    meta_configuration_id: NonEmptyString | None = None
+    meta_redirect_uri: NonEmptyString | None = None
+    meta_graph_api_base_url: NonEmptyString = "https://graph.facebook.com/v25.0"
+
+    @field_validator(
+        "meta_app_id",
+        "meta_configuration_id",
+        "meta_redirect_uri",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_meta_configuration(cls, value: object) -> object:
+        return None if value == "" else value
 
     @field_validator("database_url")
     @classmethod
@@ -93,6 +117,27 @@ class Settings(BaseSettings):
             raise ValueError("must use HTTPS except for a loopback development URL")
         return value
 
+    @field_validator("meta_redirect_uri", "meta_graph_api_base_url")
+    @classmethod
+    def validate_meta_https_url(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        if value is None:
+            return None
+        parsed = _split_url(value)
+        has_valid_endpoint = _has_valid_host_and_port(parsed)
+        if parsed.scheme == "https" and has_valid_endpoint:
+            return value.rstrip("/")
+        is_local = info.data.get("environment") in {"development", "test"}
+        if (
+            is_local
+            and parsed.scheme == "http"
+            and parsed.hostname in {"127.0.0.1", "::1", "localhost"}
+            and has_valid_endpoint
+        ):
+            return value.rstrip("/")
+        raise ValueError("must use HTTPS except for a loopback development URL")
+
 
 def _split_url(value: str) -> SplitResult:
     if any(character.isspace() for character in value):
@@ -139,7 +184,7 @@ def _has_explicit_empty_port(parsed: SplitResult) -> bool:
 
 def _in_contract_order(names: Iterable[str]) -> tuple[str, ...]:
     present = set(names)
-    return tuple(name for name in REQUIRED_ENVIRONMENT_VARIABLES if name in present)
+    return tuple(name for name in _CONFIGURATION_VARIABLE_ORDER if name in present)
 
 
 class ConfigurationError(RuntimeError):
@@ -156,10 +201,18 @@ class ConfigurationError(RuntimeError):
 
         categories: list[str] = []
         if self.missing_variables:
-            categories.append(f"missing: {', '.join(self.missing_variables)}")
+            categories.append(
+                f"missing: {', '.join(_safe_variable_name(item) for item in self.missing_variables)}"
+            )
         if self.invalid_variables:
-            categories.append(f"invalid: {', '.join(self.invalid_variables)}")
+            categories.append(
+                f"invalid: {', '.join(_safe_variable_name(item) for item in self.invalid_variables)}"
+            )
         super().__init__(f"Invalid application configuration ({'; '.join(categories)})")
+
+
+def _safe_variable_name(name: str) -> str:
+    return name.replace("SECRET", "CREDENTIAL")
 
 
 def load_settings() -> Settings:

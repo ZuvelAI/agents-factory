@@ -29,6 +29,8 @@ def _valid_environment() -> dict[str, str]:
         "SUPABASE_JWT_ISSUER": "https://example.supabase.co/auth/v1",
         "SUPABASE_JWT_AUDIENCE": "authenticated",
         "APP_MASTER_KEY": "master-secret-sentinel",
+        "META_APP_SECRET": "meta-app-secret-sentinel",
+        "META_WEBHOOK_VERIFY_TOKEN": "meta-verify-token-sentinel",
     }
 
 
@@ -44,7 +46,10 @@ def test_load_settings_reports_all_missing_variable_names(
     assert captured.value.missing_variables == REQUIRED_ENVIRONMENT_VARIABLES
     assert captured.value.invalid_variables == ()
     for name in REQUIRED_ENVIRONMENT_VARIABLES:
-        assert name in str(captured.value)
+        if "SECRET" not in name:
+            assert name in str(captured.value)
+    assert "META_APP_SECRET" not in str(captured.value)
+    assert "META_APP_CREDENTIAL" in str(captured.value)
 
 
 def test_load_settings_never_exposes_invalid_values(
@@ -182,11 +187,15 @@ def test_settings_keep_credential_bearing_values_secret(
     assert isinstance(settings.redis_url, SecretStr)
     assert isinstance(settings.supabase_publishable_key, SecretStr)
     assert isinstance(settings.app_master_key, SecretStr)
+    assert isinstance(settings.meta_app_secret, SecretStr)
+    assert isinstance(settings.meta_webhook_verify_token, SecretStr)
     serialized = settings.model_dump(mode="json")
     assert serialized["database_url"] == "**********"
     assert serialized["redis_url"] == "**********"
     assert serialized["supabase_publishable_key"] == "**********"
     assert serialized["app_master_key"] == "**********"
+    assert serialized["meta_app_secret"] == "**********"
+    assert serialized["meta_webhook_verify_token"] == "**********"
 
 
 def test_uuid_factory_produces_uuid7_compatible_ids() -> None:

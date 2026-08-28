@@ -25,6 +25,7 @@ REQUIRED_RUNS = [
   'make lint',
   'make typecheck',
   'make test-unit',
+  'make eval',
   'make test-integration',
   'docker compose config --quiet',
   'make test-security'
