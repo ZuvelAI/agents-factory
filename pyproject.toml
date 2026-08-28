@@ -25,6 +25,7 @@ members = ["apps/backend", "workers/*"]
 asyncio_mode = "auto"
 testpaths = ["apps/backend/tests"]
 pythonpath = [
+  ".",
   "apps/backend/src",
   "workers/agent-worker/src",
   "workers/knowledge-worker/src",

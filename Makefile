@@ -6,15 +6,15 @@ help:
 	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke'
 
 format-check:
-	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests workers
+	@uv run --all-packages ruff format --check apps/backend/src apps/backend/tests workers evals
 	@pnpm run format:check
 
 lint:
-	@uv run --all-packages ruff check apps/backend/src apps/backend/tests workers
+	@uv run --all-packages ruff check apps/backend/src apps/backend/tests workers evals
 	@pnpm run lint
 
 typecheck:
-	@uv run --all-packages mypy apps/backend/src workers/agent-worker/src workers/knowledge-worker/src workers/outbound-worker/src workers/scheduler/src
+	@uv run --all-packages mypy apps/backend/src evals workers/agent-worker/src workers/knowledge-worker/src workers/outbound-worker/src workers/scheduler/src
 	@pnpm run typecheck
 
 test-unit:
@@ -38,7 +38,10 @@ test-e2e:
 	@pnpm run test:e2e
 
 eval:
-	@printf '%s\n' 'eval: no eval-runner-owned surface exists in Task 1.'
+	@uv run --all-packages python evals/run_local.py \
+		--cases evals/cases \
+		--output evals/results/latest.json \
+		--seed 20260827
 
 build:
 	@printf '%s\n' 'build: no Dockerfiles are owned by Task 1.'

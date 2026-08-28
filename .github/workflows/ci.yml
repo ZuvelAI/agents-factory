@@ -37,6 +37,7 @@ jobs:
       - run: make lint
       - run: make typecheck
       - run: make test-unit
+      - run: make eval
       - run: make test-integration
       - run: docker compose config --quiet
       - name: Run tenant isolation release blocker
