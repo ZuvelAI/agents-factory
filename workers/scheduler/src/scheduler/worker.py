@@ -26,7 +26,10 @@ async def startup(context: dict[Any, Any]) -> None:
     context["outbox_dispatcher"] = OutboxDispatcher(
         session_factory=database.session_factory,
         queue=redis,
-        queue_by_kind={"whatsapp.inbound.received": "agent"},
+        queue_by_kind={
+            "whatsapp.inbound.received": "agent",
+            "agent.turn": "agent",
+        },
         retry_delay_seconds=1.0,
     )
 
