@@ -248,7 +248,7 @@ select ok(
 from unnest(
   array[
     'audit_events_tenant_id_idx',
-    'outbox_jobs_pending_due_idx'
+    'outbox_jobs_dispatchable_idx'
   ]
 ) as expected(index_name);
 
@@ -269,11 +269,13 @@ select ok(
     select 1
     from pg_indexes
     where schemaname = 'public'
-      and indexname = 'outbox_jobs_pending_due_idx'
-      and indexdef like '%(available_at, created_at, tenant_id, id)%'
-      and indexdef like '%WHERE (status = ''pending''::text)%'
+      and indexname = 'outbox_jobs_dispatchable_idx'
+      and indexdef like '%(available_at, created_at, id)%'
+      and indexdef like '%''pending''::text%'
+      and indexdef like '%''failed''::text%'
+      and indexdef like '%''dispatching''::text%'
   ),
-  'pending outbox queue index matches global claim order'
+  'dispatchable outbox queue index matches global claim order'
 );
 
 create function pg_temp.task3_global_claim_plan()
@@ -288,7 +290,7 @@ begin
     select id
     from public.outbox_jobs
     where status = 'pending' and available_at <= now()
-    order by available_at, created_at, tenant_id, id
+    order by available_at, created_at, id
     limit 1
     for update skip locked
   $explain$ into query_plan;
@@ -444,15 +446,22 @@ select ok(
   'foundation policies never authorize from user_metadata'
 );
 
-select ok(
-  not exists (
-    select 1
+select is(
+  (
+    select jsonb_agg(
+      format('%I.%I', namespace.nspname, procedure.proname)
+      order by namespace.nspname, procedure.proname
+    )
     from pg_proc as procedure
     join pg_namespace as namespace on namespace.oid = procedure.pronamespace
     where namespace.nspname in ('public', 'agents_factory_private')
       and procedure.prosecdef
   ),
-  'foundation defines no SECURITY DEFINER functions'
+  '[
+    "agents_factory_private.resolve_active_whatsapp_account",
+    "agents_factory_private.transition_conversation_control"
+  ]'::jsonb,
+  'SECURITY DEFINER functions are limited to the approved runtime allowlist'
 );
 
 create function public.task3_default_privilege_probe()
