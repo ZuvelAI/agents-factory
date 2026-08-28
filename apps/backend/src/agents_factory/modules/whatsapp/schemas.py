@@ -21,11 +21,23 @@ class MetaInboundMessage(MetaWebhookModel):
     type: str = Field(min_length=1, max_length=100)
 
 
+class MetaPricing(MetaWebhookModel):
+    billable: bool | None = None
+    category: str | None = Field(default=None, min_length=1, max_length=100)
+    pricing_model: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class MetaDeliveryError(MetaWebhookModel):
+    code: int | str
+
+
 class MetaDeliveryStatus(MetaWebhookModel):
     id: str = Field(min_length=1, max_length=500)
     recipient_id: str = Field(min_length=1, max_length=100)
     status: str = Field(min_length=1, max_length=100)
     timestamp: str = Field(min_length=1, max_length=20)
+    pricing: MetaPricing | None = None
+    errors: list[MetaDeliveryError] = Field(default_factory=list)
 
 
 class MetaChangeValue(MetaWebhookModel):

@@ -23,6 +23,7 @@ from agents_factory.modules.whatsapp.meta_provider import (
     InvalidWebhookPayload,
     MetaCloudApiProvider,
 )
+from agents_factory.modules.whatsapp.outbound_service import OutboundStatusReconciler
 from agents_factory.modules.whatsapp.repository import WhatsAppWebhookRepository
 
 
@@ -87,6 +88,7 @@ class MetaWebhookProcessor:
     ) -> None:
         self._repository = WhatsAppWebhookRepository(session)
         self._outbox = OutboxService(session)
+        self._outbound_status = OutboundStatusReconciler(session)
         self._provider = provider
 
     async def process(
@@ -152,6 +154,17 @@ class MetaWebhookProcessor:
             )
             if mapping is None:
                 raise UnknownAccountMapping
+            context = TenantContext(
+                tenant_id=mapping.tenant_id,
+                actor_id=None,
+                actor_type="system",
+                correlation_id=correlation_id,
+            )
+            await self._outbound_status.reconcile(
+                context=context,
+                whatsapp_account_id=mapping.account_id,
+                event=status,
+            )
 
         return WebhookProcessingResult(
             accepted_messages=accepted_messages,

@@ -210,3 +210,8 @@ def test_provider_normalizes_delivery_status_without_treating_it_as_inbound() ->
     assert delivery.recipient_wa_id == "573000000001"
     assert delivery.status == "delivered"
     assert delivery.occurred_at.isoformat() == "2026-08-27T00:01:00+00:00"
+    assert delivery.cost_attribution == {
+        "billable": True,
+        "category": "service",
+        "pricing_model": "CBP",
+    }

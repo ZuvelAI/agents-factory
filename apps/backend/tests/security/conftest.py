@@ -26,6 +26,8 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             "TRUNCATE TABLE "
+            "public.outbound_messages, "
+            "public.whatsapp_templates, "
             "public.conversation_state_events, "
             "public.messages, "
             "public.conversations, "

@@ -29,6 +29,8 @@ async def startup(context: dict[Any, Any]) -> None:
         queue_by_kind={
             "whatsapp.inbound.received": "agent",
             "agent.turn": "agent",
+            "outbound.text": "outbound",
+            "whatsapp.outbound.send": "outbound",
         },
         retry_delay_seconds=1.0,
     )

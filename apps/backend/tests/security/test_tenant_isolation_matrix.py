@@ -89,6 +89,7 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration("public.whatsapp_templates", delete_allowed=False),
     TenantIsolationRegistration("public.conversations", delete_allowed=False),
     TenantIsolationRegistration(
         "public.messages",
@@ -102,6 +103,7 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration("public.outbound_messages", delete_allowed=False),
 )
 
 
@@ -196,7 +198,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.conversation_state_events, "
+                "TRUNCATE TABLE public.outbound_messages, "
+                "public.whatsapp_templates, public.conversation_state_events, "
                 "public.messages, public.conversations, "
                 "public.whatsapp_webhook_events, "
                 "public.whatsapp_accounts, public.secret_envelopes, "
@@ -395,6 +398,40 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "provider_message_id": f"task5-message-{label}",
                 },
             )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.whatsapp_templates "
+                    "(id, tenant_id, whatsapp_account_id, provider_template_id, "
+                    "name, language, status, category, variable_names) VALUES "
+                    "(:id, :tenant_id, :account_id, :provider_template_id, "
+                    "'task5_template', 'es_CO', 'APPROVED', 'UTILITY', "
+                    "'[]'::jsonb)"
+                ),
+                {
+                    "id": rows["public.whatsapp_templates"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "provider_template_id": f"task5-template-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.outbound_messages "
+                    "(id, tenant_id, whatsapp_account_id, whatsapp_template_id, "
+                    "recipient_wa_id, kind, idempotency_key, payload) VALUES "
+                    "(:id, :tenant_id, :account_id, :template_id, "
+                    "'573000000001', 'template', :idempotency_key, "
+                    '\'{"template_name":"task5_template",'
+                    '"language":"es_CO","body_parameters":[]}\'::jsonb)'
+                ),
+                {
+                    "id": rows["public.outbound_messages"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "template_id": rows["public.whatsapp_templates"],
+                    "idempotency_key": f"task5-outbound-{label}",
+                },
+            )
 
     world = SeededWorld(
         tenant_a=tenant_a,
@@ -568,6 +605,13 @@ def _insert_statement(table_name: str) -> str:
             "VALUES (:id, :tenant_id, :whatsapp_account_id, :message_id, "
             "'573000000001', 'text', now(), '{}'::jsonb)"
         ),
+        "public.whatsapp_templates": (
+            "INSERT INTO public.whatsapp_templates "
+            "(id, tenant_id, whatsapp_account_id, provider_template_id, name, "
+            "language, status, category, variable_names) VALUES "
+            "(:id, :tenant_id, :whatsapp_account_id, :provider_template_id, "
+            ":template_name, 'es_CO', 'APPROVED', 'UTILITY', '[]'::jsonb)"
+        ),
         "public.conversations": (
             "INSERT INTO public.conversations "
             "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
@@ -586,6 +630,18 @@ def _insert_statement(table_name: str) -> str:
             "(id, tenant_id, conversation_id, from_state, to_state, version, "
             "actor_type, reason) VALUES (:id, :tenant_id, :conversation_id, "
             "'AI_ACTIVE', 'AWAITING_HUMAN', :version, 'system', 'task5_insert')"
+        ),
+        "public.outbound_messages": (
+            "INSERT INTO public.outbound_messages "
+            "(id, tenant_id, whatsapp_account_id, whatsapp_template_id, "
+            "recipient_wa_id, kind, idempotency_key, payload) VALUES "
+            "(:id, :tenant_id, :whatsapp_account_id, "
+            "(SELECT id FROM public.whatsapp_templates "
+            " WHERE tenant_id = :tenant_id "
+            " AND whatsapp_account_id = :whatsapp_account_id LIMIT 1), "
+            "'573000000001', 'template', :idempotency_key, "
+            '\'{"template_name":"task5_template",'
+            '"language":"es_CO","body_parameters":[]}\'::jsonb)'
         ),
     }
     return statements[table_name]
@@ -616,6 +672,9 @@ def _insert_parameters(
         "conversation_id": parent_id,
         "customer_wa_id": f"573{uuid4().int % 10**9:09d}",
         "message_id": f"task5-message-{nonce}",
+        "provider_template_id": f"task5-template-{nonce}",
+        "template_name": f"task5_{nonce[:80]}",
+        "idempotency_key": f"task5-outbound-{nonce}",
         "arrival_sequence": uuid4().int % 1_000_000_000 + 2,
         "version": uuid4().int % 1_000_000_000 + 2,
     }
@@ -631,9 +690,11 @@ def _matching_update(table_name: str) -> str | None:
         "public.secret_envelopes": None,
         "public.whatsapp_accounts": None,
         "public.whatsapp_webhook_events": None,
+        "public.whatsapp_templates": "updated_at = now()",
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
+        "public.outbound_messages": "updated_at = now()",
     }[table_name]
 
 
@@ -645,7 +706,9 @@ def _insert_parent_id(
 ) -> UUID:
     if table_name in {
         "public.whatsapp_webhook_events",
+        "public.whatsapp_templates",
         "public.conversations",
+        "public.outbound_messages",
     }:
         return world.whatsapp_account_a if tenant == "a" else world.whatsapp_account_b
     if table_name in {"public.messages", "public.conversation_state_events"}:
@@ -798,6 +861,7 @@ async def assert_tenant_isolated(
         "public.job_attempts",
         "public.dead_letter_jobs",
         "public.whatsapp_webhook_events",
+        "public.whatsapp_templates",
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
