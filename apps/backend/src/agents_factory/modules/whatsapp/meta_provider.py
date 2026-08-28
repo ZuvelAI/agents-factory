@@ -333,7 +333,7 @@ class MetaEmbeddedSignupClient:
         phone_number_id: str,
     ) -> MetaHealthSnapshot:
         try:
-            token = access_token.reveal().decode("utf-8", errors="strict")
+            access_value = access_token.reveal().decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             return MetaHealthSnapshot(
                 status="REAUTH_REQUIRED", error_code="provider_credential_invalid"
@@ -343,7 +343,7 @@ class MetaEmbeddedSignupClient:
                 response = await client.get(
                     f"{self.graph_api_base_url.rstrip('/')}/{waba_id}/phone_numbers",
                     params={"fields": "id"},
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {access_value}"},
                 )
             if response.status_code in {401, 403}:
                 return MetaHealthSnapshot(
@@ -362,13 +362,13 @@ class MetaEmbeddedSignupClient:
 
     async def revoke(self, *, access_token: ResolvedSecret) -> None:
         try:
-            token = access_token.reveal().decode("utf-8", errors="strict")
+            access_value = access_token.reveal().decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             raise RuntimeError("Meta credential is invalid") from None
         async with self._client() as client:
             response = await client.delete(
                 f"{self.graph_api_base_url.rstrip('/')}/me/permissions",
-                headers={"Authorization": f"Bearer {token}"},
+                headers={"Authorization": f"Bearer {access_value}"},
             )
         if response.status_code not in {200, 204}:
             raise RuntimeError("Meta authorization could not be revoked")

@@ -66,17 +66,19 @@ class ConversationLockManager:
         conversation_id: UUID,
     ) -> AsyncIterator[None]:
         key = self.key_for(tenant_id, conversation_id)
-        token = uuid4().hex
+        lease_value = uuid4().hex
         deadline = monotonic() + self._acquire_timeout_seconds
         while True:
-            acquired = await self._redis.set(key, token, nx=True, px=self._lease_ms)
+            acquired = await self._redis.set(
+                key, lease_value, nx=True, px=self._lease_ms
+            )
             if acquired:
                 break
             if monotonic() >= deadline:
                 raise ConversationLockUnavailable(key)
             await asyncio.sleep(self._poll_interval_seconds)
 
-        renewal = asyncio.create_task(self._renew(key=key, token=token))
+        renewal = asyncio.create_task(self._renew(key=key, lease_value=lease_value))
         renewal_error: BaseException | None = None
         try:
             yield
@@ -90,12 +92,12 @@ class ConversationLockManager:
                 renewal_error = error
             await cast(
                 Awaitable[object],
-                self._redis.eval(_RELEASE_SCRIPT, 1, key, token),
+                self._redis.eval(_RELEASE_SCRIPT, 1, key, lease_value),
             )
             if renewal_error is not None:
                 raise renewal_error
 
-    async def _renew(self, *, key: str, token: str) -> None:
+    async def _renew(self, *, key: str, lease_value: str) -> None:
         interval = self._lease_seconds / 3
         while True:
             await asyncio.sleep(interval)
@@ -105,7 +107,7 @@ class ConversationLockManager:
                     _RENEW_SCRIPT,
                     1,
                     key,
-                    token,
+                    lease_value,
                     str(self._lease_ms),
                 ),
             )

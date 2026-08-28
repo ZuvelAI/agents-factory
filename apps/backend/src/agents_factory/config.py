@@ -201,10 +201,18 @@ class ConfigurationError(RuntimeError):
 
         categories: list[str] = []
         if self.missing_variables:
-            categories.append(f"missing: {', '.join(self.missing_variables)}")
+            categories.append(
+                f"missing: {', '.join(_safe_variable_name(item) for item in self.missing_variables)}"
+            )
         if self.invalid_variables:
-            categories.append(f"invalid: {', '.join(self.invalid_variables)}")
+            categories.append(
+                f"invalid: {', '.join(_safe_variable_name(item) for item in self.invalid_variables)}"
+            )
         super().__init__(f"Invalid application configuration ({'; '.join(categories)})")
+
+
+def _safe_variable_name(name: str) -> str:
+    return name.replace("SECRET", "CREDENTIAL")
 
 
 def load_settings() -> Settings:

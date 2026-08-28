@@ -57,8 +57,12 @@ def test_workflow_validators_reject_out_of_sequence_integration_gate(
     workflow = tmp_path / "out-of-sequence.yml"
     workflow.write_text(
         _desired_workflow().replace(
-            "      - run: make test-unit\n      - run: make test-integration\n",
-            "      - run: make test-integration\n      - run: make test-unit\n",
+            "      - run: make test-unit\n"
+            "      - run: make eval\n"
+            "      - run: make test-integration\n",
+            "      - run: make test-integration\n"
+            "      - run: make test-unit\n"
+            "      - run: make eval\n",
         )
     )
 

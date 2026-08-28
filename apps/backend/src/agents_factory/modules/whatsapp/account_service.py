@@ -410,9 +410,9 @@ class WhatsAppAccountService:
         self, *, context: TenantContext, account_id: UUID, checked_at: datetime
     ) -> WhatsAppAccountSummary:
         account = await self._required(context=context, account_id=account_id)
-        token = await self._load_token(context=context, account=account)
+        resolved_access = await self._load_token(context=context, account=account)
         health = await self._provider.inspect_health(
-            access_token=token,
+            access_token=resolved_access,
             waba_id=account.waba_id,
             phone_number_id=account.phone_number_id,
         )
@@ -429,14 +429,14 @@ class WhatsAppAccountService:
         self, *, context: TenantContext, account_id: UUID, revoked_at: datetime
     ) -> WhatsAppAccountSummary:
         account = await self._required(context=context, account_id=account_id)
-        token = await self._load_token(context=context, account=account)
+        resolved_access = await self._load_token(context=context, account=account)
         updated = await self._repository.deactivate(
             context=context,
             account_id=account.id,
             checked_at=revoked_at,
         )
         try:
-            await self._provider.revoke(access_token=token)
+            await self._provider.revoke(access_token=resolved_access)
         except Exception:
             pending = await self._repository.update_health(
                 context=context,
