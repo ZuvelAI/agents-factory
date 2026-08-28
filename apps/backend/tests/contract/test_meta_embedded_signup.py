@@ -307,17 +307,70 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> No
 
 
 @pytest.mark.asyncio
-async def test_revoke_fails_closed_locally_when_meta_is_unavailable() -> None:
+async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_business() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            return httpx.Response(200, json={"access_token": "verified-token"})
+        if path.endswith("/debug_token"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "is_valid": True,
+                        "app_id": "meta-app-1",
+                        "scopes": sorted(REQUIRED_META_SCOPES),
+                    }
+                },
+            )
+        if path.endswith("/owned_whatsapp_business_accounts"):
+            return httpx.Response(200, json={"data": []})
+        if path.endswith("/client_whatsapp_business_accounts"):
+            return httpx.Response(200, json={"data": [{"id": "waba-client-1"}]})
+        if path.endswith("/waba-client-1/phone_numbers"):
+            return httpx.Response(200, json={"data": [{"id": "phone-client-1"}]})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        authorization = await MetaEmbeddedSignupClient(
+            app_id="meta-app-1",
+            app_secret=SecretStr("meta-app-secret"),
+            redirect_uri="https://control.example.test/meta/callback",
+            graph_api_base_url="https://graph.facebook.com/v25.0",
+            http_client=client,
+        ).exchange_and_verify(
+            code="one-time-code",
+            business_id="business-client-1",
+            waba_id="waba-client-1",
+            phone_number_id="phone-client-1",
+        )
+
+    assert authorization.business_id == "business-client-1"
+    assert authorization.owns_waba is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "remote_error",
+    [
+        httpx.ConnectError("Meta unavailable"),
+        RuntimeError("Meta authorization was already revoked"),
+    ],
+)
+async def test_revoke_fails_closed_locally_when_remote_revoke_fails(
+    remote_error: Exception,
+) -> None:
     active = account()
     inactive = replace(active, status="inactive", health_status="REAUTH_REQUIRED")
     repository = AsyncMock()
     repository.get.return_value = active
     repository.deactivate.return_value = inactive
+    repository.clear_secret_reference.return_value = inactive
     repository.update_health.return_value = inactive
     vault = AsyncMock()
     vault.load.return_value = ResolvedSecret(b"client-owned-meta-token")
     provider = AsyncMock()
-    provider.revoke.side_effect = httpx.ConnectError("Meta unavailable")
+    provider.revoke.side_effect = remote_error
     accounts = WhatsAppAccountService(
         repository=repository,
         vault=vault,
@@ -330,6 +383,9 @@ async def test_revoke_fails_closed_locally_when_meta_is_unavailable() -> None:
 
     assert summary.status == "inactive"
     repository.deactivate.assert_awaited_once()
+    repository.clear_secret_reference.assert_awaited_once_with(
+        context=context(), account_id=ACCOUNT_ID
+    )
     repository.update_health.assert_awaited_once_with(
         context=context(),
         account_id=ACCOUNT_ID,
@@ -337,4 +393,9 @@ async def test_revoke_fails_closed_locally_when_meta_is_unavailable() -> None:
         error_code="meta_revoke_pending",
         checked_at=NOW,
     )
-    vault.delete.assert_not_awaited()
+    vault.delete.assert_awaited_once_with(
+        context=context(),
+        reference=SecretRef(SECRET_ID),
+        purpose="whatsapp.meta_access_token",
+        record_context=f"whatsapp_account:{ACCOUNT_ID}",
+    )

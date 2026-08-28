@@ -429,34 +429,47 @@ class WhatsAppAccountService:
         self, *, context: TenantContext, account_id: UUID, revoked_at: datetime
     ) -> WhatsAppAccountSummary:
         account = await self._required(context=context, account_id=account_id)
-        resolved_access = await self._load_token(context=context, account=account)
-        updated = await self._repository.deactivate(
+        await self._repository.deactivate(
             context=context,
             account_id=account.id,
             checked_at=revoked_at,
         )
+        updated = await self._repository.clear_secret_reference(
+            context=context,
+            account_id=account.id,
+        )
+        secret_ref = account.access_token_secret_ref
+        if secret_ref is None:
+            return WhatsAppAccountSummary.from_account(updated)
+
+        remote_revocation_failed = False
         try:
+            resolved_access = await self._vault.load(
+                context=context,
+                reference=secret_ref,
+                purpose=ACCESS_TOKEN_PURPOSE,
+                record_context=_record_context(account.id),
+            )
             await self._provider.revoke(access_token=resolved_access)
         except Exception:
-            pending = await self._repository.update_health(
+            remote_revocation_failed = True
+        try:
+            await self._vault.delete(
+                context=context,
+                reference=secret_ref,
+                purpose=ACCESS_TOKEN_PURPOSE,
+                record_context=_record_context(account.id),
+            )
+        except Exception:
+            remote_revocation_failed = True
+        if remote_revocation_failed:
+            updated = await self._repository.update_health(
                 context=context,
                 account_id=account.id,
                 status="REAUTH_REQUIRED",
                 error_code="meta_revoke_pending",
                 checked_at=revoked_at,
             )
-            return WhatsAppAccountSummary.from_account(pending)
-        assert account.access_token_secret_ref is not None
-        updated = await self._repository.clear_secret_reference(
-            context=context,
-            account_id=account.id,
-        )
-        await self._vault.delete(
-            context=context,
-            reference=account.access_token_secret_ref,
-            purpose=ACCESS_TOKEN_PURPOSE,
-            record_context=_record_context(account.id),
-        )
         return WhatsAppAccountSummary.from_account(updated)
 
     async def _required(
