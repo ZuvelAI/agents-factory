@@ -1,0 +1,358 @@
+{
+  "$defs": {
+    "AgentModelConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "const": "gpt-5.6-luna",
+          "default": "gpt-5.6-luna",
+          "title": "Model",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "const": "low",
+          "default": "low",
+          "title": "Reasoning Effort",
+          "type": "string"
+        }
+      },
+      "title": "AgentModelConfiguration",
+      "type": "object"
+    },
+    "AgentRuntimeLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_output_tokens": {
+          "default": 2048,
+          "maximum": 16384,
+          "minimum": 1,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "max_tool_calls": {
+          "default": 8,
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Max Tool Calls",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "maximum": 300,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "title": "AgentRuntimeLimits",
+      "type": "object"
+    },
+    "AgentSpecConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_routes": {
+          "$ref": "#/$defs/VersionReference"
+        },
+        "capabilities": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VersionReference"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "code_digest": {
+          "title": "Code Digest",
+          "type": "string"
+        },
+        "connector_bindings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConnectorBinding"
+          },
+          "title": "Connector Bindings",
+          "type": "array"
+        },
+        "human_operations": {
+          "$ref": "#/$defs/HumanOperationsConfiguration"
+        },
+        "identity_policy": {
+          "$ref": "#/$defs/VersionReference"
+        },
+        "knowledge": {
+          "$ref": "#/$defs/VersionedDigestReference"
+        },
+        "language": {
+          "$ref": "#/$defs/LanguagePolicy"
+        },
+        "model": {
+          "$ref": "#/$defs/AgentModelConfiguration"
+        },
+        "permitted_actions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Permitted Actions",
+          "type": "array"
+        },
+        "permitted_tools": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Permitted Tools",
+          "type": "array"
+        },
+        "persona": {
+          "$ref": "#/$defs/PersonaConfiguration"
+        },
+        "policy": {
+          "$ref": "#/$defs/VersionReference"
+        },
+        "product_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Version",
+          "type": "string"
+        },
+        "runtime_limits": {
+          "$ref": "#/$defs/AgentRuntimeLimits"
+        }
+      },
+      "required": [
+        "product_version",
+        "persona",
+        "policy",
+        "identity_policy",
+        "approval_routes",
+        "knowledge",
+        "human_operations",
+        "code_digest"
+      ],
+      "title": "AgentSpecConfiguration",
+      "type": "object"
+    },
+    "ConnectorBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "format": "uuid",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "connector": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Connector",
+          "type": "string"
+        },
+        "connector_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Connector Version",
+          "type": "string"
+        },
+        "operations": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "binding_id",
+        "connector",
+        "connector_version"
+      ],
+      "title": "ConnectorBinding",
+      "type": "object"
+    },
+    "HumanOperationsConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "awaiting_human_policy": {
+          "default": "SILENT",
+          "enum": [
+            "SILENT",
+            "ACKNOWLEDGE"
+          ],
+          "title": "Awaiting Human Policy",
+          "type": "string"
+        },
+        "handoff_enabled": {
+          "default": true,
+          "title": "Handoff Enabled",
+          "type": "boolean"
+        },
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "HumanOperationsConfiguration",
+      "type": "object"
+    },
+    "LanguagePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "default_locale": {
+          "const": "es-CO",
+          "default": "es-CO",
+          "title": "Default Locale",
+          "type": "string"
+        },
+        "supported_locales": {
+          "default": [
+            "es-CO",
+            "en-US"
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "const": "es-CO",
+              "type": "string"
+            },
+            {
+              "const": "en-US",
+              "type": "string"
+            }
+          ],
+          "title": "Supported Locales",
+          "type": "array"
+        }
+      },
+      "title": "LanguagePolicy",
+      "type": "object"
+    },
+    "PersonaConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "instructions": {
+          "maxLength": 50000,
+          "minLength": 1,
+          "title": "Instructions",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "instructions"
+      ],
+      "title": "PersonaConfiguration",
+      "type": "object"
+    },
+    "VersionReference": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "VersionReference",
+      "type": "object"
+    },
+    "VersionedDigestReference": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "title": "VersionedDigestReference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
+    "configuration": {
+      "$ref": "#/$defs/AgentSpecConfiguration"
+    },
+    "product": {
+      "const": "Agent Customer Service",
+      "default": "Agent Customer Service",
+      "title": "Product",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tenant_id": {
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "version_id": {
+      "format": "uuid",
+      "title": "Version Id",
+      "type": "string"
+    },
+    "version_number": {
+      "minimum": 1,
+      "title": "Version Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "agent_instance_id",
+    "version_id",
+    "version_number",
+    "configuration"
+  ],
+  "title": "AgentSpec",
+  "type": "object"
+}

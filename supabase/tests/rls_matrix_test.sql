@@ -24,7 +24,10 @@ values
   ('public.conversations', 'tenant_id'),
   ('public.messages', 'tenant_id'),
   ('public.conversation_state_events', 'tenant_id'),
-  ('public.outbound_messages', 'tenant_id');
+  ('public.outbound_messages', 'tenant_id'),
+  ('public.agent_instances', 'tenant_id'),
+  ('public.agent_spec_versions', 'tenant_id'),
+  ('public.agent_spec_deployments', 'tenant_id');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

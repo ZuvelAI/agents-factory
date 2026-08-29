@@ -104,6 +104,24 @@ TENANT_ISOLATION_REGISTRY = (
         delete_allowed=False,
     ),
     TenantIsolationRegistration("public.outbound_messages", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.agent_instances",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.agent_spec_versions",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.agent_spec_deployments",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -198,7 +216,15 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.outbound_messages, "
+                "ALTER TABLE public.agent_spec_deployments "
+                "DISABLE TRIGGER agent_spec_deployments_append_only"
+            )
+        )
+        await connection.execute(
+            text(
+                "TRUNCATE TABLE public.agent_spec_deployments, "
+                "public.agent_spec_versions, public.agent_instances, "
+                "public.outbound_messages, "
                 "public.whatsapp_templates, public.conversation_state_events, "
                 "public.messages, public.conversations, "
                 "public.whatsapp_webhook_events, "
@@ -206,6 +232,12 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
                 "public.dead_letter_jobs, "
                 "public.job_attempts, public.outbox_jobs, public.audit_events, "
                 "public.platform_admins, public.tenants CASCADE"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE public.agent_spec_deployments "
+                "ENABLE TRIGGER agent_spec_deployments_append_only"
             )
         )
         await connection.execute(
@@ -250,6 +282,74 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             (tenant_a, row_a, "a", insert_parent_a),
             (tenant_b, row_b, "b", insert_parent_b),
         ):
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_instances "
+                    "(id, tenant_id, product) VALUES "
+                    "(:id, :tenant_id, 'Agent Customer Service')"
+                ),
+                {
+                    "id": rows["public.agent_instances"],
+                    "tenant_id": tenant_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_spec_versions "
+                    "(id, tenant_id, agent_instance_id, version_number, state, "
+                    "configuration) VALUES "
+                    "(:id, :tenant_id, :instance_id, 1, 'DRAFT', "
+                    "jsonb_build_object("
+                    "'knowledge', jsonb_build_object('digest', :digest), "
+                    "'code_digest', :digest))"
+                ),
+                {
+                    "id": rows["public.agent_spec_versions"],
+                    "tenant_id": tenant_id,
+                    "instance_id": rows["public.agent_instances"],
+                    "digest": "a" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'TEST', "
+                    "compiled_spec = '{}'::jsonb, compiled_digest = :digest "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"], "digest": "a" * 64},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'QUALITY_GATE' "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"]},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'PRODUCTION' "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"]},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_spec_deployments "
+                    "(id, tenant_id, agent_instance_id, version_id, action, "
+                    "agent_spec_digest, knowledge_digest, code_digest, "
+                    "quality_gate_decision_id) VALUES "
+                    "(:id, :tenant_id, :instance_id, :version_id, 'PUBLISH', "
+                    ":digest, :digest, :digest, :decision_id)"
+                ),
+                {
+                    "id": rows["public.agent_spec_deployments"],
+                    "tenant_id": tenant_id,
+                    "instance_id": rows["public.agent_instances"],
+                    "version_id": rows["public.agent_spec_versions"],
+                    "digest": "a" * 64,
+                    "decision_id": uuid4(),
+                },
+            )
             await connection.execute(
                 text(
                     "INSERT INTO public.audit_events "
@@ -643,6 +743,25 @@ def _insert_statement(table_name: str) -> str:
             '\'{"template_name":"task5_template",'
             '"language":"es_CO","body_parameters":[]}\'::jsonb)'
         ),
+        "public.agent_instances": (
+            "INSERT INTO public.agent_instances (id, tenant_id, product) "
+            "VALUES (:id, :tenant_id, 'Agent Customer Service')"
+        ),
+        "public.agent_spec_versions": (
+            "INSERT INTO public.agent_spec_versions "
+            "(id, tenant_id, agent_instance_id, version_number, state, "
+            "configuration) VALUES (:id, :tenant_id, :parent_id, :version, "
+            "'DRAFT', '{}'::jsonb)"
+        ),
+        "public.agent_spec_deployments": (
+            "INSERT INTO public.agent_spec_deployments "
+            "(id, tenant_id, agent_instance_id, version_id, action, "
+            "agent_spec_digest, knowledge_digest, code_digest, "
+            "quality_gate_decision_id) VALUES (:id, :tenant_id, "
+            "(SELECT agent_instance_id FROM public.agent_spec_versions "
+            "WHERE tenant_id = :tenant_id AND id = :parent_id), :parent_id, "
+            "'ROLLBACK', :digest, :digest, :digest, :correlation_id)"
+        ),
     }
     return statements[table_name]
 
@@ -677,6 +796,8 @@ def _insert_parameters(
         "idempotency_key": f"task5-outbound-{nonce}",
         "arrival_sequence": uuid4().int % 1_000_000_000 + 2,
         "version": uuid4().int % 1_000_000_000 + 2,
+        "parent_id": parent_id,
+        "digest": "a" * 64,
     }
 
 
@@ -695,6 +816,9 @@ def _matching_update(table_name: str) -> str | None:
         "public.messages": None,
         "public.conversation_state_events": None,
         "public.outbound_messages": "updated_at = now()",
+        "public.agent_instances": None,
+        "public.agent_spec_versions": None,
+        "public.agent_spec_deployments": None,
     }[table_name]
 
 
@@ -714,6 +838,12 @@ def _insert_parent_id(
     if table_name in {"public.messages", "public.conversation_state_events"}:
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.conversations"]
+    if table_name == "public.agent_spec_versions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.agent_instances"]
+    if table_name == "public.agent_spec_deployments":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.agent_spec_versions"]
     return world.insert_parent_a if tenant == "a" else world.insert_parent_b
 
 
