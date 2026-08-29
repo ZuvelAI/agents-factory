@@ -285,6 +285,39 @@ class WhatsAppAccountRepository:
         )
         return await self._required(context=context, account_id=account_id)
 
+    async def update_health_if_current_active(
+        self,
+        *,
+        context: TenantContext,
+        account: ConnectedWhatsAppAccount,
+        status: WhatsAppHealthStatus,
+        error_code: str | None,
+        checked_at: datetime,
+    ) -> ConnectedWhatsAppAccount:
+        secret_ref = account.access_token_secret_ref
+        if secret_ref is None:
+            return await self._required(context=context, account_id=account.id)
+        await set_tenant_context(self._session, context.tenant_id)
+        await self._session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET health_status = :status, "
+                "last_error_code = :error_code, last_health_checked_at = :checked_at, "
+                "updated_at = now() WHERE tenant_id = :tenant_id AND id = :account_id "
+                "AND status = 'active' AND access_token_secret_id = :secret_id "
+                "AND verified_at IS NOT DISTINCT FROM :verified_at"
+            ),
+            {
+                "status": status,
+                "error_code": error_code,
+                "checked_at": checked_at,
+                "tenant_id": context.tenant_id,
+                "account_id": account.id,
+                "secret_id": secret_ref.id,
+                "verified_at": account.verified_at,
+            },
+        )
+        return await self._required(context=context, account_id=account.id)
+
     async def deactivate(
         self,
         *,
@@ -591,9 +624,9 @@ class WhatsAppAccountService:
             waba_id=account.waba_id,
             phone_number_id=account.phone_number_id,
         )
-        updated = await self._repository.update_health(
+        updated = await self._repository.update_health_if_current_active(
             context=context,
-            account_id=account.id,
+            account=account,
             status=health.status,
             error_code=health.error_code,
             checked_at=checked_at,

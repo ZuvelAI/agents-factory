@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -15,7 +16,10 @@ from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountService,
     WhatsAppAccountSummary,
 )
-from agents_factory.modules.whatsapp.contracts import MetaAuthorizationSnapshot
+from agents_factory.modules.whatsapp.contracts import (
+    MetaAuthorizationSnapshot,
+    MetaHealthSnapshot,
+)
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import (
     REQUIRED_META_SCOPES,
@@ -370,3 +374,41 @@ async def test_revoke_uses_the_durable_disconnect_executor() -> None:
     disconnect_executor.revoke.assert_awaited_once_with(
         context=context(), account_id=ACCOUNT_ID, revoked_at=NOW
     )
+
+
+@pytest.mark.asyncio
+async def test_health_persists_only_for_the_observed_active_secret_generation() -> None:
+    active = account()
+    disconnected = replace(
+        active,
+        status="inactive",
+        health_status="REAUTH_REQUIRED",
+        access_token_secret_ref=None,
+    )
+    repository = AsyncMock()
+    repository.get.return_value = active
+    repository.update_health_if_current_active.return_value = disconnected
+    vault = AsyncMock()
+    vault.load.return_value = ResolvedSecret(b"client-owned-meta-token")
+    provider = AsyncMock()
+    provider.inspect_health.return_value = MetaHealthSnapshot(status="HEALTHY")
+    accounts = WhatsAppAccountService(
+        repository=repository,
+        vault=vault,
+        provider=provider,
+        disconnect_executor=AsyncMock(),
+    )
+
+    summary = await accounts.check_health(
+        context=context(), account_id=ACCOUNT_ID, checked_at=NOW
+    )
+
+    assert summary.status == "inactive"
+    repository.update_health_if_current_active.assert_awaited_once_with(
+        context=context(),
+        account=active,
+        status="HEALTHY",
+        error_code=None,
+        checked_at=NOW,
+    )
+    repository.update_health.assert_not_awaited()

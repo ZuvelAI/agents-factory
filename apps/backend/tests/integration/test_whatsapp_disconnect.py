@@ -19,9 +19,13 @@ from agents_factory.modules.secrets.contracts import SecretRef
 from agents_factory.modules.secrets.repository import SecretVault
 from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountRepository,
+    WhatsAppAccountService,
     WhatsAppDisconnectCoordinator,
 )
-from agents_factory.modules.whatsapp.contracts import MetaEmbeddedSignupProvider
+from agents_factory.modules.whatsapp.contracts import (
+    MetaEmbeddedSignupProvider,
+    MetaHealthSnapshot,
+)
 from agents_factory.modules.whatsapp.signup_service import ACCESS_TOKEN_PURPOSE
 
 
@@ -57,6 +61,17 @@ class _RevocationProvider:
             await self.release.wait()
         if self.failure is not None:
             raise self.failure
+
+
+@dataclass
+class _BlockingHealthProvider:
+    entered: asyncio.Event
+    release: asyncio.Event
+
+    async def inspect_health(self, **_kwargs: object) -> MetaHealthSnapshot:
+        self.entered.set()
+        await self.release.wait()
+        return MetaHealthSnapshot(status="HEALTHY")
 
 
 async def _seed_account(
@@ -243,3 +258,54 @@ async def test_late_revoke_success_does_not_overwrite_a_reconnected_account(
     assert row["status"] == "active"
     assert row["access_token_secret_id"] == replacement_ref.id
     assert row["last_error_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_late_health_result_does_not_overwrite_disconnect_pending_state(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key_provider = _key_provider(5)
+    context, account_id, _secret_ref = await _seed_account(
+        session_factory, key_provider=key_provider
+    )
+    coordinator = WhatsAppDisconnectCoordinator(
+        session_factory=session_factory,
+        key_provider=key_provider,
+        provider=cast(
+            MetaEmbeddedSignupProvider,
+            _RevocationProvider(failure=RuntimeError("Meta unavailable")),
+        ),
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    health_provider = _BlockingHealthProvider(entered=entered, release=release)
+
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        accounts = WhatsAppAccountService(
+            repository=WhatsAppAccountRepository(session),
+            vault=SecretVault.for_session(session, key_provider=key_provider),
+            provider=cast(MetaEmbeddedSignupProvider, health_provider),
+            disconnect_executor=coordinator,
+        )
+        health_task = asyncio.create_task(
+            accounts.check_health(
+                context=context,
+                account_id=account_id,
+                checked_at=NOW,
+            )
+        )
+        await entered.wait()
+        await coordinator.revoke(
+            context=context,
+            account_id=account_id,
+            revoked_at=NOW,
+        )
+        release.set()
+        summary = await health_task
+
+    row = await _account_row(session_factory, account_id)
+    assert summary.status == "inactive"
+    assert row["status"] == "inactive"
+    assert row["access_token_secret_id"] is None
+    assert row["last_error_code"] == "meta_revoke_pending"
