@@ -16,6 +16,9 @@ from agents_factory.modules.agent_factory.schemas import (
     RollbackRequest,
 )
 from agents_factory.modules.agent_factory.service import AgentSpecLifecycleService
+from agents_factory.modules.capabilities.registry import V1_CAPABILITY_REGISTRY
+from agents_factory.modules.capabilities.service import CapabilityService
+from agents_factory.modules.integrations.registry import V1_CONNECTOR_CATALOG
 
 
 router = APIRouter(
@@ -154,4 +157,8 @@ def _service(
     )
     return AgentSpecLifecycleService(
         repository=AgentSpecRepository(session, context),
+        manifest_validator=CapabilityService(
+            capabilities=V1_CAPABILITY_REGISTRY,
+            connectors=V1_CONNECTOR_CATALOG,
+        ),
     )

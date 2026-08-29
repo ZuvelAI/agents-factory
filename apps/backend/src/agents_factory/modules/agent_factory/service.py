@@ -6,7 +6,10 @@ from typing import Protocol
 from uuid import UUID
 
 from agents_factory.common.errors import DomainError
-from agents_factory.modules.agent_factory.compiler import AgentSpecCompiler
+from agents_factory.modules.agent_factory.compiler import (
+    AgentSpecCompiler,
+    AgentSpecValidator,
+)
 from agents_factory.modules.agent_factory.models import (
     AgentInstance,
     AgentSpecConfiguration,
@@ -55,9 +58,10 @@ class AgentSpecLifecycleService:
         *,
         repository: AgentSpecRepository,
         quality_gate: ProductionQualityGate | None = None,
+        manifest_validator: AgentSpecValidator | None = None,
     ) -> None:
         self._repository = repository
-        self._compiler = AgentSpecCompiler(repository)
+        self._compiler = AgentSpecCompiler(repository, validator=manifest_validator)
         self._quality_gate = quality_gate or FailClosedProductionQualityGate()
 
     async def create_instance(

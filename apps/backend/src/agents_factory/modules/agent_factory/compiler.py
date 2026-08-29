@@ -34,6 +34,10 @@ class AgentSpecDraftSource(Protocol):
     ) -> AgentSpecDraft | None: ...
 
 
+class AgentSpecValidator(Protocol):
+    def validate_agent_spec(self, spec: AgentSpec) -> None: ...
+
+
 class AgentSpecDraftNotFound(LookupError):
     pass
 
@@ -52,8 +56,14 @@ def canonical_json(value: BaseModel) -> CanonicalDocument:
 
 
 class AgentSpecCompiler:
-    def __init__(self, drafts: AgentSpecDraftSource) -> None:
+    def __init__(
+        self,
+        drafts: AgentSpecDraftSource,
+        *,
+        validator: AgentSpecValidator | None = None,
+    ) -> None:
         self._drafts = drafts
+        self._validator = validator
 
     async def compile(
         self, agent_instance_id: UUID, draft_version_id: UUID
@@ -96,6 +106,8 @@ class AgentSpecCompiler:
             version_number=draft.version_number,
             configuration=configuration,
         )
+        if self._validator is not None:
+            self._validator.validate_agent_spec(spec)
         document = canonical_json(spec)
         return CompiledAgentSpec(
             spec=spec,
