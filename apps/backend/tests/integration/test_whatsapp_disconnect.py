@@ -125,14 +125,18 @@ async def _account_row(
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
         return (
-            await session.execute(
-                text(
-                    "SELECT status, access_token_secret_id, last_error_code "
-                    "FROM public.whatsapp_accounts WHERE id = :account_id"
-                ),
-                {"account_id": account_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT status, access_token_secret_id, last_error_code "
+                        "FROM public.whatsapp_accounts WHERE id = :account_id"
+                    ),
+                    {"account_id": account_id},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
 
 
 async def _denial_count(
@@ -190,12 +194,8 @@ async def test_second_revoke_preserves_pending_outcome_without_repeating_cleanup
         provider=cast(MetaEmbeddedSignupProvider, provider),
     )
 
-    await coordinator.revoke(
-        context=context, account_id=account_id, revoked_at=NOW
-    )
-    await coordinator.revoke(
-        context=context, account_id=account_id, revoked_at=NOW
-    )
+    await coordinator.revoke(context=context, account_id=account_id, revoked_at=NOW)
+    await coordinator.revoke(context=context, account_id=account_id, revoked_at=NOW)
 
     row = await _account_row(session_factory, account_id)
     assert provider.calls == 1
@@ -222,9 +222,7 @@ async def test_late_revoke_success_does_not_overwrite_a_reconnected_account(
     )
 
     revoke_task = asyncio.create_task(
-        coordinator.revoke(
-            context=context, account_id=account_id, revoked_at=NOW
-        )
+        coordinator.revoke(context=context, account_id=account_id, revoked_at=NOW)
     )
     await entered.wait()
     async with session_factory.begin() as session:

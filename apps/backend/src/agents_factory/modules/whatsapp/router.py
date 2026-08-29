@@ -276,7 +276,9 @@ def _disconnect_coordinator(
 ) -> WhatsAppDisconnectCoordinator:
     bind = session.bind
     if not isinstance(bind, AsyncEngine):
-        raise RuntimeError("WhatsApp disconnect coordinator requires an engine-bound session")
+        raise RuntimeError(
+            "WhatsApp disconnect coordinator requires an engine-bound session"
+        )
     return WhatsAppDisconnectCoordinator(
         session_factory=async_sessionmaker(bind, expire_on_commit=False),
         key_provider=EnvironmentMasterKeyProvider(

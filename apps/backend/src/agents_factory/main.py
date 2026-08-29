@@ -20,7 +20,9 @@ from agents_factory.common.security import (
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.actions.router import router as admin_action_router
-from agents_factory.modules.agent_factory.router import router as admin_agent_spec_router
+from agents_factory.modules.agent_factory.router import (
+    router as admin_agent_spec_router,
+)
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router

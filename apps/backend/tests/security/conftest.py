@@ -31,8 +31,7 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
     )
     await connection.execute(
         text(
-            "ALTER TABLE public.action_events "
-            "DISABLE TRIGGER action_events_append_only"
+            "ALTER TABLE public.action_events DISABLE TRIGGER action_events_append_only"
         )
     )
     await connection.execute(
@@ -63,8 +62,7 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
     )
     await connection.execute(
         text(
-            "ALTER TABLE public.action_events "
-            "ENABLE TRIGGER action_events_append_only"
+            "ALTER TABLE public.action_events ENABLE TRIGGER action_events_append_only"
         )
     )
     await connection.execute(

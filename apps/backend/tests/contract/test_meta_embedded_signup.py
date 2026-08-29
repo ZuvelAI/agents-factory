@@ -310,7 +310,9 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> No
 
 
 @pytest.mark.asyncio
-async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_business() -> None:
+async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_business() -> (
+    None
+):
     def respond(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/oauth/access_token"):
