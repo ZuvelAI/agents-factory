@@ -325,8 +325,9 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "configuration) VALUES "
                     "(:id, :tenant_id, :instance_id, 1, 'DRAFT', "
                     "jsonb_build_object("
-                    "'knowledge', jsonb_build_object('digest', :digest), "
-                    "'code_digest', :digest))"
+                    "'knowledge', jsonb_build_object("
+                    "'digest', CAST(:digest AS text)), "
+                    "'code_digest', CAST(:digest AS text)))"
                 ),
                 {
                     "id": rows["public.agent_spec_versions"],
