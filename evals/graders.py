@@ -29,6 +29,8 @@ class EvalObservation:
     selected_tools: tuple[str, ...]
     persisted_result: bool
     artifact_data: Mapping[str, object]
+    policy_classification: str | None = None
+    response_language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,11 +131,87 @@ class CredentialsAbsentGrader:
         )
 
 
+class PolicyClassificationGrader:
+    name: GraderName = "policy_classification"
+
+    def grade(
+        self,
+        *,
+        case: EvalCase,
+        observation: EvalObservation,
+    ) -> GradeResult:
+        passed = (
+            case.expected.policy_classification is not None
+            and observation.policy_classification == case.expected.policy_classification
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="policy classification matched"
+            if passed
+            else "policy classification differed",
+        )
+
+
+class ResponseLanguageGrader:
+    name: GraderName = "response_language"
+
+    def grade(
+        self,
+        *,
+        case: EvalCase,
+        observation: EvalObservation,
+    ) -> GradeResult:
+        passed = (
+            case.expected.response_language is not None
+            and observation.response_language == case.expected.response_language
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="response language matched"
+            if passed
+            else "response language differed",
+        )
+
+
+class TruthfulDisclosureGrader:
+    name: GraderName = "truthful_disclosure"
+
+    def grade(
+        self,
+        *,
+        case: EvalCase,
+        observation: EvalObservation,
+    ) -> GradeResult:
+        from agents_factory.modules.runtime.customer_service.policy import (
+            response_has_truthful_disclosure,
+        )
+
+        expected = case.expected.truthful_disclosure
+        language = observation.response_language
+        actual = language in {"es", "en"} and response_has_truthful_disclosure(
+            observation.response_text,
+            language=language,  # type: ignore[arg-type]
+        )
+        passed = expected is not None and actual is expected
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="automation disclosure matched"
+            if passed
+            else "automation disclosure differed",
+        )
+
+
 GRADERS: dict[GraderName, EvalGrader] = {
     "response_exists": ResponseExistsGrader(),
     "selected_tools": SelectedToolsGrader(),
     "persisted_result": PersistedResultGrader(),
     "credentials_absent": CredentialsAbsentGrader(),
+    "policy_classification": PolicyClassificationGrader(),
+    "response_language": ResponseLanguageGrader(),
+    "truthful_disclosure": TruthfulDisclosureGrader(),
 }
 
 

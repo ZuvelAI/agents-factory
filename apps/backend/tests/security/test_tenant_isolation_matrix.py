@@ -52,6 +52,7 @@ class TenantIsolationRegistration:
     insert_allowed: bool = True
     update_allowed: bool = True
     delete_allowed: bool = False
+    reassignment_denials: frozenset[str] = frozenset({"42501"})
 
 
 TENANT_ISOLATION_REGISTRY = (
@@ -104,6 +105,42 @@ TENANT_ISOLATION_REGISTRY = (
         delete_allowed=False,
     ),
     TenantIsolationRegistration("public.outbound_messages", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.agent_instances",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.agent_spec_versions",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.agent_spec_deployments",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration("public.identity_subjects", delete_allowed=False),
+    TenantIsolationRegistration("public.identity_challenges", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.identity_evidence",
+        delete_allowed=False,
+        reassignment_denials=frozenset({"42501", "55000"}),
+    ),
+    TenantIsolationRegistration(
+        "public.actions",
+        delete_allowed=False,
+        reassignment_denials=frozenset({"42501", "55000"}),
+    ),
+    TenantIsolationRegistration(
+        "public.action_events",
+        insert_allowed=True,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -198,7 +235,24 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.outbound_messages, "
+                "ALTER TABLE public.agent_spec_deployments "
+                "DISABLE TRIGGER agent_spec_deployments_append_only"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE public.action_events "
+                "DISABLE TRIGGER action_events_append_only"
+            )
+        )
+        await connection.execute(
+            text(
+                "TRUNCATE TABLE public.action_events, public.actions, "
+                "public.agent_spec_deployments, "
+                "public.agent_spec_versions, public.agent_instances, "
+                "public.identity_evidence, public.identity_challenges, "
+                "public.identity_subjects, "
+                "public.outbound_messages, "
                 "public.whatsapp_templates, public.conversation_state_events, "
                 "public.messages, public.conversations, "
                 "public.whatsapp_webhook_events, "
@@ -206,6 +260,18 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
                 "public.dead_letter_jobs, "
                 "public.job_attempts, public.outbox_jobs, public.audit_events, "
                 "public.platform_admins, public.tenants CASCADE"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE public.action_events "
+                "ENABLE TRIGGER action_events_append_only"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE public.agent_spec_deployments "
+                "ENABLE TRIGGER agent_spec_deployments_append_only"
             )
         )
         await connection.execute(
@@ -250,6 +316,121 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             (tenant_a, row_a, "a", insert_parent_a),
             (tenant_b, row_b, "b", insert_parent_b),
         ):
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_instances "
+                    "(id, tenant_id, product) VALUES "
+                    "(:id, :tenant_id, 'Agent Customer Service')"
+                ),
+                {
+                    "id": rows["public.agent_instances"],
+                    "tenant_id": tenant_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_spec_versions "
+                    "(id, tenant_id, agent_instance_id, version_number, state, "
+                    "configuration) VALUES "
+                    "(:id, :tenant_id, :instance_id, 1, 'DRAFT', "
+                    "jsonb_build_object("
+                    "'knowledge', jsonb_build_object("
+                    "'digest', CAST(:digest AS text)), "
+                    "'code_digest', CAST(:digest AS text)))"
+                ),
+                {
+                    "id": rows["public.agent_spec_versions"],
+                    "tenant_id": tenant_id,
+                    "instance_id": rows["public.agent_instances"],
+                    "digest": "a" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'TEST', "
+                    "compiled_spec = '{}'::jsonb, compiled_digest = :digest "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"], "digest": "a" * 64},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'QUALITY_GATE' "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"]},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.agent_spec_versions SET state = 'PRODUCTION' "
+                    "WHERE id = :id"
+                ),
+                {"id": rows["public.agent_spec_versions"]},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.agent_spec_deployments "
+                    "(id, tenant_id, agent_instance_id, version_id, action, "
+                    "agent_spec_digest, knowledge_digest, code_digest, "
+                    "quality_gate_decision_id) VALUES "
+                    "(:id, :tenant_id, :instance_id, :version_id, 'PUBLISH', "
+                    ":digest, :digest, :digest, :decision_id)"
+                ),
+                {
+                    "id": rows["public.agent_spec_deployments"],
+                    "tenant_id": tenant_id,
+                    "instance_id": rows["public.agent_instances"],
+                    "version_id": rows["public.agent_spec_versions"],
+                    "digest": "a" * 64,
+                    "decision_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_subjects "
+                    "(id, tenant_id, customer_ref, whatsapp_recognized_at) "
+                    "VALUES (:id, :tenant_id, :customer_ref, now())"
+                ),
+                {
+                    "id": rows["public.identity_subjects"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_challenges "
+                    "(id, tenant_id, customer_ref, required_level, method, "
+                    "secret_digest, status, attempts, max_attempts, expires_at, "
+                    "created_at) VALUES (:id, :tenant_id, :customer_ref, 2, "
+                    "'ADDITIONAL_VERIFICATION', :digest, 'PENDING', 0, 5, "
+                    "now() + interval '1 hour', now())"
+                ),
+                {
+                    "id": rows["public.identity_challenges"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                    "digest": "b" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_evidence "
+                    "(id, tenant_id, customer_ref, method, result, "
+                    "achieved_level, scope, bound_action_ref, "
+                    "evidence_ref_digest, verified_at, expires_at) VALUES "
+                    "(:id, :tenant_id, :customer_ref, 'OTP', 'VERIFIED', 3, "
+                    "'ACTION', :action_ref, :digest, now(), "
+                    "now() + interval '1 hour')"
+                ),
+                {
+                    "id": rows["public.identity_evidence"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                    "action_ref": f"task5-action-{label}",
+                    "digest": "c" * 64,
+                },
+            )
             await connection.execute(
                 text(
                     "INSERT INTO public.audit_events "
@@ -364,6 +545,42 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "tenant_id": tenant_id,
                     "account_id": rows["public.whatsapp_accounts"],
                     "customer_wa_id": f"57300000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.actions "
+                    "(id, tenant_id, conversation_id, customer_ref, capability, "
+                    "action_type, risk, required_identity_level, "
+                    "achieved_identity_level, parameters, parameter_digest, "
+                    "confirmation_required, approval_required, "
+                    "connector_binding_id, connector_name, state, created_at, "
+                    "updated_at) VALUES (:id, :tenant_id, :conversation_id, "
+                    ":customer_ref, 'orders', 'orders.get_status', 'LOW', 1, 1, "
+                    "'{}'::jsonb, :digest, false, false, :binding_id, "
+                    "'woocommerce', 'REQUESTED', now(), now())"
+                ),
+                {
+                    "id": rows["public.actions"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "customer_ref": f"task5-customer-{label}",
+                    "digest": "d" * 64,
+                    "binding_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.action_events "
+                    "(id, tenant_id, action_id, version, from_state, to_state, "
+                    "event_type, payload, created_at) VALUES "
+                    "(:id, :tenant_id, :action_id, 1, NULL, 'REQUESTED', "
+                    "'action.requested', '{}'::jsonb, now())"
+                ),
+                {
+                    "id": rows["public.action_events"],
+                    "tenant_id": tenant_id,
+                    "action_id": rows["public.actions"],
                 },
             )
             await connection.execute(
@@ -643,6 +860,64 @@ def _insert_statement(table_name: str) -> str:
             '\'{"template_name":"task5_template",'
             '"language":"es_CO","body_parameters":[]}\'::jsonb)'
         ),
+        "public.agent_instances": (
+            "INSERT INTO public.agent_instances (id, tenant_id, product) "
+            "VALUES (:id, :tenant_id, 'Agent Customer Service')"
+        ),
+        "public.agent_spec_versions": (
+            "INSERT INTO public.agent_spec_versions "
+            "(id, tenant_id, agent_instance_id, version_number, state, "
+            "configuration) VALUES (:id, :tenant_id, :parent_id, :version, "
+            "'DRAFT', '{}'::jsonb)"
+        ),
+        "public.agent_spec_deployments": (
+            "INSERT INTO public.agent_spec_deployments "
+            "(id, tenant_id, agent_instance_id, version_id, action, "
+            "agent_spec_digest, knowledge_digest, code_digest, "
+            "quality_gate_decision_id) VALUES (:id, :tenant_id, "
+            "(SELECT agent_instance_id FROM public.agent_spec_versions "
+            "WHERE tenant_id = :tenant_id AND id = :parent_id), :parent_id, "
+            "'ROLLBACK', :digest, :digest, :digest, :correlation_id)"
+        ),
+        "public.identity_subjects": (
+            "INSERT INTO public.identity_subjects "
+            "(id, tenant_id, customer_ref, whatsapp_recognized_at) "
+            "VALUES (:id, :tenant_id, :customer_ref, now())"
+        ),
+        "public.identity_challenges": (
+            "INSERT INTO public.identity_challenges "
+            "(id, tenant_id, customer_ref, required_level, method, "
+            "secret_digest, status, attempts, max_attempts, expires_at, "
+            "created_at) VALUES (:id, :tenant_id, :customer_ref, 2, "
+            "'ADDITIONAL_VERIFICATION', :digest, 'PENDING', 0, 5, "
+            "now() + interval '1 hour', now())"
+        ),
+        "public.identity_evidence": (
+            "INSERT INTO public.identity_evidence "
+            "(id, tenant_id, customer_ref, method, result, achieved_level, "
+            "scope, bound_action_ref, evidence_ref_digest, verified_at, "
+            "expires_at) VALUES (:id, :tenant_id, :customer_ref, 'OTP', "
+            "'VERIFIED', 3, 'ACTION', :action_ref, :digest, now(), "
+            "now() + interval '1 hour')"
+        ),
+        "public.actions": (
+            "INSERT INTO public.actions "
+            "(id, tenant_id, conversation_id, customer_ref, capability, "
+            "action_type, risk, required_identity_level, achieved_identity_level, "
+            "parameters, parameter_digest, confirmation_required, "
+            "approval_required, connector_binding_id, connector_name, state, "
+            "created_at, updated_at) VALUES (:id, :tenant_id, :parent_id, "
+            ":customer_ref, 'orders', 'orders.get_status', 'LOW', 1, 1, "
+            "'{}'::jsonb, :digest, false, false, :binding_id, 'woocommerce', "
+            "'REQUESTED', now(), now())"
+        ),
+        "public.action_events": (
+            "INSERT INTO public.action_events "
+            "(id, tenant_id, action_id, version, from_state, to_state, "
+            "event_type, payload, created_at) VALUES (:id, :tenant_id, "
+            ":parent_id, :version, NULL, 'REQUESTED', 'action.requested', "
+            "'{}'::jsonb, now())"
+        ),
     }
     return statements[table_name]
 
@@ -671,12 +946,17 @@ def _insert_parameters(
         "whatsapp_account_id": parent_id,
         "conversation_id": parent_id,
         "customer_wa_id": f"573{uuid4().int % 10**9:09d}",
+        "customer_ref": f"task5-customer-{nonce}",
         "message_id": f"task5-message-{nonce}",
         "provider_template_id": f"task5-template-{nonce}",
         "template_name": f"task5_{nonce[:80]}",
         "idempotency_key": f"task5-outbound-{nonce}",
         "arrival_sequence": uuid4().int % 1_000_000_000 + 2,
         "version": uuid4().int % 1_000_000_000 + 2,
+        "parent_id": parent_id,
+        "digest": "a" * 64,
+        "action_ref": f"task5-action-{nonce}",
+        "binding_id": uuid4(),
     }
 
 
@@ -695,6 +975,14 @@ def _matching_update(table_name: str) -> str | None:
         "public.messages": None,
         "public.conversation_state_events": None,
         "public.outbound_messages": "updated_at = now()",
+        "public.agent_instances": None,
+        "public.agent_spec_versions": None,
+        "public.agent_spec_deployments": None,
+        "public.identity_subjects": "whatsapp_recognized_at = now()",
+        "public.identity_challenges": "expires_at = expires_at + interval '1 second'",
+        "public.identity_evidence": "consumed_at = now()",
+        "public.actions": "state = 'IDENTITY_VERIFIED'",
+        "public.action_events": None,
     }[table_name]
 
 
@@ -714,6 +1002,18 @@ def _insert_parent_id(
     if table_name in {"public.messages", "public.conversation_state_events"}:
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.conversations"]
+    if table_name == "public.agent_spec_versions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.agent_instances"]
+    if table_name == "public.agent_spec_deployments":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.agent_spec_versions"]
+    if table_name == "public.actions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.conversations"]
+    if table_name == "public.action_events":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.actions"]
     return world.insert_parent_a if tenant == "a" else world.insert_parent_b
 
 
@@ -865,6 +1165,8 @@ async def assert_tenant_isolated(
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
+        "public.actions",
+        "public.action_events",
     }:
         foreign_parent_parameters = _insert_parameters(
             table_name,
@@ -974,7 +1276,7 @@ async def assert_tenant_isolated(
         ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
     )
-    assert reassignment.sqlstate == "42501"
+    assert reassignment.sqlstate in registration.reassignment_denials
 
     delete_statement = f"DELETE FROM {table_name} WHERE id = :row_id RETURNING id"
     if registration.delete_allowed:

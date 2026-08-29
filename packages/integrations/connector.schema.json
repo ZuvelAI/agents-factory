@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "availability": {
+      "enum": [
+        "AVAILABLE",
+        "UNAVAILABLE"
+      ],
+      "title": "Availability",
+      "type": "string"
+    },
+    "availability_note": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Availability Note",
+      "type": "string"
+    },
+    "display_name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "executable_entry_point": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Executable Entry Point"
+    },
+    "stable_name": {
+      "pattern": "[a-z][a-z0-9_]*",
+      "title": "Stable Name",
+      "type": "string"
+    },
+    "supported_operations": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Operations",
+      "type": "array"
+    },
+    "version": {
+      "pattern": "(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "stable_name",
+    "display_name",
+    "version",
+    "availability",
+    "availability_note"
+  ],
+  "title": "ConnectorManifest",
+  "type": "object"
+}

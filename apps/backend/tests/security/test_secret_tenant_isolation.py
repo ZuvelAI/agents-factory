@@ -12,6 +12,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -59,6 +60,29 @@ def _problem(error: SecretAccessDenied) -> tuple[object, ...]:
     )
 
 
+async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
+    for statement in (
+        "ALTER TABLE public.audit_events DISABLE TRIGGER audit_events_reject_truncate",
+        "ALTER TABLE public.agent_spec_deployments "
+        "DISABLE TRIGGER agent_spec_deployments_append_only",
+        "ALTER TABLE public.action_events DISABLE TRIGGER action_events_append_only",
+    ):
+        await connection.execute(text(statement))
+    await connection.execute(
+        text(
+            "TRUNCATE TABLE public.secret_envelopes, public.audit_events, "
+            "public.tenants CASCADE"
+        )
+    )
+    for statement in (
+        "ALTER TABLE public.action_events ENABLE TRIGGER action_events_append_only",
+        "ALTER TABLE public.agent_spec_deployments "
+        "ENABLE TRIGGER agent_spec_deployments_append_only",
+        "ALTER TABLE public.audit_events ENABLE TRIGGER audit_events_reject_truncate",
+    ):
+        await connection.execute(text(statement))
+
+
 @pytest.fixture(scope="session")
 def local_database_url() -> str:
     database_url = os.environ.get("TEST_DATABASE_URL")
@@ -93,46 +117,12 @@ async def database_engine(local_database_url: str) -> AsyncIterator[AsyncEngine]
                 "GRANT agents_factory_app TO CURRENT_USER WITH INHERIT FALSE, SET TRUE"
             )
         )
-        await connection.execute(
-            text(
-                "ALTER TABLE public.audit_events "
-                "DISABLE TRIGGER audit_events_reject_truncate"
-            )
-        )
-        await connection.execute(
-            text(
-                "TRUNCATE TABLE public.secret_envelopes, public.audit_events, "
-                "public.tenants CASCADE"
-            )
-        )
-        await connection.execute(
-            text(
-                "ALTER TABLE public.audit_events "
-                "ENABLE TRIGGER audit_events_reject_truncate"
-            )
-        )
+        await _truncate_secret_test_data(connection)
     try:
         yield engine
     finally:
         async with engine.begin() as connection:
-            await connection.execute(
-                text(
-                    "ALTER TABLE public.audit_events "
-                    "DISABLE TRIGGER audit_events_reject_truncate"
-                )
-            )
-            await connection.execute(
-                text(
-                    "TRUNCATE TABLE public.secret_envelopes, public.audit_events, "
-                    "public.tenants CASCADE"
-                )
-            )
-            await connection.execute(
-                text(
-                    "ALTER TABLE public.audit_events "
-                    "ENABLE TRIGGER audit_events_reject_truncate"
-                )
-            )
+            await _truncate_secret_test_data(connection)
             await connection.execute(
                 text("REVOKE agents_factory_app FROM CURRENT_USER")
             )

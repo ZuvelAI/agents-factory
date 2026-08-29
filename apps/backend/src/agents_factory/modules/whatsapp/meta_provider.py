@@ -286,6 +286,16 @@ class MetaEmbeddedSignupClient:
                 headers=authorization_header,
             )
             owned_wabas_payload = _required_json_mapping(owned_wabas_response)
+            owns_waba = _contains_asset(owned_wabas_payload.get("data"), waba_id)
+            if not owns_waba:
+                shared_wabas_response = await client.get(
+                    f"{self.graph_api_base_url.rstrip('/')}/{business_id}/"
+                    "client_whatsapp_business_accounts",
+                    params={"fields": "id"},
+                    headers=authorization_header,
+                )
+                shared_wabas_payload = _required_json_mapping(shared_wabas_response)
+                owns_waba = _contains_asset(shared_wabas_payload.get("data"), waba_id)
             phone_response = await client.get(
                 f"{self.graph_api_base_url.rstrip('/')}/{waba_id}/phone_numbers",
                 params={"fields": "id"},
@@ -294,11 +304,6 @@ class MetaEmbeddedSignupClient:
             phone_payload = _required_json_mapping(phone_response)
 
         expires_at = _optional_provider_expiry(debug_data.get("expires_at"))
-        owned_wabas = owned_wabas_payload.get("data")
-        owns_waba = isinstance(owned_wabas, list) and any(
-            isinstance(item, Mapping) and item.get("id") == waba_id
-            for item in owned_wabas
-        )
         granular_targets = _granular_scope_targets(
             debug_data.get("granular_scopes"),
             scope="whatsapp_business_management",
@@ -308,10 +313,7 @@ class MetaEmbeddedSignupClient:
                 waba_id in granular_targets or business_id in granular_targets
             )
         phones = phone_payload.get("data")
-        owns_phone = isinstance(phones, list) and any(
-            isinstance(item, Mapping) and item.get("id") == phone_number_id
-            for item in phones
-        )
+        owns_phone = _contains_asset(phones, phone_number_id)
         return MetaAuthorizationSnapshot(
             access_token=access_token,
             business_id=business_id,
@@ -471,6 +473,12 @@ def _granular_scope_targets(value: object, *, scope: str) -> frozenset[str] | No
             return frozenset()
         return frozenset(target for target in target_ids if isinstance(target, str))
     return None
+
+
+def _contains_asset(value: object, asset_id: str) -> bool:
+    return isinstance(value, list) and any(
+        isinstance(item, Mapping) and item.get("id") == asset_id for item in value
+    )
 
 
 def _delivery_error_code(errors: Sequence[object]) -> str | None:

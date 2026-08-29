@@ -18,6 +18,7 @@ from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountRepository,
     WhatsAppAccountService,
     WhatsAppAccountSummary,
+    WhatsAppDisconnectCoordinator,
 )
 from agents_factory.modules.whatsapp.contracts import (
     CoexistenceEligibility,
@@ -236,6 +237,11 @@ def _account_service(
         repository=repository,
         vault=vault,
         provider=provider,
+        disconnect_executor=_disconnect_coordinator(
+            settings=settings,
+            session=session,
+            provider=provider,
+        ),
     )
 
 
@@ -260,6 +266,26 @@ def _service_dependencies(
     )
     vault = SecretVault.for_session(session, key_provider=key_provider)
     return repository, vault, provider
+
+
+def _disconnect_coordinator(
+    *,
+    settings: Settings,
+    session: AsyncSession,
+    provider: MetaEmbeddedSignupClient,
+) -> WhatsAppDisconnectCoordinator:
+    bind = session.bind
+    if not isinstance(bind, AsyncEngine):
+        raise RuntimeError(
+            "WhatsApp disconnect coordinator requires an engine-bound session"
+        )
+    return WhatsAppDisconnectCoordinator(
+        session_factory=async_sessionmaker(bind, expire_on_commit=False),
+        key_provider=EnvironmentMasterKeyProvider(
+            environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+        ),
+        provider=provider,
+    )
 
 
 def _context(

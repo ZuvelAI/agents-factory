@@ -16,7 +16,10 @@ from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountService,
     WhatsAppAccountSummary,
 )
-from agents_factory.modules.whatsapp.contracts import MetaAuthorizationSnapshot
+from agents_factory.modules.whatsapp.contracts import (
+    MetaAuthorizationSnapshot,
+    MetaHealthSnapshot,
+)
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import (
     REQUIRED_META_SCOPES,
@@ -307,34 +310,107 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> No
 
 
 @pytest.mark.asyncio
-async def test_revoke_fails_closed_locally_when_meta_is_unavailable() -> None:
-    active = account()
-    inactive = replace(active, status="inactive", health_status="REAUTH_REQUIRED")
+async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_business() -> (
+    None
+):
+    def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            return httpx.Response(200, json={"access_token": "verified-token"})
+        if path.endswith("/debug_token"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "is_valid": True,
+                        "app_id": "meta-app-1",
+                        "scopes": sorted(REQUIRED_META_SCOPES),
+                    }
+                },
+            )
+        if path.endswith("/owned_whatsapp_business_accounts"):
+            return httpx.Response(200, json={"data": []})
+        if path.endswith("/client_whatsapp_business_accounts"):
+            return httpx.Response(200, json={"data": [{"id": "waba-client-1"}]})
+        if path.endswith("/waba-client-1/phone_numbers"):
+            return httpx.Response(200, json={"data": [{"id": "phone-client-1"}]})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        authorization = await MetaEmbeddedSignupClient(
+            app_id="meta-app-1",
+            app_secret=SecretStr("meta-app-secret"),
+            redirect_uri="https://control.example.test/meta/callback",
+            graph_api_base_url="https://graph.facebook.com/v25.0",
+            http_client=client,
+        ).exchange_and_verify(
+            code="one-time-code",
+            business_id="business-client-1",
+            waba_id="waba-client-1",
+            phone_number_id="phone-client-1",
+        )
+
+    assert authorization.business_id == "business-client-1"
+    assert authorization.owns_waba is True
+
+
+async def test_revoke_uses_the_durable_disconnect_executor() -> None:
     repository = AsyncMock()
-    repository.get.return_value = active
-    repository.deactivate.return_value = inactive
-    repository.update_health.return_value = inactive
     vault = AsyncMock()
-    vault.load.return_value = ResolvedSecret(b"client-owned-meta-token")
     provider = AsyncMock()
-    provider.revoke.side_effect = httpx.ConnectError("Meta unavailable")
+    disconnect_executor = AsyncMock()
+    inactive = account()
+    disconnect_executor.revoke.return_value = inactive
     accounts = WhatsAppAccountService(
         repository=repository,
         vault=vault,
         provider=provider,
+        disconnect_executor=disconnect_executor,
     )
 
     summary = await accounts.revoke(
         context=context(), account_id=ACCOUNT_ID, revoked_at=NOW
     )
 
+    assert summary.id == ACCOUNT_ID
+    disconnect_executor.revoke.assert_awaited_once_with(
+        context=context(), account_id=ACCOUNT_ID, revoked_at=NOW
+    )
+
+
+@pytest.mark.asyncio
+async def test_health_persists_only_for_the_observed_active_secret_generation() -> None:
+    active = account()
+    disconnected = replace(
+        active,
+        status="inactive",
+        health_status="REAUTH_REQUIRED",
+        access_token_secret_ref=None,
+    )
+    repository = AsyncMock()
+    repository.get.return_value = active
+    repository.update_health_if_current_active.return_value = disconnected
+    vault = AsyncMock()
+    vault.load.return_value = ResolvedSecret(b"client-owned-meta-token")
+    provider = AsyncMock()
+    provider.inspect_health.return_value = MetaHealthSnapshot(status="HEALTHY")
+    accounts = WhatsAppAccountService(
+        repository=repository,
+        vault=vault,
+        provider=provider,
+        disconnect_executor=AsyncMock(),
+    )
+
+    summary = await accounts.check_health(
+        context=context(), account_id=ACCOUNT_ID, checked_at=NOW
+    )
+
     assert summary.status == "inactive"
-    repository.deactivate.assert_awaited_once()
-    repository.update_health.assert_awaited_once_with(
+    repository.update_health_if_current_active.assert_awaited_once_with(
         context=context(),
-        account_id=ACCOUNT_ID,
-        status="REAUTH_REQUIRED",
-        error_code="meta_revoke_pending",
+        account=active,
+        status="HEALTHY",
+        error_code=None,
         checked_at=NOW,
     )
-    vault.delete.assert_not_awaited()
+    repository.update_health.assert_not_awaited()

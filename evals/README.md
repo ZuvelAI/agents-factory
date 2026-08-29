@@ -16,3 +16,8 @@ turn, in-memory fixture setup, structured expectations, explicit graders, and
 optional tags. Results are normalized, redacted, timestamp-independent, and
 written under the ignored `evals/results/` directory. A case or grader failure
 returns a non-zero exit code.
+
+Task 16 adds deterministic v0 observations for Customer Service scope,
+Spanish/English response language, and truthful automation disclosure. These
+are development regressions only; v0 still cannot satisfy or replace the
+exact-digest Production Quality Gate.
