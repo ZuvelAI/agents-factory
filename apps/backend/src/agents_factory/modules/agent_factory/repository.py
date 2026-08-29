@@ -115,6 +115,28 @@ class AgentSpecRepository:
             return None
         return version.as_draft()
 
+    async def has_deployable_knowledge_binding(
+        self, *, name: str, version: str, digest: str
+    ) -> bool:
+        await self._scope()
+        if not version.isdecimal():
+            return False
+        exists = await self._session.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM public.knowledge_versions "
+                "WHERE tenant_id = :tenant_id AND name = :name "
+                "AND version_number = :version_number AND digest = :digest "
+                "AND state IN ('TEST', 'PRODUCTION'))"
+            ),
+            {
+                "tenant_id": self._context.tenant_id,
+                "name": name,
+                "version_number": int(version),
+                "digest": digest,
+            },
+        )
+        return bool(exists)
+
     async def promote_draft_to_test(
         self, *, version_id: UUID, compiled: CompiledAgentSpec
     ) -> AgentSpecVersion | None:

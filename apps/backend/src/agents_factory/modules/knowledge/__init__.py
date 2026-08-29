@@ -1,0 +1,1 @@
+"""Authoritative, versioned tenant knowledge."""

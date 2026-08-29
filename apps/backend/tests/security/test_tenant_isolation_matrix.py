@@ -141,6 +141,85 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration(
+        "public.knowledge_sources",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_source_versions",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.structured_facts",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_documents",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_versions",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_version_members",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_ingestions",
+        insert_allowed=False,
+        update_allowed=True,
+        delete_allowed=False,
+        reassignment_denials=frozenset({"42501", "55000"}),
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_ingestion_artifacts",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_chunks",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_proposals",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_conflicts",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_source_diffs",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.knowledge_eval_evidence",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -245,9 +324,28 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
                 "DISABLE TRIGGER action_events_append_only"
             )
         )
+        for table_name, trigger_name in (
+            ("knowledge_source_versions", "knowledge_source_versions_append_only"),
+            ("structured_facts", "structured_facts_append_only"),
+            ("knowledge_documents", "knowledge_documents_append_only"),
+            ("knowledge_version_members", "knowledge_version_members_append_only"),
+            (
+                "knowledge_ingestion_artifacts",
+                "knowledge_ingestion_artifacts_append_only",
+            ),
+            ("knowledge_chunks", "knowledge_chunks_append_only"),
+        ):
+            await connection.execute(
+                text(f"ALTER TABLE public.{table_name} DISABLE TRIGGER {trigger_name}")
+            )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.action_events, public.actions, "
+                "TRUNCATE TABLE public.knowledge_chunks, "
+                "public.knowledge_ingestion_artifacts, "
+                "public.knowledge_ingestions, public.knowledge_version_members, "
+                "public.knowledge_versions, public.knowledge_documents, "
+                "public.structured_facts, public.knowledge_source_versions, "
+                "public.knowledge_sources, public.action_events, public.actions, "
                 "public.agent_spec_deployments, "
                 "public.agent_spec_versions, public.agent_instances, "
                 "public.identity_evidence, public.identity_challenges, "
@@ -268,6 +366,20 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
                 "ENABLE TRIGGER action_events_append_only"
             )
         )
+        for table_name, trigger_name in (
+            ("knowledge_source_versions", "knowledge_source_versions_append_only"),
+            ("structured_facts", "structured_facts_append_only"),
+            ("knowledge_documents", "knowledge_documents_append_only"),
+            ("knowledge_version_members", "knowledge_version_members_append_only"),
+            (
+                "knowledge_ingestion_artifacts",
+                "knowledge_ingestion_artifacts_append_only",
+            ),
+            ("knowledge_chunks", "knowledge_chunks_append_only"),
+        ):
+            await connection.execute(
+                text(f"ALTER TABLE public.{table_name} ENABLE TRIGGER {trigger_name}")
+            )
         await connection.execute(
             text(
                 "ALTER TABLE public.agent_spec_deployments "
@@ -298,6 +410,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
     }
     row_a["public.tenants"] = tenant_a
     row_b["public.tenants"] = tenant_b
+    row_a["public.knowledge_proposals"] = row_a["public.knowledge_ingestion_artifacts"]
+    row_b["public.knowledge_proposals"] = row_b["public.knowledge_ingestion_artifacts"]
     insert_parent_a = uuid4()
     insert_parent_b = uuid4()
     whatsapp_account_a = row_a["public.whatsapp_accounts"]
@@ -316,6 +430,7 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             (tenant_a, row_a, "a", insert_parent_a),
             (tenant_b, row_b, "b", insert_parent_b),
         ):
+            completed_ingestion_id = uuid4()
             await connection.execute(
                 text(
                     "INSERT INTO public.agent_instances "
@@ -383,6 +498,228 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "version_id": rows["public.agent_spec_versions"],
                     "digest": "a" * 64,
                     "decision_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_sources "
+                    "(id, tenant_id, name, source_type, authority) VALUES "
+                    "(:id, :tenant_id, :name, 'MANUAL', 'AUTHORITATIVE')"
+                ),
+                {
+                    "id": rows["public.knowledge_sources"],
+                    "tenant_id": tenant_id,
+                    "name": f"Task 5 Knowledge {label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_source_versions "
+                    "(id, tenant_id, source_id, version_number, authority, "
+                    "content_digest, verified_at, approved_by_admin_id, locator) "
+                    "VALUES (:id, :tenant_id, :source_id, 1, 'AUTHORITATIVE', "
+                    ":digest, now(), :admin_id, '{}'::jsonb)"
+                ),
+                {
+                    "id": rows["public.knowledge_source_versions"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                    "digest": "e" * 64,
+                    "admin_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.structured_facts "
+                    "(id, tenant_id, source_id, source_version_id, key, kind, "
+                    "value, content_digest) VALUES (:id, :tenant_id, :source_id, "
+                    ":source_version_id, 'operations.business_hours.main', "
+                    "'BUSINESS_HOURS', '{}'::jsonb, :digest)"
+                ),
+                {
+                    "id": rows["public.structured_facts"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                    "source_version_id": rows["public.knowledge_source_versions"],
+                    "digest": "f" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_documents "
+                    "(id, tenant_id, source_id, source_version_id, category, title, "
+                    "document_text, locator, content_digest) VALUES "
+                    "(:id, :tenant_id, :source_id, :source_version_id, 'POLICY', "
+                    "'Task 5 Policy', 'Tenant-scoped policy.', '{}'::jsonb, :digest)"
+                ),
+                {
+                    "id": rows["public.knowledge_documents"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                    "source_version_id": rows["public.knowledge_source_versions"],
+                    "digest": "0" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_versions "
+                    "(id, tenant_id, name, version_number, state) "
+                    "VALUES (:id, :tenant_id, 'Task 5 v1', 1, 'DRAFT')"
+                ),
+                {
+                    "id": rows["public.knowledge_versions"],
+                    "tenant_id": tenant_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_version_members "
+                    "(id, tenant_id, knowledge_version_id, structured_fact_id, "
+                    "position) VALUES (:id, :tenant_id, :version_id, :fact_id, 0)"
+                ),
+                {
+                    "id": rows["public.knowledge_version_members"],
+                    "tenant_id": tenant_id,
+                    "version_id": rows["public.knowledge_versions"],
+                    "fact_id": rows["public.structured_facts"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_chunks "
+                    "(id, tenant_id, knowledge_version_id, document_id, source_id, "
+                    "source_version_id, authority, chunk_index, chunk_text, "
+                    "content_digest, locale, locator, embedding, embedding_model, "
+                    "embedding_version) VALUES (:id, :tenant_id, :version_id, "
+                    ":document_id, :source_id, :source_version_id, 'AUTHORITATIVE', "
+                    "0, 'Task 5 policy.', :digest, 'en-US', '{}'::jsonb, "
+                    "CAST(:embedding AS extensions.vector), 'deterministic-sha256', '1')"
+                ),
+                {
+                    "id": rows["public.knowledge_chunks"],
+                    "tenant_id": tenant_id,
+                    "version_id": rows["public.knowledge_versions"],
+                    "document_id": rows["public.knowledge_documents"],
+                    "source_id": rows["public.knowledge_sources"],
+                    "source_version_id": rows["public.knowledge_source_versions"],
+                    "digest": "2" * 64,
+                    "embedding": "[" + ",".join(("0",) * 1536) + "]",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_ingestions "
+                    "(id, tenant_id, source_id, state) "
+                    "VALUES (:id, :tenant_id, :source_id, 'PENDING')"
+                ),
+                {
+                    "id": rows["public.knowledge_ingestions"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.knowledge_ingestions SET state = 'PROCESSING', "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {"id": rows["public.knowledge_ingestions"]},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_ingestion_artifacts "
+                    "(id, tenant_id, source_id, ingestion_id, artifact_type, "
+                    "artifact_digest, proposal) VALUES "
+                    "(:id, :tenant_id, :source_id, :ingestion_id, 'DOCUMENT', "
+                    ":digest, '{}'::jsonb)"
+                ),
+                {
+                    "id": rows["public.knowledge_ingestion_artifacts"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                    "ingestion_id": rows["public.knowledge_ingestions"],
+                    "digest": "1" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_ingestions "
+                    "(id, tenant_id, source_id, state) "
+                    "VALUES (:id, :tenant_id, :source_id, 'PENDING')"
+                ),
+                {
+                    "id": completed_ingestion_id,
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.knowledge_ingestions SET state = 'PROCESSING', "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {"id": completed_ingestion_id},
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.knowledge_ingestions SET state = 'SUCCEEDED', "
+                    "content_digest = :digest, storage_path = :storage_path, "
+                    "completed_at = now(), updated_at = now() WHERE id = :id"
+                ),
+                {
+                    "id": completed_ingestion_id,
+                    "digest": "3" * 64,
+                    "storage_path": f"{tenant_id}/task5/source.bin",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_conflicts "
+                    "(id, tenant_id, proposal_id, fact_key, critical, "
+                    "proposed_authority, existing_authority, existing_fact_id) "
+                    "VALUES (:id, :tenant_id, :proposal_id, "
+                    "'operations.business_hours.main', true, 'AUTHORITATIVE', "
+                    "'AUTHORITATIVE', :fact_id)"
+                ),
+                {
+                    "id": rows["public.knowledge_conflicts"],
+                    "tenant_id": tenant_id,
+                    "proposal_id": rows["public.knowledge_proposals"],
+                    "fact_id": rows["public.structured_facts"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_source_diffs "
+                    "(id, tenant_id, source_id, ingestion_id, draft_version_id, "
+                    "previous_digest, current_digest) VALUES "
+                    "(:id, :tenant_id, :source_id, :ingestion_id, :version_id, "
+                    ":previous_digest, :current_digest)"
+                ),
+                {
+                    "id": rows["public.knowledge_source_diffs"],
+                    "tenant_id": tenant_id,
+                    "source_id": rows["public.knowledge_sources"],
+                    "ingestion_id": completed_ingestion_id,
+                    "version_id": rows["public.knowledge_versions"],
+                    "previous_digest": "e" * 64,
+                    "current_digest": "3" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.knowledge_eval_evidence "
+                    "(id, tenant_id, knowledge_version_id, knowledge_digest, "
+                    "suite_digest, runner_version, passed, passed_cases, failed_cases) "
+                    "VALUES (:id, :tenant_id, :version_id, :digest, :suite_digest, "
+                    "'0.1.0', true, 1, 0)"
+                ),
+                {
+                    "id": rows["public.knowledge_eval_evidence"],
+                    "tenant_id": tenant_id,
+                    "version_id": rows["public.knowledge_versions"],
+                    "digest": "4" * 64,
+                    "suite_digest": "5" * 64,
                 },
             )
             await connection.execute(
@@ -879,6 +1216,96 @@ def _insert_statement(table_name: str) -> str:
             "WHERE tenant_id = :tenant_id AND id = :parent_id), :parent_id, "
             "'ROLLBACK', :digest, :digest, :digest, :correlation_id)"
         ),
+        "public.knowledge_sources": (
+            "INSERT INTO public.knowledge_sources "
+            "(id, tenant_id, name, source_type, authority) VALUES "
+            "(:id, :tenant_id, :name, 'MANUAL', 'AUTHORITATIVE')"
+        ),
+        "public.knowledge_source_versions": (
+            "INSERT INTO public.knowledge_source_versions "
+            "(id, tenant_id, source_id, version_number, authority, content_digest, "
+            "verified_at, approved_by_admin_id, locator) VALUES "
+            "(:id, :tenant_id, :parent_id, :version, 'AUTHORITATIVE', :digest, "
+            "now(), :correlation_id, '{}'::jsonb)"
+        ),
+        "public.structured_facts": (
+            "INSERT INTO public.structured_facts "
+            "(id, tenant_id, source_id, source_version_id, key, kind, value, "
+            "content_digest) SELECT :id, :tenant_id, source_id, id, "
+            "'operations.business_hours.insert', 'BUSINESS_HOURS', '{}'::jsonb, "
+            ":digest FROM public.knowledge_source_versions "
+            "WHERE tenant_id = :tenant_id AND id = :parent_id"
+        ),
+        "public.knowledge_documents": (
+            "INSERT INTO public.knowledge_documents "
+            "(id, tenant_id, source_id, source_version_id, category, title, "
+            "document_text, locator, content_digest) SELECT :id, :tenant_id, "
+            "source_id, id, 'POLICY', 'Task 5 insert', 'Policy.', '{}'::jsonb, "
+            ":digest FROM public.knowledge_source_versions "
+            "WHERE tenant_id = :tenant_id AND id = :parent_id"
+        ),
+        "public.knowledge_versions": (
+            "INSERT INTO public.knowledge_versions "
+            "(id, tenant_id, name, version_number, state) "
+            "VALUES (:id, :tenant_id, :name, :version, 'DRAFT')"
+        ),
+        "public.knowledge_version_members": (
+            "INSERT INTO public.knowledge_version_members "
+            "(id, tenant_id, knowledge_version_id, structured_fact_id, position) "
+            "SELECT :id, :tenant_id, :parent_id, id, :version "
+            "FROM public.structured_facts WHERE tenant_id = :tenant_id LIMIT 1"
+        ),
+        "public.knowledge_ingestions": (
+            "INSERT INTO public.knowledge_ingestions "
+            "(id, tenant_id, source_id, state) "
+            "VALUES (:id, :tenant_id, :parent_id, 'PENDING')"
+        ),
+        "public.knowledge_ingestion_artifacts": (
+            "INSERT INTO public.knowledge_ingestion_artifacts "
+            "(id, tenant_id, source_id, ingestion_id, artifact_type, "
+            "artifact_digest, proposal) SELECT :id, :tenant_id, source_id, id, "
+            "'DOCUMENT', :digest, '{}'::jsonb FROM public.knowledge_ingestions "
+            "WHERE tenant_id = :tenant_id AND id = :parent_id"
+        ),
+        "public.knowledge_chunks": (
+            "INSERT INTO public.knowledge_chunks "
+            "(id, tenant_id, knowledge_version_id, document_id, source_id, "
+            "source_version_id, authority, chunk_index, chunk_text, content_digest, "
+            "locale, locator, embedding, embedding_model, embedding_version) "
+            "VALUES (:id, :tenant_id, :parent_id, :binding_id, :correlation_id, "
+            ":outbox_job_id, 'REFERENCE', 0, 'Task 5 insert', :digest, 'en-US', "
+            "'{}'::jsonb, CAST(:embedding AS extensions.vector), "
+            "'deterministic-sha256', '1')"
+        ),
+        "public.knowledge_proposals": (
+            "INSERT INTO public.knowledge_proposals "
+            "(id, tenant_id, ingestion_artifact_id, ingestion_id, source_id, "
+            "artifact_type, proposed_payload, content_digest) SELECT "
+            ":id, :tenant_id, artifact.id, artifact.ingestion_id, artifact.source_id, "
+            "artifact.artifact_type, artifact.proposal, :digest "
+            "FROM public.knowledge_ingestion_artifacts AS artifact "
+            "WHERE artifact.tenant_id = :tenant_id AND artifact.id = :parent_id"
+        ),
+        "public.knowledge_conflicts": (
+            "INSERT INTO public.knowledge_conflicts "
+            "(id, tenant_id, proposal_id, critical, proposed_authority, "
+            "existing_authority) VALUES (:id, :tenant_id, :parent_id, true, "
+            "'AUTHORITATIVE', 'AUTHORITATIVE')"
+        ),
+        "public.knowledge_source_diffs": (
+            "INSERT INTO public.knowledge_source_diffs "
+            "(id, tenant_id, source_id, ingestion_id, draft_version_id, "
+            "current_digest) SELECT :id, :tenant_id, ingestion.source_id, "
+            "ingestion.id, :binding_id, :digest FROM public.knowledge_ingestions "
+            "AS ingestion WHERE ingestion.tenant_id = :tenant_id "
+            "AND ingestion.id = :parent_id"
+        ),
+        "public.knowledge_eval_evidence": (
+            "INSERT INTO public.knowledge_eval_evidence "
+            "(id, tenant_id, knowledge_version_id, knowledge_digest, suite_digest, "
+            "runner_version, passed, passed_cases, failed_cases) VALUES "
+            "(:id, :tenant_id, :parent_id, :digest, :digest, '0.1.0', true, 1, 0)"
+        ),
         "public.identity_subjects": (
             "INSERT INTO public.identity_subjects "
             "(id, tenant_id, customer_ref, whatsapp_recognized_at) "
@@ -951,12 +1378,14 @@ def _insert_parameters(
         "provider_template_id": f"task5-template-{nonce}",
         "template_name": f"task5_{nonce[:80]}",
         "idempotency_key": f"task5-outbound-{nonce}",
+        "name": f"Task 5 {nonce[:100]}",
         "arrival_sequence": uuid4().int % 1_000_000_000 + 2,
         "version": uuid4().int % 1_000_000_000 + 2,
         "parent_id": parent_id,
         "digest": "a" * 64,
         "action_ref": f"task5-action-{nonce}",
         "binding_id": uuid4(),
+        "embedding": "[" + ",".join(("0",) * 1536) + "]",
     }
 
 
@@ -978,6 +1407,19 @@ def _matching_update(table_name: str) -> str | None:
         "public.agent_instances": None,
         "public.agent_spec_versions": None,
         "public.agent_spec_deployments": None,
+        "public.knowledge_sources": None,
+        "public.knowledge_source_versions": None,
+        "public.structured_facts": None,
+        "public.knowledge_documents": None,
+        "public.knowledge_versions": None,
+        "public.knowledge_version_members": None,
+        "public.knowledge_ingestions": "updated_at = now()",
+        "public.knowledge_ingestion_artifacts": None,
+        "public.knowledge_chunks": None,
+        "public.knowledge_proposals": None,
+        "public.knowledge_conflicts": None,
+        "public.knowledge_source_diffs": None,
+        "public.knowledge_eval_evidence": None,
         "public.identity_subjects": "whatsapp_recognized_at = now()",
         "public.identity_challenges": "expires_at = expires_at + interval '1 second'",
         "public.identity_evidence": "consumed_at = now()",
@@ -1008,6 +1450,36 @@ def _insert_parent_id(
     if table_name == "public.agent_spec_deployments":
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.agent_spec_versions"]
+    if table_name == "public.knowledge_source_versions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_sources"]
+    if table_name in {"public.structured_facts", "public.knowledge_documents"}:
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_source_versions"]
+    if table_name == "public.knowledge_version_members":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_versions"]
+    if table_name == "public.knowledge_ingestions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_sources"]
+    if table_name == "public.knowledge_ingestion_artifacts":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_ingestions"]
+    if table_name == "public.knowledge_chunks":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_versions"]
+    if table_name == "public.knowledge_proposals":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_ingestion_artifacts"]
+    if table_name == "public.knowledge_conflicts":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_proposals"]
+    if table_name == "public.knowledge_source_diffs":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_ingestions"]
+    if table_name == "public.knowledge_eval_evidence":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.knowledge_versions"]
     if table_name == "public.actions":
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.conversations"]

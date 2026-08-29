@@ -25,6 +25,7 @@ from agents_factory.modules.agent_factory.router import (
 )
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
+from agents_factory.modules.knowledge.router import router as admin_knowledge_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
 from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
@@ -151,6 +152,7 @@ def create_app(
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)
+    application.include_router(admin_knowledge_router)
     application.include_router(admin_whatsapp_router)
     application.include_router(meta_whatsapp_router)
 

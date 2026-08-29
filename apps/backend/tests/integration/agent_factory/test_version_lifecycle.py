@@ -90,6 +90,22 @@ async def test_version_lifecycle_is_immutable_fail_closed_and_rollback_audited(
             ),
             {"id": TENANT_ID},
         )
+        knowledge_version_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO public.knowledge_versions "
+                "(id, tenant_id, name, version_number, state) "
+                "VALUES (:id, :tenant_id, 'tenant_knowledge', 1, 'DRAFT')"
+            ),
+            {"id": knowledge_version_id, "tenant_id": TENANT_ID},
+        )
+        await session.execute(
+            text(
+                "UPDATE public.knowledge_versions SET state = 'TEST', "
+                "digest = :digest WHERE id = :id"
+            ),
+            {"id": knowledge_version_id, "digest": "b" * 64},
+        )
 
     operation_context = context()
     async with session_factory.begin() as session:
