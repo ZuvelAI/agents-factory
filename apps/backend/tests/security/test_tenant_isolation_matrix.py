@@ -52,6 +52,7 @@ class TenantIsolationRegistration:
     insert_allowed: bool = True
     update_allowed: bool = True
     delete_allowed: bool = False
+    reassignment_denials: frozenset[str] = frozenset({"42501"})
 
 
 TENANT_ISOLATION_REGISTRY = (
@@ -124,8 +125,16 @@ TENANT_ISOLATION_REGISTRY = (
     ),
     TenantIsolationRegistration("public.identity_subjects", delete_allowed=False),
     TenantIsolationRegistration("public.identity_challenges", delete_allowed=False),
-    TenantIsolationRegistration("public.identity_evidence", delete_allowed=False),
-    TenantIsolationRegistration("public.actions", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.identity_evidence",
+        delete_allowed=False,
+        reassignment_denials=frozenset({"42501", "55000"}),
+    ),
+    TenantIsolationRegistration(
+        "public.actions",
+        delete_allowed=False,
+        reassignment_denials=frozenset({"42501", "55000"}),
+    ),
     TenantIsolationRegistration(
         "public.action_events",
         insert_allowed=True,
@@ -1267,7 +1276,7 @@ async def assert_tenant_isolated(
         ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
     )
-    assert reassignment.sqlstate == "42501"
+    assert reassignment.sqlstate in registration.reassignment_denials
 
     delete_statement = f"DELETE FROM {table_name} WHERE id = :row_id RETURNING id"
     if registration.delete_allowed:
