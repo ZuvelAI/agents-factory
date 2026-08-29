@@ -42,9 +42,11 @@ async def configure_embedding_jobs(
 ) -> None:
     provider = cast(EmbeddingProvider | None, context.get("embedding_provider"))
     if provider is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            provider = OpenAIEmbeddingProvider(client=AsyncOpenAI(api_key=api_key))
+        openai_credential = os.environ.get("OPENAI_API_KEY")
+        if openai_credential:
+            provider = OpenAIEmbeddingProvider(
+                client=AsyncOpenAI(api_key=openai_credential)
+            )
 
     async def embedding_handler(envelope: JobEnvelope) -> None:
         if provider is None:
