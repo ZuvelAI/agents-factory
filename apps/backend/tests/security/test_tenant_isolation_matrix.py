@@ -125,6 +125,13 @@ TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration("public.identity_subjects", delete_allowed=False),
     TenantIsolationRegistration("public.identity_challenges", delete_allowed=False),
     TenantIsolationRegistration("public.identity_evidence", delete_allowed=False),
+    TenantIsolationRegistration("public.actions", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.action_events",
+        insert_allowed=True,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -225,7 +232,14 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
         )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.agent_spec_deployments, "
+                "ALTER TABLE public.action_events "
+                "DISABLE TRIGGER action_events_append_only"
+            )
+        )
+        await connection.execute(
+            text(
+                "TRUNCATE TABLE public.action_events, public.actions, "
+                "public.agent_spec_deployments, "
                 "public.agent_spec_versions, public.agent_instances, "
                 "public.identity_evidence, public.identity_challenges, "
                 "public.identity_subjects, "
@@ -237,6 +251,12 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
                 "public.dead_letter_jobs, "
                 "public.job_attempts, public.outbox_jobs, public.audit_events, "
                 "public.platform_admins, public.tenants CASCADE"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE public.action_events "
+                "ENABLE TRIGGER action_events_append_only"
             )
         )
         await connection.execute(
@@ -515,6 +535,42 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "tenant_id": tenant_id,
                     "account_id": rows["public.whatsapp_accounts"],
                     "customer_wa_id": f"57300000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.actions "
+                    "(id, tenant_id, conversation_id, customer_ref, capability, "
+                    "action_type, risk, required_identity_level, "
+                    "achieved_identity_level, parameters, parameter_digest, "
+                    "confirmation_required, approval_required, "
+                    "connector_binding_id, connector_name, state, created_at, "
+                    "updated_at) VALUES (:id, :tenant_id, :conversation_id, "
+                    ":customer_ref, 'orders', 'orders.get_status', 'LOW', 1, 1, "
+                    "'{}'::jsonb, :digest, false, false, :binding_id, "
+                    "'woocommerce', 'REQUESTED', now(), now())"
+                ),
+                {
+                    "id": rows["public.actions"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "customer_ref": f"task5-customer-{label}",
+                    "digest": "d" * 64,
+                    "binding_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.action_events "
+                    "(id, tenant_id, action_id, version, from_state, to_state, "
+                    "event_type, payload, created_at) VALUES "
+                    "(:id, :tenant_id, :action_id, 1, NULL, 'REQUESTED', "
+                    "'action.requested', '{}'::jsonb, now())"
+                ),
+                {
+                    "id": rows["public.action_events"],
+                    "tenant_id": tenant_id,
+                    "action_id": rows["public.actions"],
                 },
             )
             await connection.execute(
@@ -834,6 +890,24 @@ def _insert_statement(table_name: str) -> str:
             "'VERIFIED', 3, 'ACTION', :action_ref, :digest, now(), "
             "now() + interval '1 hour')"
         ),
+        "public.actions": (
+            "INSERT INTO public.actions "
+            "(id, tenant_id, conversation_id, customer_ref, capability, "
+            "action_type, risk, required_identity_level, achieved_identity_level, "
+            "parameters, parameter_digest, confirmation_required, "
+            "approval_required, connector_binding_id, connector_name, state, "
+            "created_at, updated_at) VALUES (:id, :tenant_id, :parent_id, "
+            ":customer_ref, 'orders', 'orders.get_status', 'LOW', 1, 1, "
+            "'{}'::jsonb, :digest, false, false, :binding_id, 'woocommerce', "
+            "'REQUESTED', now(), now())"
+        ),
+        "public.action_events": (
+            "INSERT INTO public.action_events "
+            "(id, tenant_id, action_id, version, from_state, to_state, "
+            "event_type, payload, created_at) VALUES (:id, :tenant_id, "
+            ":parent_id, :version, NULL, 'REQUESTED', 'action.requested', "
+            "'{}'::jsonb, now())"
+        ),
     }
     return statements[table_name]
 
@@ -872,6 +946,7 @@ def _insert_parameters(
         "parent_id": parent_id,
         "digest": "a" * 64,
         "action_ref": f"task5-action-{nonce}",
+        "binding_id": uuid4(),
     }
 
 
@@ -896,6 +971,8 @@ def _matching_update(table_name: str) -> str | None:
         "public.identity_subjects": "whatsapp_recognized_at = now()",
         "public.identity_challenges": "expires_at = expires_at + interval '1 second'",
         "public.identity_evidence": "consumed_at = now()",
+        "public.actions": "state = 'IDENTITY_VERIFIED'",
+        "public.action_events": None,
     }[table_name]
 
 
@@ -921,6 +998,12 @@ def _insert_parent_id(
     if table_name == "public.agent_spec_deployments":
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.agent_spec_versions"]
+    if table_name == "public.actions":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.conversations"]
+    if table_name == "public.action_events":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.actions"]
     return world.insert_parent_a if tenant == "a" else world.insert_parent_b
 
 
@@ -1072,6 +1155,8 @@ async def assert_tenant_isolated(
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
+        "public.actions",
+        "public.action_events",
     }:
         foreign_parent_parameters = _insert_parameters(
             table_name,

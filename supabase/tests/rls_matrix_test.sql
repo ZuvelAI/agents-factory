@@ -30,7 +30,9 @@ values
   ('public.agent_spec_deployments', 'tenant_id'),
   ('public.identity_subjects', 'tenant_id'),
   ('public.identity_challenges', 'tenant_id'),
-  ('public.identity_evidence', 'tenant_id');
+  ('public.identity_evidence', 'tenant_id'),
+  ('public.actions', 'tenant_id'),
+  ('public.action_events', 'tenant_id');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

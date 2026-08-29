@@ -31,7 +31,15 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
     )
     await connection.execute(
         text(
+            "ALTER TABLE public.action_events "
+            "DISABLE TRIGGER action_events_append_only"
+        )
+    )
+    await connection.execute(
+        text(
             "TRUNCATE TABLE "
+            "public.action_events, "
+            "public.actions, "
             "public.identity_evidence, "
             "public.identity_challenges, "
             "public.identity_subjects, "
@@ -51,6 +59,12 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
             "public.audit_events, "
             "public.platform_admins, "
             "public.tenants CASCADE"
+        )
+    )
+    await connection.execute(
+        text(
+            "ALTER TABLE public.action_events "
+            "ENABLE TRIGGER action_events_append_only"
         )
     )
     await connection.execute(
