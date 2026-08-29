@@ -21,6 +21,10 @@ class RuntimeToolRegistry:
             indexed[tool.name] = tool
         self._tools = indexed
 
+    def with_tools(self, tools: Iterable[RuntimeTool]) -> RuntimeToolRegistry:
+        """Return a new registry with request-scoped, pre-authorized tools."""
+        return RuntimeToolRegistry((*self._tools.values(), *tools))
+
     def select(
         self,
         *,

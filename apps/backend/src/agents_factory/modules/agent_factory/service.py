@@ -100,6 +100,25 @@ class AgentSpecLifecycleService:
         version = await self._required(version_id)
         if version.state != "DRAFT":
             raise _invalid_transition(version.state, "TEST")
+        knowledge = version.configuration.knowledge
+        if not await self._repository.has_deployable_knowledge_binding(
+            name=knowledge.name,
+            version=knowledge.version,
+            digest=knowledge.digest,
+        ):
+            raise DomainError(
+                type=(
+                    "https://agents-factory.dev/problems/"
+                    "agent-spec-knowledge-binding-required"
+                ),
+                title="Deployable Knowledge Binding Required",
+                status=409,
+                detail=(
+                    "AgentSpec requires an exact immutable Test or Production "
+                    "Knowledge version binding."
+                ),
+                code="agent_spec_knowledge_binding_required",
+            )
         compiled = await self._compiler.compile(version.agent_instance_id, version.id)
         promoted = await self._repository.promote_draft_to_test(
             version_id=version.id,

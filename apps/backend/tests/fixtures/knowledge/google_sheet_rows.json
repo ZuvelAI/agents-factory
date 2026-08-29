@@ -1,0 +1,7 @@
+{
+  "sheet": "Horarios",
+  "rows": [
+    ["día", "abre", "cierra"],
+    ["lunes", "08:00", "17:00"]
+  ]
+}

@@ -66,6 +66,18 @@ async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
         "ALTER TABLE public.agent_spec_deployments "
         "DISABLE TRIGGER agent_spec_deployments_append_only",
         "ALTER TABLE public.action_events DISABLE TRIGGER action_events_append_only",
+        "ALTER TABLE public.knowledge_source_versions "
+        "DISABLE TRIGGER knowledge_source_versions_append_only",
+        "ALTER TABLE public.structured_facts "
+        "DISABLE TRIGGER structured_facts_append_only",
+        "ALTER TABLE public.knowledge_documents "
+        "DISABLE TRIGGER knowledge_documents_append_only",
+        "ALTER TABLE public.knowledge_version_members "
+        "DISABLE TRIGGER knowledge_version_members_append_only",
+        "ALTER TABLE public.knowledge_ingestion_artifacts "
+        "DISABLE TRIGGER knowledge_ingestion_artifacts_append_only",
+        "ALTER TABLE public.knowledge_chunks "
+        "DISABLE TRIGGER knowledge_chunks_append_only",
     ):
         await connection.execute(text(statement))
     await connection.execute(
@@ -75,6 +87,18 @@ async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
         )
     )
     for statement in (
+        "ALTER TABLE public.knowledge_chunks "
+        "ENABLE TRIGGER knowledge_chunks_append_only",
+        "ALTER TABLE public.knowledge_ingestion_artifacts "
+        "ENABLE TRIGGER knowledge_ingestion_artifacts_append_only",
+        "ALTER TABLE public.knowledge_version_members "
+        "ENABLE TRIGGER knowledge_version_members_append_only",
+        "ALTER TABLE public.knowledge_documents "
+        "ENABLE TRIGGER knowledge_documents_append_only",
+        "ALTER TABLE public.structured_facts "
+        "ENABLE TRIGGER structured_facts_append_only",
+        "ALTER TABLE public.knowledge_source_versions "
+        "ENABLE TRIGGER knowledge_source_versions_append_only",
         "ALTER TABLE public.action_events ENABLE TRIGGER action_events_append_only",
         "ALTER TABLE public.agent_spec_deployments "
         "ENABLE TRIGGER agent_spec_deployments_append_only",

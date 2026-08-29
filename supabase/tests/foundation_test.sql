@@ -458,6 +458,10 @@ select is(
       and procedure.prosecdef
   ),
   '[
+    "agents_factory_private.append_knowledge_chunk",
+    "agents_factory_private.append_knowledge_ingestion_artifact",
+    "agents_factory_private.create_proposal_from_ingestion_artifact",
+    "agents_factory_private.record_knowledge_source_diff",
     "agents_factory_private.resolve_active_whatsapp_account",
     "agents_factory_private.transition_conversation_control"
   ]'::jsonb,

@@ -34,9 +34,32 @@ async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
             "ALTER TABLE public.action_events DISABLE TRIGGER action_events_append_only"
         )
     )
+    for table_name, trigger_name in (
+        ("knowledge_source_versions", "knowledge_source_versions_append_only"),
+        ("structured_facts", "structured_facts_append_only"),
+        ("knowledge_documents", "knowledge_documents_append_only"),
+        ("knowledge_version_members", "knowledge_version_members_append_only"),
+        (
+            "knowledge_ingestion_artifacts",
+            "knowledge_ingestion_artifacts_append_only",
+        ),
+        ("knowledge_chunks", "knowledge_chunks_append_only"),
+    ):
+        await connection.execute(
+            text(f"ALTER TABLE public.{table_name} DISABLE TRIGGER {trigger_name}")
+        )
     await connection.execute(
         text(
             "TRUNCATE TABLE "
+            "public.knowledge_chunks, "
+            "public.knowledge_ingestion_artifacts, "
+            "public.knowledge_ingestions, "
+            "public.knowledge_version_members, "
+            "public.knowledge_versions, "
+            "public.knowledge_documents, "
+            "public.structured_facts, "
+            "public.knowledge_source_versions, "
+            "public.knowledge_sources, "
             "public.action_events, "
             "public.actions, "
             "public.identity_evidence, "
@@ -65,6 +88,20 @@ async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
             "ALTER TABLE public.action_events ENABLE TRIGGER action_events_append_only"
         )
     )
+    for table_name, trigger_name in (
+        ("knowledge_source_versions", "knowledge_source_versions_append_only"),
+        ("structured_facts", "structured_facts_append_only"),
+        ("knowledge_documents", "knowledge_documents_append_only"),
+        ("knowledge_version_members", "knowledge_version_members_append_only"),
+        (
+            "knowledge_ingestion_artifacts",
+            "knowledge_ingestion_artifacts_append_only",
+        ),
+        ("knowledge_chunks", "knowledge_chunks_append_only"),
+    ):
+        await connection.execute(
+            text(f"ALTER TABLE public.{table_name} ENABLE TRIGGER {trigger_name}")
+        )
     await connection.execute(
         text(
             "ALTER TABLE public.agent_spec_deployments "

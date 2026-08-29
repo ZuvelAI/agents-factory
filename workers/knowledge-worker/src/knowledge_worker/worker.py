@@ -8,11 +8,11 @@ from arq.connections import RedisSettings
 
 from agents_factory.common.queue import (
     close_durable_worker,
-    configure_durable_worker,
     json_job_deserializer,
     json_job_serializer,
     run_registered_job,
 )
+from knowledge_worker.jobs import configure_knowledge_worker
 
 
 async def process_job(
@@ -31,7 +31,7 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(
         os.environ.get("REDIS_URL", "redis://redis:6379/0")
     )
-    on_startup = configure_durable_worker
+    on_startup = configure_knowledge_worker
     on_shutdown = close_durable_worker
     job_serializer = json_job_serializer
     job_deserializer = json_job_deserializer

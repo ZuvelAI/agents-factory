@@ -32,7 +32,20 @@ values
   ('public.identity_challenges', 'tenant_id'),
   ('public.identity_evidence', 'tenant_id'),
   ('public.actions', 'tenant_id'),
-  ('public.action_events', 'tenant_id');
+  ('public.action_events', 'tenant_id'),
+  ('public.knowledge_sources', 'tenant_id'),
+  ('public.knowledge_source_versions', 'tenant_id'),
+  ('public.structured_facts', 'tenant_id'),
+  ('public.knowledge_documents', 'tenant_id'),
+  ('public.knowledge_versions', 'tenant_id'),
+  ('public.knowledge_version_members', 'tenant_id'),
+  ('public.knowledge_ingestions', 'tenant_id'),
+  ('public.knowledge_ingestion_artifacts', 'tenant_id'),
+  ('public.knowledge_chunks', 'tenant_id'),
+  ('public.knowledge_proposals', 'tenant_id'),
+  ('public.knowledge_conflicts', 'tenant_id'),
+  ('public.knowledge_source_diffs', 'tenant_id'),
+  ('public.knowledge_eval_evidence', 'tenant_id');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

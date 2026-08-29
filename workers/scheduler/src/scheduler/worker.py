@@ -17,6 +17,7 @@ from agents_factory.common.queue import (
     run_registered_job,
 )
 from agents_factory.database import Database
+from scheduler.knowledge_jobs import configure_knowledge_jobs
 
 
 async def startup(context: dict[Any, Any]) -> None:
@@ -31,9 +32,13 @@ async def startup(context: dict[Any, Any]) -> None:
             "agent.turn": "agent",
             "outbound.text": "outbound",
             "whatsapp.outbound.send": "outbound",
+            "knowledge.ingest": "knowledge",
+            "knowledge.embed": "knowledge",
+            "knowledge.detect_change": "scheduler",
         },
         retry_delay_seconds=1.0,
     )
+    await configure_knowledge_jobs(context, database=database)
 
 
 async def dispatch_outbox(context: dict[Any, Any]) -> dict[str, int]:
