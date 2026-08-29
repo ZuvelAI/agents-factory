@@ -103,8 +103,8 @@ class IdentityRepository:
         result = await self._session.execute(
             text(
                 "UPDATE public.identity_challenges SET attempts = :attempts, "
-                "status = :status, completed_at = CASE WHEN :status = 'PENDING' "
-                "THEN NULL ELSE :attempted_at END WHERE tenant_id = :tenant_id "
+                "status = :status, completed_at = :completed_at "
+                "WHERE tenant_id = :tenant_id "
                 "AND id = :challenge_id RETURNING id, tenant_id, customer_ref, "
                 "required_level, method, secret_digest, status, attempts, "
                 "max_attempts, bound_action_ref, expires_at, created_at, completed_at"
@@ -112,7 +112,7 @@ class IdentityRepository:
             {
                 "attempts": attempts,
                 "status": status,
-                "attempted_at": attempted_at,
+                "completed_at": None if status == "PENDING" else attempted_at,
                 "tenant_id": self._context.tenant_id,
                 "challenge_id": challenge.id,
             },
