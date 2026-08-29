@@ -187,6 +187,11 @@
           "title": "Handoff Enabled",
           "type": "boolean"
         },
+        "handoff_surface_available": {
+          "default": false,
+          "title": "Handoff Surface Available",
+          "type": "boolean"
+        },
         "version": {
           "maxLength": 100,
           "minLength": 1,
@@ -236,6 +241,13 @@
     "PersonaConfiguration": {
       "additionalProperties": false,
       "properties": {
+        "business_name": {
+          "default": "Configured Business",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Business Name",
+          "type": "string"
+        },
         "instructions": {
           "maxLength": 50000,
           "minLength": 1,

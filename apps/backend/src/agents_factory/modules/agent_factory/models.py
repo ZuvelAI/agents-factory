@@ -51,6 +51,9 @@ class VersionedDigestReference(VersionReference):
 
 class PersonaConfiguration(FrozenModel):
     version: str = Field(min_length=1, max_length=100)
+    business_name: str = Field(
+        default="Configured Business", min_length=1, max_length=200
+    )
     instructions: str = Field(min_length=1, max_length=50_000)
 
 
@@ -85,6 +88,7 @@ class LanguagePolicy(FrozenModel):
 class HumanOperationsConfiguration(FrozenModel):
     version: str = Field(min_length=1, max_length=100)
     handoff_enabled: bool = True
+    handoff_surface_available: bool = False
     awaiting_human_policy: Literal["SILENT", "ACKNOWLEDGE"] = "SILENT"
 
 
@@ -140,6 +144,10 @@ class AgentSpec(FrozenModel):
     configuration: AgentSpecConfiguration
 
     def to_runtime_snapshot(self, *, active: bool) -> AgentSpecSnapshot:
+        from agents_factory.modules.runtime.customer_service.instructions import (
+            CustomerServiceInstructionsBuilder,
+        )
+
         return AgentSpecSnapshot(
             id=self.version_id,
             tenant_id=self.tenant_id,
@@ -147,7 +155,7 @@ class AgentSpec(FrozenModel):
             digest=self.digest(),
             product=self.product,
             product_version=self.configuration.product_version,
-            instructions=self.configuration.persona.instructions,
+            instructions=CustomerServiceInstructionsBuilder().build(spec=self),
             active_capabilities=frozenset(
                 item.name for item in self.configuration.capabilities
             ),

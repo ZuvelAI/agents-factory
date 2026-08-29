@@ -37,6 +37,9 @@ from agents_factory.modules.runtime.contracts import (  # noqa: E402
     TurnMessage,
 )
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry  # noqa: E402
+from agents_factory.modules.runtime.customer_service.policy import (  # noqa: E402
+    evaluate_customer_message,
+)
 from evals.case_schema import EvalCase  # noqa: E402
 from evals.graders import (  # noqa: E402
     GRADERS,
@@ -234,6 +237,7 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         outputs=case.fixture_setup.fake_outputs,
         seed=case_seed,
     ).run(turn)
+    policy = evaluate_customer_message(case.input_turn.message)
     in_memory_store: dict[UUID, AgentTurnResult] = {}
     in_memory_store[inbound_message_id] = result
     artifact: dict[str, object] = {
@@ -242,12 +246,16 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         "persisted_result": inbound_message_id in in_memory_store,
         "provider_response_id": result.provider_response_id,
         "agent_spec_digest": spec.digest,
+        "policy_classification": policy.scope,
+        "response_language": policy.language,
     }
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),
         persisted_result=inbound_message_id in in_memory_store,
         artifact_data=artifact,
+        policy_classification=policy.scope,
+        response_language=policy.language,
     )
 
 

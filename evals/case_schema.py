@@ -11,7 +11,12 @@ GraderName = Literal[
     "selected_tools",
     "persisted_result",
     "credentials_absent",
+    "policy_classification",
+    "response_language",
+    "truthful_disclosure",
 ]
+PolicyClassification = Literal["IN_SCOPE", "REDIRECT", "SAFETY_INCIDENT"]
+ResponseLanguage = Literal["es", "en"]
 _CASE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}")
 _TOOL_NAME = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
 
@@ -86,6 +91,9 @@ class EvalExpected(StrictEvalModel):
     selected_tools: tuple[str, ...]
     persisted_result: bool
     credentials_absent: bool
+    policy_classification: PolicyClassification | None = None
+    response_language: ResponseLanguage | None = None
+    truthful_disclosure: bool | None = None
 
     @field_validator("selected_tools")
     @classmethod
