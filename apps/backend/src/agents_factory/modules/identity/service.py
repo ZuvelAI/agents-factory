@@ -133,18 +133,20 @@ class IdentityService:
         )
         now = created_at or datetime.now(UTC)
         challenge_id = new_uuid7()
-        secret = None
+        issued_challenge = None
         if method != "EXTERNAL_AUTH":
             if self._challenge_method is None or self._delivery is None:
                 raise RuntimeError("identity challenge delivery is not configured")
-            secret = self._challenge_method.issue(challenge_id)
+            issued_challenge = self._challenge_method.issue(challenge_id)
         challenge = IdentityChallenge(
             id=challenge_id,
             tenant_id=self._context.tenant_id,
             customer_ref=customer_ref,
             required_level=required_level,
             method=method,
-            secret_digest=None if secret is None else secret.digest,
+            secret_digest=(
+                None if issued_challenge is None else issued_challenge.digest
+            ),
             status="PENDING",
             attempts=0,
             max_attempts=self._max_attempts,
@@ -154,12 +156,12 @@ class IdentityService:
             completed_at=None,
         )
         await self._store.create_challenge(challenge)
-        if secret is not None:
+        if issued_challenge is not None:
             assert self._delivery is not None
             await self._delivery.send(
                 customer_ref=customer_ref,
                 method=method,
-                plaintext=secret.plaintext,
+                plaintext=issued_challenge.plaintext,
             )
         return ChallengeReceipt(
             challenge_id=challenge.id,
