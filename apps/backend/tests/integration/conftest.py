@@ -32,6 +32,9 @@ async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             "TRUNCATE TABLE "
+            "public.identity_evidence, "
+            "public.identity_challenges, "
+            "public.identity_subjects, "
             "public.agent_spec_deployments, "
             "public.agent_spec_versions, "
             "public.agent_instances, "

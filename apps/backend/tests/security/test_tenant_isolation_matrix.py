@@ -122,6 +122,9 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration("public.identity_subjects", delete_allowed=False),
+    TenantIsolationRegistration("public.identity_challenges", delete_allowed=False),
+    TenantIsolationRegistration("public.identity_evidence", delete_allowed=False),
 )
 
 
@@ -224,6 +227,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             text(
                 "TRUNCATE TABLE public.agent_spec_deployments, "
                 "public.agent_spec_versions, public.agent_instances, "
+                "public.identity_evidence, public.identity_challenges, "
+                "public.identity_subjects, "
                 "public.outbound_messages, "
                 "public.whatsapp_templates, public.conversation_state_events, "
                 "public.messages, public.conversations, "
@@ -348,6 +353,52 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "version_id": rows["public.agent_spec_versions"],
                     "digest": "a" * 64,
                     "decision_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_subjects "
+                    "(id, tenant_id, customer_ref, whatsapp_recognized_at) "
+                    "VALUES (:id, :tenant_id, :customer_ref, now())"
+                ),
+                {
+                    "id": rows["public.identity_subjects"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_challenges "
+                    "(id, tenant_id, customer_ref, required_level, method, "
+                    "secret_digest, status, attempts, max_attempts, expires_at, "
+                    "created_at) VALUES (:id, :tenant_id, :customer_ref, 2, "
+                    "'ADDITIONAL_VERIFICATION', :digest, 'PENDING', 0, 5, "
+                    "now() + interval '1 hour', now())"
+                ),
+                {
+                    "id": rows["public.identity_challenges"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                    "digest": "b" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.identity_evidence "
+                    "(id, tenant_id, customer_ref, method, result, "
+                    "achieved_level, scope, bound_action_ref, "
+                    "evidence_ref_digest, verified_at, expires_at) VALUES "
+                    "(:id, :tenant_id, :customer_ref, 'OTP', 'VERIFIED', 3, "
+                    "'ACTION', :action_ref, :digest, now(), "
+                    "now() + interval '1 hour')"
+                ),
+                {
+                    "id": rows["public.identity_evidence"],
+                    "tenant_id": tenant_id,
+                    "customer_ref": f"task5-customer-{label}",
+                    "action_ref": f"task5-action-{label}",
+                    "digest": "c" * 64,
                 },
             )
             await connection.execute(
@@ -762,6 +813,27 @@ def _insert_statement(table_name: str) -> str:
             "WHERE tenant_id = :tenant_id AND id = :parent_id), :parent_id, "
             "'ROLLBACK', :digest, :digest, :digest, :correlation_id)"
         ),
+        "public.identity_subjects": (
+            "INSERT INTO public.identity_subjects "
+            "(id, tenant_id, customer_ref, whatsapp_recognized_at) "
+            "VALUES (:id, :tenant_id, :customer_ref, now())"
+        ),
+        "public.identity_challenges": (
+            "INSERT INTO public.identity_challenges "
+            "(id, tenant_id, customer_ref, required_level, method, "
+            "secret_digest, status, attempts, max_attempts, expires_at, "
+            "created_at) VALUES (:id, :tenant_id, :customer_ref, 2, "
+            "'ADDITIONAL_VERIFICATION', :digest, 'PENDING', 0, 5, "
+            "now() + interval '1 hour', now())"
+        ),
+        "public.identity_evidence": (
+            "INSERT INTO public.identity_evidence "
+            "(id, tenant_id, customer_ref, method, result, achieved_level, "
+            "scope, bound_action_ref, evidence_ref_digest, verified_at, "
+            "expires_at) VALUES (:id, :tenant_id, :customer_ref, 'OTP', "
+            "'VERIFIED', 3, 'ACTION', :action_ref, :digest, now(), "
+            "now() + interval '1 hour')"
+        ),
     }
     return statements[table_name]
 
@@ -790,6 +862,7 @@ def _insert_parameters(
         "whatsapp_account_id": parent_id,
         "conversation_id": parent_id,
         "customer_wa_id": f"573{uuid4().int % 10**9:09d}",
+        "customer_ref": f"task5-customer-{nonce}",
         "message_id": f"task5-message-{nonce}",
         "provider_template_id": f"task5-template-{nonce}",
         "template_name": f"task5_{nonce[:80]}",
@@ -798,6 +871,7 @@ def _insert_parameters(
         "version": uuid4().int % 1_000_000_000 + 2,
         "parent_id": parent_id,
         "digest": "a" * 64,
+        "action_ref": f"task5-action-{nonce}",
     }
 
 
@@ -819,6 +893,9 @@ def _matching_update(table_name: str) -> str | None:
         "public.agent_instances": None,
         "public.agent_spec_versions": None,
         "public.agent_spec_deployments": None,
+        "public.identity_subjects": "whatsapp_recognized_at = now()",
+        "public.identity_challenges": "expires_at = expires_at + interval '1 second'",
+        "public.identity_evidence": "consumed_at = now()",
     }[table_name]
 
 
