@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from agents_factory.modules.integrations.contracts import ConnectorManifest
+from agents_factory.modules.integrations.google.factory import GOOGLE_MANIFESTS
 
 
 class DuplicateConnectorManifest(ValueError):
@@ -66,4 +67,4 @@ PLANNED_CONNECTORS = (
 )
 
 
-V1_CONNECTOR_CATALOG = ConnectorRegistry(PLANNED_CONNECTORS)
+V1_CONNECTOR_CATALOG = ConnectorRegistry((*PLANNED_CONNECTORS, *GOOGLE_MANIFESTS))

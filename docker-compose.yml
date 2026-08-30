@@ -21,6 +21,7 @@ x-python-application: &python-application
     META_CONFIGURATION_ID: ${META_CONFIGURATION_ID:-}
     META_REDIRECT_URI: ${META_REDIRECT_URI:-}
     META_GRAPH_API_BASE_URL: ${META_GRAPH_API_BASE_URL:-https://graph.facebook.com/v25.0}
+    GOOGLE_OAUTH_CLIENTS: ${GOOGLE_OAUTH_CLIENTS:-}
     KNOWLEDGE_STORAGE_ROOT: ${KNOWLEDGE_STORAGE_ROOT:-/var/lib/agents-factory/knowledge}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     PYTHONPATH: /workspace/apps/backend/src:/workspace/workers/agent-worker/src:/workspace/workers/knowledge-worker/src:/workspace/workers/outbound-worker/src:/workspace/workers/scheduler/src

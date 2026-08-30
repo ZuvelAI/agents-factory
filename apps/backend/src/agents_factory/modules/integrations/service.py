@@ -13,6 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
+from agents_factory.modules.integrations.contracts import (
+    Connector,
+    ConnectorRequest,
+    ConnectorResult,
+)
 from agents_factory.modules.integrations.health import provider_failure_health
 from agents_factory.modules.integrations.models import (
     ConnectionSummary,
@@ -54,9 +59,12 @@ class IntegrationService:
 
     @asynccontextmanager
     async def _transaction(
-        self, context: TenantContext
+        self, context: TenantContext, *, backend_execution: bool = False
     ) -> AsyncIterator[tuple[IntegrationRepository, SecretVault]]:
-        if context.actor_type != "platform_admin" or context.actor_id is None:
+        if context.actor_id is None or not (
+            context.actor_type == "platform_admin"
+            or (backend_execution and context.actor_type == "system")
+        ):
             raise IntegrationError("platform_admin_required", status=403)
         async with self._sessions.begin() as session:
             await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
@@ -68,6 +76,97 @@ class IntegrationService:
     async def list(self, *, context: TenantContext) -> tuple[ConnectionSummary, ...]:
         async with self._transaction(context) as (repository, _vault):
             return tuple(item.summary() for item in await repository.list())
+
+    async def execute_connector(
+        self,
+        *,
+        context: TenantContext,
+        connection_id: UUID,
+        connector_name: str,
+        request: ConnectorRequest,
+        build: Callable[[ResolvedSecret], Connector],
+    ) -> ConnectorResult:
+        """Backend-only credential lease; serialized with refresh and revocation.
+
+        `build` is code-owned composition, never a user/model-supplied callback.
+        Customer-facing invocations must pass existing Action/Capability gates.
+        """
+        if context.tenant_id != request.tenant_id:
+            return ConnectorResult(
+                operation=request.operation,
+                status="REJECTED",
+                error_code="tenant_mismatch",
+            )
+        async with self._transaction(context, backend_execution=True) as (
+            repository,
+            vault,
+        ):
+            connection = await _get(repository, connection_id)
+            if (
+                connection.connector_name != connector_name
+                or connection.status != "CONNECTED"
+            ):
+                return ConnectorResult(
+                    operation=request.operation,
+                    status="REJECTED",
+                    error_code="integration_not_connected",
+                )
+            credential = await _load_credential(vault, context, connection)
+            if (
+                connection.expires_at is not None
+                and connection.expires_at <= self._now() + timedelta(seconds=60)
+            ):
+                try:
+                    grant = await self._providers.get(connector_name).refresh(
+                        credential
+                    )
+                    _validate_grant(grant, connection, now=self._now())
+                except Exception as error:
+                    health = provider_failure_health(error, now=self._now())
+                    connection = replace(
+                        connection,
+                        health=health,
+                        status="REAUTH_REQUIRED"
+                        if health.status == "REAUTH_REQUIRED"
+                        else connection.status,
+                    )
+                    await repository.save(connection)
+                    await _audit(repository, connection, "refresh_failed")
+                    return ConnectorResult(
+                        operation=request.operation,
+                        status="FAILED",
+                        error_code=health.error_code,
+                    )
+                connection = await self._replace_credential(
+                    repository, vault, connection, grant
+                )
+                credential = grant.credential
+            result = await build(credential).execute(request)
+            if result.error_code in {"authorization_revoked", "credentials_expired"}:
+                connection = replace(
+                    connection,
+                    status="REAUTH_REQUIRED",
+                    health=ConnectorHealth(
+                        status="REAUTH_REQUIRED",
+                        checked_at=self._now(),
+                        error_code=result.error_code,
+                    ),
+                )
+                await repository.save(connection)
+            await AuditService(repository.session).record(
+                context=context,
+                event_type="integration.operation",
+                entity_type="integration_connection",
+                entity_id=connection.id,
+                payload={
+                    "connector": connector_name,
+                    "operation": request.operation,
+                    "binding_id": str(request.binding_id),
+                    "status": result.status,
+                    "error_code": result.error_code,
+                },
+            )
+            return result
 
     async def start_oauth(
         self,

@@ -25,7 +25,7 @@ from agents_factory.modules.agent_factory.router import (
 )
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
-from agents_factory.modules.integrations.oauth import ProviderRegistry
+from agents_factory.modules.integrations.google.auth import configured_google_providers
 from agents_factory.modules.integrations.router import (
     router as admin_integration_router,
 )
@@ -119,7 +119,9 @@ def create_app(
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         settings = settings_loader()
         application.state.settings = settings
-        application.state.integration_providers = ProviderRegistry()
+        application.state.integration_providers = configured_google_providers(
+            settings.google_oauth_clients
+        )
         verifier = token_verifier or JwksTokenVerifier(
             issuer=settings.supabase_jwt_issuer,
             audience=settings.supabase_jwt_audience,

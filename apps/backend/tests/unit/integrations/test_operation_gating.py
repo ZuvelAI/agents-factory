@@ -29,7 +29,7 @@ from agents_factory.modules.capabilities.service import (
 from agents_factory.modules.integrations.contracts import ConnectorManifest
 from agents_factory.modules.integrations.registry import (
     ConnectorRegistry,
-    V1_CONNECTOR_CATALOG,
+    PLANNED_CONNECTORS,
 )
 from agents_factory.modules.runtime.contracts import RuntimeTool, ToolInvocationContext
 
@@ -167,7 +167,7 @@ def test_unsupported_bound_operations_fail_closed() -> None:
 
 
 def test_planned_connectors_are_metadata_only_and_schema_is_generated() -> None:
-    planned = V1_CONNECTOR_CATALOG.list()
+    planned = PLANNED_CONNECTORS
     schema_path = ROOT / "packages/integrations/connector.schema.json"
 
     assert planned
