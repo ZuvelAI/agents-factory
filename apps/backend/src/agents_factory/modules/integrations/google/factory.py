@@ -27,6 +27,11 @@ from agents_factory.modules.integrations.google.sheets import (
     GoogleSheetsConnector,
     SheetsResource,
 )
+from agents_factory.modules.integrations.google.orders_sheet import (
+    OrdersSheetConnector,
+    OrdersSheetResource,
+)
+from agents_factory.modules.integrations.orders import OPERATIONS
 from agents_factory.modules.integrations.service import IntegrationService
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 
@@ -35,7 +40,15 @@ GOOGLE_MANIFESTS = (
     GoogleCalendarConnector.manifest,
     GmailConnector.manifest,
     GoogleDriveConnector.manifest,
-    GoogleSheetsConnector.manifest,
+    GoogleSheetsConnector.manifest.model_copy(
+        update={
+            "supported_operations": (
+                *GoogleSheetsConnector.manifest.supported_operations,
+                *OPERATIONS,
+            ),
+            "executable_entry_point": "agents_factory.modules.integrations.google.factory.ConnectedGoogleConnector",
+        }
+    ),
 )
 
 
@@ -74,6 +87,15 @@ class ConnectedGoogleConnector:
             )
         if self.product == "google_drive" and isinstance(self.resource, DriveResource):
             return GoogleDriveConnector(
+                binding=self.binding,
+                resource=self.resource,
+                credential=credential,
+                http=self.http,
+            )
+        if self.product == "google_sheets" and isinstance(
+            self.resource, OrdersSheetResource
+        ):
+            return OrdersSheetConnector(
                 binding=self.binding,
                 resource=self.resource,
                 credential=credential,

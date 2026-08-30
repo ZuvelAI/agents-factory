@@ -26,6 +26,10 @@ from agents_factory.modules.agent_factory.router import (
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
 from agents_factory.modules.integrations.google.auth import configured_google_providers
+from agents_factory.modules.integrations.woocommerce.auth import (
+    WooCredentialProvider,
+    WooHTTP,
+)
 from agents_factory.modules.integrations.router import (
     router as admin_integration_router,
 )
@@ -122,6 +126,11 @@ def create_app(
         application.state.integration_providers = configured_google_providers(
             settings.google_oauth_clients
         )
+        if settings.woocommerce_stores:
+            application.state.integration_providers.register(
+                "woocommerce",
+                WooCredentialProvider(WooHTTP(settings.woocommerce_stores)),
+            )
         verifier = token_verifier or JwksTokenVerifier(
             issuer=settings.supabase_jwt_issuer,
             audience=settings.supabase_jwt_audience,

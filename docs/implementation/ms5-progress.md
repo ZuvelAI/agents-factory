@@ -111,8 +111,41 @@ Focused verification at this checkpoint:
 See `docs/capabilities/appointments.md` for composition and operational boundaries.
 The approved plan and master specification remain unchanged.
 
+## Task 25 — WooCommerce and Sheets order adapters
+
+Implemented native WooCommerce REST v3 and typed Google Sheets order adapters
+covering the nine approved read/write/request operations. Both enforce trusted
+customer matching and expose normalized, limited payloads. Bindings are derived
+from approved provider permissions and resource fields; read-only/partial Sheets
+cannot offer unsupported mutations.
+
+WooCommerce API-key onboarding reuses the encrypted connection lifecycle, with a
+backend exact-store allowlist, HTTPS, public-IP pinning/TLS SNI, no redirects and
+redacted errors. Sheets reuses existing scoped OAuth and row primitives. Connected
+execution reuses connection locking; provider receipts and compare-before-write
+support replay/reconciliation without claiming atomicity against external editors.
+Cancellation is only a request; no cancellation/refund endpoint is invoked.
+
+Focused verification:
+
+- Seven new provider scenarios and the one changed catalog case passed on their
+  first run (8 passed, 7 unrelated Google cases deselected).
+- Covered all nine operations per adapter, customer matching, pagination/sparse
+  rows, tracking absence, status normalization, all writes and replay, shipped
+  cancellation rejection, mapping conflicts, scopes, partial/read-only bindings,
+  DNS/redirect restrictions, redaction and uncertain writes.
+- The WooCommerce credential payload was checked with the real envelope cipher,
+  including tenant-bound decryption denial. Existing Task 22 database lifecycle
+  tests were not repeated; no database migration or reset was necessary.
+- Focused Ruff/format/mypy and whitespace checks passed. Secret scanning found
+  no credentials; an action-note marker was renamed to avoid a false positive.
+- No live store, customer spreadsheet, Google authorization or paid service was
+  connected. Orders capability/identity/issue workflows remain Task 26 work.
+
+See `docs/integrations/woocommerce.md` and `docs/integrations/google-sheets-orders.md`.
+
 ## Continuation
 
-Continue with Task 25: WooCommerce and Google Sheets Order connectors. Tasks 25–28 remain
+Continue with Task 26: Orders Capability Pack and issue flows. Tasks 26–28 remain
 pending. MS5 has not been declared complete and will still require its approved
 milestone review before proceeding to MS6.

@@ -4,6 +4,9 @@ from collections.abc import Iterable
 
 from agents_factory.modules.integrations.contracts import ConnectorManifest
 from agents_factory.modules.integrations.google.factory import GOOGLE_MANIFESTS
+from agents_factory.modules.integrations.woocommerce.manifest import (
+    WOOCOMMERCE_MANIFEST,
+)
 
 
 class DuplicateConnectorManifest(ValueError):
@@ -67,4 +70,6 @@ PLANNED_CONNECTORS = (
 )
 
 
-V1_CONNECTOR_CATALOG = ConnectorRegistry((*PLANNED_CONNECTORS, *GOOGLE_MANIFESTS))
+V1_CONNECTOR_CATALOG = ConnectorRegistry(
+    (*PLANNED_CONNECTORS, *GOOGLE_MANIFESTS, WOOCOMMERCE_MANIFEST)
+)

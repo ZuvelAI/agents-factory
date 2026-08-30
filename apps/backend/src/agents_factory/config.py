@@ -33,6 +33,7 @@ _CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
     "META_REDIRECT_URI",
     "META_GRAPH_API_BASE_URL",
     "GOOGLE_OAUTH_CLIENTS",
+    "WOOCOMMERCE_STORES",
 )
 
 
@@ -61,6 +62,16 @@ class Settings(BaseSettings):
     meta_redirect_uri: NonEmptyString | None = None
     meta_graph_api_base_url: NonEmptyString = "https://graph.facebook.com/v25.0"
     google_oauth_clients: NonEmptySecret | None = None
+    woocommerce_stores: tuple[str, ...] = ()
+
+    @field_validator("woocommerce_stores")
+    @classmethod
+    def validate_woocommerce_stores(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        from agents_factory.modules.integrations.woocommerce.auth import (
+            validate_store_url,
+        )
+
+        return tuple(validate_store_url(item) for item in value)
 
     @field_validator(
         "meta_app_id",

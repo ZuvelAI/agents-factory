@@ -629,7 +629,8 @@ def test_configuration_and_catalog_have_only_implemented_scoped_products() -> No
         "google_drive",
         "google_sheets",
     }
-    assert sum(len(item.supported_operations) for item in GOOGLE_MANIFESTS) == 11
+    # Task 25 adds nine order-domain operations on the existing Sheets product.
+    assert sum(len(item.supported_operations) for item in GOOGLE_MANIFESTS) == 20
     for item in GOOGLE_MANIFESTS:
         assert V1_CONNECTOR_CATALOG.get(item.stable_name, item.version) == item
     assert all(

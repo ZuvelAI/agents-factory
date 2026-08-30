@@ -1,5 +1,10 @@
 # Google Workspace primitives — Task 23
 
+Task 25 adds nine order-domain operations to the Sheets catalog, selected through
+`OrdersSheetResource` and its derived per-binding operation set. The original 11
+native primitives below remain available. See `google-sheets-orders.md` for the
+order mapping, connection-level serialization and receipt/reconciliation contract.
+
 Native backend adapters, following the approved v1 plan. Codex's use of MCP tools
 does not change product integrations into MCP. No Google Contacts, Gmail inbox
 reading, Generic REST, public file sharing or business capability tools are added.
