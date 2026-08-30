@@ -140,6 +140,16 @@ class GoogleCalendarConnector(GoogleConnector[CalendarResource]):
                 body={
                     "start": update.time(update.start),
                     "end": update.time(update.end),
+                    "extendedProperties": {
+                        "private": {
+                            "action_id": hashlib.sha256(
+                                f"{request.tenant_id}:{request.binding_id}:{request.idempotency_key}".encode()
+                            ).hexdigest(),
+                            "request_digest": hashlib.sha256(
+                                update.model_dump_json().encode()
+                            ).hexdigest(),
+                        }
+                    },
                 },
                 write=True,
             )
@@ -221,7 +231,7 @@ def _event(payload: dict[str, object], *, write: bool = False) -> dict[str, obje
         "etag": response_string(payload, "etag", write=write),
     }
     # Select fields; never leak raw provider diagnostics or unrelated event data.
-    for key in ("status", "summary", "start", "end"):
+    for key in ("status", "summary", "start", "end", "transparency"):
         if key in payload:
             result[key] = payload[key]
     return result

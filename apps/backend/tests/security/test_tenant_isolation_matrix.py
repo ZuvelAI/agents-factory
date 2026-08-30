@@ -57,6 +57,15 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.appointment_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.appointments", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.appointment_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.integration_connections",
         insert_allowed=False,
         update_allowed=False,
@@ -1001,6 +1010,39 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointment_configurations (id, tenant_id, connection_id, configuration) VALUES (:id, :tenant, :connection, '{}'::jsonb)"
+                ),
+                {
+                    "id": rows["public.appointment_configurations"],
+                    "tenant": tenant_id,
+                    "connection": rows["public.integration_connections"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointments (id, tenant_id, customer_ref, conversation_id, service_id, professional_id, location_id, start_at, end_at, busy_start, busy_end, external_event_id, etag, status, revision, last_action_id) VALUES (:id, :tenant, 'fixture', :conversation, 'service', 'professional', 'location', now(), now() + interval '30 minutes', now(), now() + interval '30 minutes', :external_id, 'fixture-etag', 'BOOKED', 1, :action)"
+                ),
+                {
+                    "id": rows["public.appointments"],
+                    "tenant": tenant_id,
+                    "conversation": rows["public.conversations"],
+                    "external_id": f"fixture-{tenant_id}",
+                    "action": rows["public.actions"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointment_operations (id, tenant_id, operation, parameter_digest, status) VALUES (:id, :tenant, 'appointments.create_appointment', :digest, 'CLAIMED')"
+                ),
+                {
+                    "id": rows["public.appointment_operations"],
+                    "tenant": tenant_id,
+                    "digest": "0" * 64,
+                },
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1126,6 +1168,9 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.appointment_configurations": "INSERT INTO public.appointment_configurations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.appointments": "INSERT INTO public.appointments (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.appointment_operations": "INSERT INTO public.appointment_operations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.integration_connections": (
             "INSERT INTO public.integration_connections "
             "(id, tenant_id, connector_name, auth_kind) "
@@ -1410,6 +1455,9 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.appointment_configurations": None,
+        "public.appointments": None,
+        "public.appointment_operations": None,
         "public.integration_connections": None,
         "public.tenants": None,
         "public.audit_events": None,

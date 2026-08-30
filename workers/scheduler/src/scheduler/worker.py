@@ -18,6 +18,7 @@ from agents_factory.common.queue import (
 )
 from agents_factory.database import Database
 from scheduler.knowledge_jobs import configure_knowledge_jobs
+from scheduler.appointment_jobs import configure_appointment_jobs
 
 
 async def startup(context: dict[Any, Any]) -> None:
@@ -35,10 +36,12 @@ async def startup(context: dict[Any, Any]) -> None:
             "knowledge.ingest": "knowledge",
             "knowledge.embed": "knowledge",
             "knowledge.detect_change": "scheduler",
+            "appointments.notify": "scheduler",
         },
         retry_delay_seconds=1.0,
     )
     await configure_knowledge_jobs(context, database=database)
+    await configure_appointment_jobs(context, database=database)
 
 
 async def dispatch_outbox(context: dict[Any, Any]) -> dict[str, int]:

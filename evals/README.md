@@ -21,3 +21,8 @@ Task 16 adds deterministic v0 observations for Customer Service scope,
 Spanish/English response language, and truthful automation disclosure. These
 are development regressions only; v0 still cannot satisfy or replace the
 exact-digest Production Quality Gate.
+
+Task 24 adds `appointments.jsonl`: six structured probes of the same appointment
+action gate used by the connector (identity, confirmation and approval). These
+observations do not call a model or provider and are not production readiness
+evidence by themselves.

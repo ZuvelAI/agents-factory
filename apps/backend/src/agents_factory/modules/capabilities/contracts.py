@@ -32,6 +32,20 @@ class ActionDefinition(FrozenManifest):
     failure_behavior: str = Field(min_length=1, max_length=500)
     handoff_behavior: str = Field(min_length=1, max_length=500)
     eval_case_ids: tuple[str, ...] = Field(min_length=1)
+    required_connector_operations: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def valid_connector_requirements(self) -> Self:
+        if len(set(self.required_connector_operations)) != len(
+            self.required_connector_operations
+        ) or any(
+            not _OPERATION.fullmatch(name)
+            for name in self.required_connector_operations
+        ):
+            raise ValueError(
+                "connector requirements must be unique qualified operations"
+            )
+        return self
 
 
 class CapabilityManifest(FrozenManifest):

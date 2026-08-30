@@ -249,6 +249,12 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         "policy_classification": policy.scope,
         "response_language": policy.language,
     }
+    if case.fixture_setup.appointment_probe is not None:
+        from evals.appointments import observe_appointment
+
+        artifact["appointment_behavior"] = observe_appointment(
+            case.fixture_setup.appointment_probe
+        )
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),

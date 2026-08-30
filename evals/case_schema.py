@@ -14,6 +14,7 @@ GraderName = Literal[
     "policy_classification",
     "response_language",
     "truthful_disclosure",
+    "appointment_behavior",
 ]
 PolicyClassification = Literal["IN_SCOPE", "REDIRECT", "SAFETY_INCIDENT"]
 ResponseLanguage = Literal["es", "en"]
@@ -63,9 +64,23 @@ class EvalToolFixture(StrictEvalModel):
         return value
 
 
+class AppointmentProbe(StrictEvalModel):
+    operation: Literal[
+        "appointments.check_availability",
+        "appointments.create_appointment",
+        "appointments.get_appointment",
+        "appointments.reschedule_appointment",
+        "appointments.request_cancellation",
+    ]
+    identity_level: int = Field(ge=0, le=3)
+    confirmed: bool = False
+    approved: bool = False
+
+
 class EvalFixtureSetup(StrictEvalModel):
     fake_outputs: tuple[str, ...]
     tools: tuple[EvalToolFixture, ...] = ()
+    appointment_probe: AppointmentProbe | None = None
 
     @field_validator("fake_outputs")
     @classmethod
@@ -94,6 +109,12 @@ class EvalExpected(StrictEvalModel):
     policy_classification: PolicyClassification | None = None
     response_language: ResponseLanguage | None = None
     truthful_disclosure: bool | None = None
+    appointment_behavior: (
+        Literal[
+            "IDENTITY_REQUIRED", "CONFIRMATION_REQUIRED", "APPROVAL_REQUIRED", "READY"
+        ]
+        | None
+    ) = None
 
     @field_validator("selected_tools")
     @classmethod

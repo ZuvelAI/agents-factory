@@ -72,6 +72,13 @@ class CapabilityService:
 
     def _available_binding_operations(self, spec: AgentSpec) -> set[str]:
         operations: set[str] = set()
+        declarations = [
+            action
+            for reference in spec.configuration.capabilities
+            for action in self._capabilities.get(
+                reference.name, reference.version
+            ).actions
+        ]
         for binding in spec.configuration.connector_bindings:
             manifest = self._connectors.get(
                 binding.connector,
@@ -91,4 +98,8 @@ class CapabilityService:
                     f"{sorted(bound - declared)}"
                 )
             operations.update(bound)
+            for action in declarations:
+                required = set(action.required_connector_operations or (action.name,))
+                if required.issubset(bound):
+                    operations.add(action.name)
         return operations

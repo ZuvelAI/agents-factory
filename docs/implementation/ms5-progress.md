@@ -72,8 +72,47 @@ Focused verification at this checkpoint:
 See `docs/integrations/google-workspace.md` for scopes, composition and safe
 operation contracts. Source plan and master specification remain unchanged.
 
+## Task 24 — Appointments Capability Pack
+
+Implemented the five approved operations on native Google Calendar, using the
+existing Action identity/ownership/confirmation/approval gates. Configuration
+supports one professional/location, service duration/buffers, local hours,
+closed dates, lead time, horizon and timezone. No slot holds or multi-resource
+constraints were added. Cancellation remains an approved request, not an event
+deletion.
+
+Create/reschedule revalidate occupancy under a cross-worker resource mutex and
+persist external references plus durable action receipts. Ambiguous writes are
+not blindly replayed. Calendar mutations carry action metadata and reschedule
+uses ETag preconditions. Capability manifests now map their operations to native
+connector primitives within the same binding.
+
+The scheduler queues confirmation, one configurable reminder with attendance
+confirmation/reschedule instructions, and cancellation-request updates through
+approved WhatsApp templates. Stale revisions are suppressed and both preparation
+and sending respect human takeover. These are backend capabilities; no live
+customer accounts or new admin UI were activated.
+
+Focused verification at this checkpoint:
+
+- Four new unit scenarios passed, including the native reschedule metadata check.
+- Two new database integration scenarios passed: the combined booking/action/
+  notification flow and uncertain-write/tenant isolation flow.
+- The latter alone was retried after correcting the test's missing tenant scope
+  before a raw count query. Previously passing scenarios were not repeated.
+- The three new tables' RLS matrix cases and table-registration check passed.
+- Six appointment evals passed, exercising the real connector's action gate.
+- Focused Ruff/format/mypy checks and whitespace checks passed; the existing
+  secret-scanner expression found no credential-like assignments.
+- Supabase advisors reported no warnings/errors; local migration history is
+  synchronized. The migration was captured from the local schema without a reset,
+  excluding unrelated extension drift and retaining explicit RLS/grants.
+
+See `docs/capabilities/appointments.md` for composition and operational boundaries.
+The approved plan and master specification remain unchanged.
+
 ## Continuation
 
-Continue with Task 24: Appointments Capability Pack. Tasks 24–28 remain
+Continue with Task 25: WooCommerce and Google Sheets Order connectors. Tasks 25–28 remain
 pending. MS5 has not been declared complete and will still require its approved
 milestone review before proceeding to MS6.

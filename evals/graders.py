@@ -204,7 +204,26 @@ class TruthfulDisclosureGrader:
         )
 
 
+class AppointmentBehaviorGrader:
+    name: GraderName = "appointment_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        passed = (
+            case.expected.appointment_behavior is not None
+            and observation.artifact_data.get("appointment_behavior")
+            == case.expected.appointment_behavior
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="appointment gate matched"
+            if passed
+            else "appointment gate differed",
+        )
+
+
 GRADERS: dict[GraderName, EvalGrader] = {
+    "appointment_behavior": AppointmentBehaviorGrader(),
     "response_exists": ResponseExistsGrader(),
     "selected_tools": SelectedToolsGrader(),
     "persisted_result": PersistedResultGrader(),
