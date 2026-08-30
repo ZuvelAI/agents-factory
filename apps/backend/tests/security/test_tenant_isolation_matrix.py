@@ -57,6 +57,12 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.integration_connections",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
         "public.tenants",
         "id",
         insert_allowed=False,
@@ -844,6 +850,14 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.integration_connections "
+                    "(id, tenant_id, connector_name, auth_kind) "
+                    "VALUES (:id, :tenant_id, 'woocommerce', 'API_KEY')"
+                ),
+                {"id": rows["public.integration_connections"], "tenant_id": tenant_id},
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.whatsapp_accounts "
                     "(id, tenant_id, provider, waba_id, phone_number_id, status) "
                     "VALUES (:id, :tenant_id, 'meta', :waba_id, :phone_number_id, "
@@ -1112,6 +1126,11 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.integration_connections": (
+            "INSERT INTO public.integration_connections "
+            "(id, tenant_id, connector_name, auth_kind) "
+            "VALUES (:id, :tenant_id, 'woocommerce', 'API_KEY')"
+        ),
         "public.tenants": (
             "INSERT INTO public.tenants (id, slug, name) "
             "VALUES (:id, :slug, 'Task 5 inserted tenant')"
@@ -1391,6 +1410,7 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.integration_connections": None,
         "public.tenants": None,
         "public.audit_events": None,
         "public.outbox_jobs": "topic = 'task5.updated'",
