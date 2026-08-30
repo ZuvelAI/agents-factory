@@ -26,3 +26,8 @@ Task 24 adds `appointments.jsonl`: six structured probes of the same appointment
 action gate used by the connector (identity, confirmation and approval). These
 observations do not call a model or provider and are not production readiness
 evidence by themselves.
+
+Task 26 adds `orders.jsonl`: 17 structured probes of the Orders action gate and
+issue-completeness functions used by the capability. They cover operation risk
+gates, identity, unavailable bindings and the five issue types without a model,
+live provider, or production Cases engine.

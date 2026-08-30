@@ -255,6 +255,10 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         artifact["appointment_behavior"] = observe_appointment(
             case.fixture_setup.appointment_probe
         )
+    if case.fixture_setup.order_probe is not None:
+        from evals.orders import observe_order
+
+        artifact["order_behavior"] = observe_order(case.fixture_setup.order_probe)
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),

@@ -222,7 +222,26 @@ class AppointmentBehaviorGrader:
         )
 
 
+class OrderBehaviorGrader:
+    name: GraderName = "order_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        passed = (
+            case.expected.order_behavior is not None
+            and observation.artifact_data.get("order_behavior")
+            == case.expected.order_behavior
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="order behavior matched"
+            if passed
+            else "order behavior differed",
+        )
+
+
 GRADERS: dict[GraderName, EvalGrader] = {
+    "order_behavior": OrderBehaviorGrader(),
     "appointment_behavior": AppointmentBehaviorGrader(),
     "response_exists": ResponseExistsGrader(),
     "selected_tools": SelectedToolsGrader(),

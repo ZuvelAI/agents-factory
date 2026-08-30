@@ -57,6 +57,9 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.order_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.appointment_configurations", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -1043,6 +1046,18 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            await connection.execute(
+                text(
+                    "INSERT INTO public.order_operations(id, tenant_id, binding_id, operation, parameter_digest, status) VALUES (:id, :tenant, :binding, 'orders.add_order_note', :digest, 'CLAIMED')"
+                ),
+                {
+                    "id": rows["public.order_operations"],
+                    "tenant": tenant_id,
+                    "binding": uuid4(),
+                    "digest": "0" * 64,
+                },
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1168,6 +1183,7 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.order_operations": "INSERT INTO public.order_operations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.appointment_configurations": "INSERT INTO public.appointment_configurations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.appointments": "INSERT INTO public.appointments (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.appointment_operations": "INSERT INTO public.appointment_operations (id, tenant_id) VALUES (:id, :tenant_id)",
@@ -1455,6 +1471,7 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.order_operations": None,
         "public.appointment_configurations": None,
         "public.appointments": None,
         "public.appointment_operations": None,

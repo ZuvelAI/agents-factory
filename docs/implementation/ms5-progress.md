@@ -144,8 +144,49 @@ Focused verification:
 
 See `docs/integrations/woocommerce.md` and `docs/integrations/google-sheets-orders.md`.
 
+## Task 26 — Orders Capability Pack and issue flows
+
+Implemented connector-neutral order tools on the two existing native adapters,
+with trusted customer/ownership resolution, conservative risk/identity gates,
+exact normalized confirmation, verified cancellation approval and execution-time
+state revalidation. Unsupported or disabled bindings do not expose tools.
+Cancellation remains a request, never an executed cancellation or refund.
+
+Durable tenant-scoped mutation receipts survive an outer Action rollback. Stable
+inbound replays reuse the original action and provider snapshot; interrupted
+writes become uncertain without repeating the external effect. The new receipt
+table has forced RLS and explicit least-privilege grants.
+
+The five issue flows collect identifiers, description and relevant item/evidence
+references, then use a typed Cases handoff with action idempotency and open-case
+deduplication keys. Default ports fail closed: evidence access awaits Task 27,
+and production Cases persistence/lifecycle awaits Task 30 in MS6. Tests supply
+explicit fixtures for those contracts; no later engine or live integration was
+activated and no resolution is promised.
+
+Focused verification:
+
+- One new combined unit scenario passed for risks, strict inputs and localized
+  response semantics.
+- Three new local-database scenarios passed for provider parity, all writes,
+  confirmation/approval, replay/crash recovery, state changes, binding isolation,
+  all five issue types, evidence/deduplication and unavailable Cases.
+- The new receipt table's isolation matrix case and table-registration check
+  passed in the same database run (5 passed total).
+- All 17 Orders evals passed, exercising actual action gates and completeness.
+- Focused Ruff/format/mypy checks passed. The existing repository credential
+  patterns found no credential-like assignments or private-key material.
+- Previous tasks' passed tests/evals were not repeated. No full CI, database
+  reset, live provider authorization or dependency upgrade was performed.
+- Supabase advisors reported no warnings/errors. The local migration history
+  is synchronized; schema capture excludes unrelated extension drift and retains
+  forced RLS plus explicit grants.
+
+See `docs/capabilities/orders.md` for composition, guarantees and deferred ports.
+The approved implementation plan and master specification are unchanged.
+
 ## Continuation
 
-Continue with Task 26: Orders Capability Pack and issue flows. Tasks 26–28 remain
-pending. MS5 has not been declared complete and will still require its approved
-milestone review before proceeding to MS6.
+Continue with Task 27: multimodal normalization and tenant-scoped evidence
+storage. Tasks 27–28 remain pending. MS5 has not been declared complete and will
+still require its approved milestone review before proceeding to MS6.
