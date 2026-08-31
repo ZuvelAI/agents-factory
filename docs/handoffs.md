@@ -60,7 +60,8 @@ The snapshot applies for the lifetime of a handoff. `close_if_inactive` rechecks
 the latest human activity and persisted customer-message arrival under the same
 conversation lock used by ingestion. It closes without sending periodic notices.
 A new inbound message then reopens under the existing conversation session policy.
-Task 35 owns scheduling and rescheduling this domain operation.
+Task 35's lifecycle scanner schedules this operation and recovers missing due
+jobs. The handler rechecks activity before closing; see `docs/scheduler.md`.
 
 A provider request already claimed before takeover may already be in flight;
 handoff cannot retract an HTTP request or message accepted by Meta. No entity
@@ -88,7 +89,7 @@ does not manufacture Coexistence eligibility.
 
 Mandatory-policy and integration-failure producers must call the trusted service
 port with their recorded backend reason; they are not enabled merely by a prompt.
-Production bridge composition, timer scheduling (Task 35), tenant availability
+Production bridge composition, tenant availability
 acceptance and real provider delivery evidence remain explicit prerequisites.
 The offline checks do not establish production readiness or complete MS6.
 

@@ -111,10 +111,9 @@ configuration, remaining integration boundaries and proof/privacy defaults.
 
 ## Continuation
 
-Tasks 32 and 33 implement the secure review page and revalidating execution/
-notification coordinator and Task 34 handoff backend (see checkpoints below). Next is Task 35's scheduler policies. Continue
-the remaining MS6 tasks and present the milestone gate before MS7. MS6 is not
-declared complete by this checkpoint.
+Tasks 30–35 now have their local implementation checkpoints below. Present MS6
+for review before starting MS7; do not automatically merge or start Task 36.
+The offline technical checkpoint does not waive real-provider or production gates.
 
 Still pending for release: deferred Task 27 live-media/corpus acceptance, real
 Google/WooCommerce account verification, downstream evidence retention/deletion,
@@ -230,5 +229,50 @@ function-before-trigger dependency ordering. See `docs/handoffs.md` for boundari
 
 The live provider bridge/eligibility and authenticated event evidence still require
 real integration acceptance; default enablement remains off. Non-text escalation
-producers have explicit backend service ports. Task 35 will wire inactivity
-scheduling along with the remaining scheduler policies. MS6 is not yet complete.
+producers have explicit backend service ports. Task 35 now wires inactivity
+scheduling along with the remaining scheduler policies, as recorded below.
+
+## Task 35 — lifecycle recovery and class-based retention
+
+- Bounded per-tenant scan at startup/each minute, short advisory transactions and
+  deterministic durable intents for reminders, case close/targets, approval/Action
+  expiry and handoff inactivity. Handlers recheck the current state and deadline.
+- Configurable reminder timing is recalculated at handling time. Deferred/advanced
+  schedules use one canonical delivery key; attendance and rescheduling remain in
+  the same approved reminder. UTC arithmetic avoids DST wall-time errors.
+- Expiry no longer needs a proof key or provider adapter. It reuses the existing
+  approval closure path, invalidates links and queues one result without executing
+  a business action. No periodic pending-case WhatsApp messages are introduced.
+- Tenant retention settings default to 90-day content, 30-day detailed traces and
+  12-calendar-month Action/audit history. Bounded cleanup minimizes content and
+  deletes eligible aged history, recording counts without personal content.
+- Dedicated NOLOGIN/NOBYPASSRLS retention role, FORCE RLS, narrow column grants and
+  database-clock cutoffs preserve cross-tenant and append-only boundaries. The
+  app/admin roles cannot assume the cleanup role. Physical media deletion reuses
+  the explicit existing MediaService dependency; failed object cleanup is retryable.
+- Retention composition requires a dedicated maintenance connection and storage
+  service before production activation. There are no new credentials, live API
+  calls, public retention UI, Generic REST features or master-plan changes.
+
+Eleven focused checks passed, including the new retention RLS matrix, registry
+coverage and bounded recovery despite dispatch backoff. Only the new timing case
+was retried after correcting a SQL literal;
+the nine already passing cases and all old milestone suites were not repeated.
+No full CI, browser or live provider run was performed. Local Supabase advisors
+reported no issues. Supabase/Postgres guidance shaped the dedicated role,
+per-tenant policies and short cleanup transactions. See `docs/scheduler.md` for
+composition, verification and retention limitations. Captured
+`20260831180213_lifecycle_retention.sql`; local migration history matches. The
+capture preserves explicit ACLs, FORCE RLS and function-before-policy/trigger order.
+
+## MS6 review gate
+
+Local evidence now covers the canonical Cases lifecycle/dedup/targets, secure
+link+OTP approvals, revalidated execution/results, verified-surface handoff admission
+and AI suppression, plus lifecycle scheduling and retention. This is ready for
+milestone review, not a claim that the product is production-ready.
+
+Real handoff bridge/eligibility and delivery evidence, live provider/corpus
+acceptance, maintenance credentials/storage composition, downstream evidence
+deletion and the later production/privacy/backup gates remain explicit prerequisites.
+No new PR, merge or MS7 start is authorized by this checkpoint alone.

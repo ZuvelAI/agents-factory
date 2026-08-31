@@ -7,7 +7,9 @@ from agents_factory.modules.cases.service import CaseService
 
 
 async def configure_case_jobs(context: dict[Any, Any], *, database: Database) -> None:
-    service = CaseService(database.session_factory)
+    service = context.get("case_service") or CaseService(database.session_factory)
+    if not isinstance(service, CaseService):
+        raise ValueError("invalid_case_service")
 
     async def process_timer(envelope: JobEnvelope) -> None:
         if envelope.kind != "cases.timer":

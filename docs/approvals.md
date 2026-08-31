@@ -14,6 +14,11 @@ There is deliberately no generated-at-boot key or fallback email transport.
 Missing service configuration returns 503; unconfigured worker topics remain in
 the durable outbox, not a retry/dead-letter loop.
 
+Task 35 independently registers expiry of pending requests and Action
+confirmations. These jobs require no mailer, proof key or external API. They close
+expired requests, invalidate links and queue one result; delivery waits for the
+configured notification coordinator. See `docs/scheduler.md`.
+
 Load the proof key with `ApprovalProofs.from_vault`, a `SecretRef`, identified
 backend actor, purpose `approval_proofs` and record context `approval_service`.
 Provision cryptographically random material of at least 32 bytes through the

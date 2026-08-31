@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.audit import AuditService
+from agents_factory.common.outbox import OutboxService
 from agents_factory.common.queue import JobEnvelope
 from agents_factory.modules.capabilities.appointments.repository import (
     AppointmentRepository,
@@ -68,6 +70,31 @@ async def prepare_appointment_notification(
             ):
                 return None
             config = await repository.config()
+            if kind == "reminder":
+                due = appointment.start.astimezone(UTC) - timedelta(
+                    minutes=config.communications.reminder_minutes_before
+                )
+                if current < due:
+                    # Recheck tenant timing after dispatch. The replacement is
+                    # a locator; customer delivery retains one canonical key.
+                    await OutboxService(session).enqueue(
+                        context=context,
+                        topic="appointments.notify",
+                        idempotency_key=f"appointments.notify:{appointment.id}:{appointment.revision}:reminder:timing:{due.isoformat()}",
+                        payload={**payload, "scheduled_for": due.isoformat()},
+                        available_at=due,
+                    )
+                    await AuditService(session).record(
+                        context=context,
+                        event_type="schedule.reminder_deferred",
+                        entity_type="appointment",
+                        entity_id=appointment.id,
+                        payload={
+                            "due_at": due.isoformat(),
+                            "revision": appointment.revision,
+                        },
+                    )
+                    return None
             recipient = await session.scalar(
                 text(
                     "SELECT customer_wa_id FROM public.conversations WHERE tenant_id = :tenant AND id = :conversation AND whatsapp_account_id = :account AND control_state = 'AI_ACTIVE'"
@@ -117,6 +144,6 @@ async def prepare_appointment_notification(
             template_name=template_name,
             language=communication.language,
             variables=variables,
-            idempotency_key=job["idempotency_key"],
+            idempotency_key=f"appointments.notify:{appointment.id}:{appointment.revision}:{kind}",
             conversation_id=appointment.conversation_id,
         )

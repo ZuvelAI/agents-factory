@@ -479,7 +479,7 @@ class AppointmentsService:
             else "confirmation"
         )
         messages = [(kind, self.now())]
-        reminder_at = appointment.start - timedelta(
+        reminder_at = appointment.start.astimezone(UTC) - timedelta(
             minutes=config.communications.reminder_minutes_before
         )
         if appointment.status == "BOOKED" and reminder_at > self.now():
