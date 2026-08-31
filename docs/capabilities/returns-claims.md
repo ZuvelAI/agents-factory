@@ -132,7 +132,7 @@ does not claim the case was lost or invite duplicate case creation. An upstream
 destination failure suppresses dependent downstream steps, while case-status reads
 remain available independently of Google delivery.
 
-## Runtime composition and deferred persistence
+## Runtime composition and persistence
 
 AgentSpec validation now supports explicitly declared requirements across multiple
 bindings for this workflow, while existing single-binding requirements keep their
@@ -144,14 +144,16 @@ operations.
 There is no new public execute endpoint. Backend startup must inject configuration,
 sources, intake, Action service, Cases and destination ports. With unavailable Cases
 or delivery persistence, tools fail closed; there is **no in-memory production
-fallback**. Full Cases lifecycle/persistence and the durable implementation of its
-delivery boundary remain Task 30/MS6 dependencies, not work silently implemented
-ahead of the milestone review. No live integration or tenant deployment was enabled.
+fallback**. Following the user's milestone review, Task 30/MS6 now supplies
+`PersistentClaimCases` and `PersistentClaimDeliveryLedger`; inject those concrete
+adapters as described in `docs/cases.md`. No live integration or tenant deployment
+was enabled.
 
 The workflow needs no OpenAI key for local implementation. Its deterministic checks
 do not validate model extraction/classification quality, actual Google behavior or
-production Cases persistence. No MS6 implementation or MS5 merge is authorized by
-this checkpoint.
+provider permissions. Real PostgreSQL persistence/rollback/concurrency evidence is
+recorded separately in `docs/implementation/ms6-progress.md`; it is not evidence of
+live-provider acceptance. MS5 and MS6 have not been merged into `main`.
 
 ## Focused verification
 

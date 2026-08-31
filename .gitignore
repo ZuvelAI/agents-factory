@@ -16,6 +16,7 @@ supabase/.env.local
 
 # Dependencies, caches, and test output
 node_modules/
+.venv
 .pnpm-store/
 .next/
 .turbo/

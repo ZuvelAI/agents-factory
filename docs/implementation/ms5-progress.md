@@ -306,3 +306,12 @@ MS5 before entering Task 30; do not rerun passing suites or treat fixtures as li
 acceptance evidence. Task 27's real provider/corpus acceptance remains deferred by
 the user's decision not to use an OpenAI key yet. MS5 is not fully accepted and
 requires the user's milestone review before MS6 or a merge.
+
+## Review outcome — authorization to start MS6
+
+The user subsequently approved continuing. MS6 starts on its own branch with the
+reviewed MS5 checkpoint as its base; `main` is not merged or changed. Deferred live
+API/media evidence remains outstanding, not waived or represented as passing.
+Task 30 now implements the Cases/delivery persistence described above; see
+`docs/implementation/ms6-progress.md`. The historical verification entries remain
+intact, and their passing suites were not rerun.

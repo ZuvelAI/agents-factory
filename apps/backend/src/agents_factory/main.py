@@ -20,6 +20,8 @@ from agents_factory.common.security import (
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.actions.router import router as admin_action_router
+from agents_factory.modules.cases.router import router as admin_case_router
+from agents_factory.modules.cases.service import CaseService
 from agents_factory.modules.agent_factory.router import (
     router as admin_agent_spec_router,
 )
@@ -147,6 +149,7 @@ def create_app(
                 decode_responses=True,
             )
             application.state.database = database
+            application.state.case_service = CaseService(database.session_factory)
             application.state.redis = redis_client
             application.state.readiness_checks = ReadinessChecks(
                 database=database.ping,
@@ -166,6 +169,7 @@ def create_app(
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
     application.include_router(admin_tenant_router)
     application.include_router(admin_action_router)
+    application.include_router(admin_case_router)
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)

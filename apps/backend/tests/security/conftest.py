@@ -35,6 +35,8 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
         )
     )
     for table_name, trigger_name in (
+        ("case_events", "case_events_append_only"),
+        ("case_operations", "case_operations_append_only"),
         ("knowledge_source_versions", "knowledge_source_versions_append_only"),
         ("structured_facts", "structured_facts_append_only"),
         ("knowledge_documents", "knowledge_documents_append_only"),
@@ -89,6 +91,8 @@ async def _truncate_conversation_tables(connection: AsyncConnection) -> None:
         )
     )
     for table_name, trigger_name in (
+        ("case_events", "case_events_append_only"),
+        ("case_operations", "case_operations_append_only"),
         ("knowledge_source_versions", "knowledge_source_versions_append_only"),
         ("structured_facts", "structured_facts_append_only"),
         ("knowledge_documents", "knowledge_documents_append_only"),

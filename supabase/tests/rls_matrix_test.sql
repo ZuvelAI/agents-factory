@@ -13,6 +13,10 @@ create temp table task5_tenant_isolation_registry (
 insert into task5_tenant_isolation_registry (table_name, owner_column)
 values
   ('public.media_observations', 'tenant_id'),
+  ('public.cases', 'tenant_id'),
+  ('public.case_events', 'tenant_id'),
+  ('public.case_operations', 'tenant_id'),
+  ('public.case_delivery_operations', 'tenant_id'),
   ('public.media_evidence', 'tenant_id'),
   ('public.order_operations', 'tenant_id'),
   ('public.appointment_configurations', 'tenant_id'),

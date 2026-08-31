@@ -57,6 +57,18 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.cases", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_events", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_delivery_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.media_observations", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -349,6 +361,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("case_events", "case_events_append_only"),
+            ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
             ("structured_facts", "structured_facts_append_only"),
             ("knowledge_documents", "knowledge_documents_append_only"),
@@ -391,6 +405,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("case_events", "case_events_append_only"),
+            ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
             ("structured_facts", "structured_facts_append_only"),
             ("knowledge_documents", "knowledge_documents_append_only"),
@@ -1089,6 +1105,50 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            await connection.execute(
+                text(
+                    "INSERT INTO public.cases(id,tenant_id,customer_ref,capability,issue_type,binding_id,resource_id,deduplication_key,content_digest,intake,revision,status,priority,policy,approaching_at,target_at,created_at,updated_at) VALUES (:id,:tenant,'fixture','orders','delivery_delay',:binding,'order',:digest,:digest,'{}',1,'OPEN','NORMAL','{}',now()+interval '20 hours',now()+interval '24 hours',now(),now())"
+                ),
+                {
+                    "id": rows["public.cases"],
+                    "tenant": tenant_id,
+                    "binding": uuid4(),
+                    "digest": "0" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_events(id,tenant_id,case_id,revision,event_type,actor_id,actor_type,correlation_id,reason,to_status) VALUES (:id,:tenant,:case,1,'CREATED',:actor,'system',:actor,'fixture','OPEN')"
+                ),
+                {
+                    "id": rows["public.case_events"],
+                    "tenant": tenant_id,
+                    "case": rows["public.cases"],
+                    "actor": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_operations(id,tenant_id,customer_ref,case_id,parameter_digest,receipt) VALUES (:id,:tenant,'fixture',:case,:digest,'{}')"
+                ),
+                {
+                    "id": rows["public.case_operations"],
+                    "tenant": tenant_id,
+                    "case": rows["public.cases"],
+                    "digest": "0" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_delivery_operations(id,tenant_id,effect_key,parameter_digest,operation,status) VALUES (:id,:tenant,'fixture',:digest,'sheets.update_row','CLAIMED')"
+                ),
+                {
+                    "id": rows["public.case_delivery_operations"],
+                    "tenant": tenant_id,
+                    "digest": "0" * 64,
+                },
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1214,6 +1274,10 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.cases": "INSERT INTO public.cases(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_events": "INSERT INTO public.case_events(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_operations": "INSERT INTO public.case_operations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_delivery_operations": "INSERT INTO public.case_delivery_operations(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.media_observations": "INSERT INTO public.media_observations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.media_evidence": "INSERT INTO public.media_evidence (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.order_operations": "INSERT INTO public.order_operations (id, tenant_id) VALUES (:id, :tenant_id)",
@@ -1504,6 +1568,10 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.cases": None,
+        "public.case_events": None,
+        "public.case_operations": None,
+        "public.case_delivery_operations": None,
         "public.media_observations": None,
         "public.media_evidence": None,
         "public.order_operations": None,
