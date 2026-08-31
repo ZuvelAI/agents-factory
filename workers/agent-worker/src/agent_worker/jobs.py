@@ -15,6 +15,8 @@ from agents_factory.common.queue import (
 from agents_factory.database import Database, set_tenant_context
 from agents_factory.modules.conversations.models import AwaitingHumanPolicy
 from agents_factory.modules.conversations.service import ConversationService
+from agents_factory.modules.handoffs.service import HandoffService
+from agents_factory.modules.handoffs.surfaces import HumanSurfaceRegistry
 from agents_factory.modules.media.contracts import MediaProcessor
 from agents_factory.modules.runtime.contracts import AgentRuntime
 from agents_factory.modules.runtime.openai_adapter import OpenAIAgentsRuntime
@@ -47,6 +49,11 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
         context.get("runtime_tool_registry") or RuntimeToolRegistry(()),
     )
     media = cast(MediaProcessor | None, context.get("media_processor"))
+    handoffs = cast(
+        HandoffService,
+        context.get("handoff_service")
+        or HandoffService(database.session_factory, surfaces=HumanSurfaceRegistry()),
+    )
 
     async def agent_turn_handler(envelope: JobEnvelope) -> None:
         await handle_agent_turn(
@@ -56,6 +63,7 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
             agent_specs=agent_specs,
             tools=tools,
             media=media,
+            handoffs=handoffs,
         )
 
     async def whatsapp_inbound_handler(envelope: JobEnvelope) -> None:
@@ -103,6 +111,7 @@ async def handle_agent_turn(
     agent_specs: AgentSpecProvider,
     tools: RuntimeToolRegistry,
     media: MediaProcessor | None = None,
+    handoffs: HandoffService | None = None,
 ) -> None:
     if envelope.kind != "agent.turn":
         raise InvalidAgentTurnJob("unexpected job kind")
@@ -130,6 +139,12 @@ async def handle_agent_turn(
         # provider object and reuses its durable observation without a second call.
         if media is not None:
             await media.process(context=context, message_id=inbound_message_id)
+        if handoffs is not None:
+            await handoffs.inspect_inbound(
+                context=context,
+                conversation_id=conversation_id,
+                message_id=inbound_message_id,
+            )
         await AgentTurnService(
             session=session,
             context=context,

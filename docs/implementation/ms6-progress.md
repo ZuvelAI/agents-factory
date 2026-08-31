@@ -112,7 +112,7 @@ configuration, remaining integration boundaries and proof/privacy defaults.
 ## Continuation
 
 Tasks 32 and 33 implement the secure review page and revalidating execution/
-notification coordinator (see checkpoints below). Next is Task 34's Live Human Handoff. Continue
+notification coordinator and Task 34 handoff backend (see checkpoints below). Next is Task 35's scheduler policies. Continue
 the remaining MS6 tasks and present the milestone gate before MS7. MS6 is not
 declared complete by this checkpoint.
 
@@ -199,3 +199,36 @@ of a post-execution FAILED); its old suite was not rerun. Captured
 `20260831152925_approval_action_results.sql`; local migration history matches.
 Supabase local advisors reported no issues. Detailed composition and remaining
 release prerequisites are recorded in `docs/approvals.md`.
+
+## Task 34 — verified handoff backend and response suppression
+
+- Added per-account configuration, supported-surface verification ports, conservative
+  explicit-request/risk policy and durable REQUESTED/ACTIVE/CLOSED handoff records.
+  Native Coexistence eligibility and supported external-inbox verification are
+  separate; the default empty registry cannot enable a live surface.
+- Admin configuration/status/request routes and agent-worker admission from durable
+  customer text. Verified adapter events activate/end control, bind tenant/account/
+  conversation/handoff and reject replay, stale sequence and mismatched evidence.
+- One bounded system waiting receipt (no online-human promise), support hours and
+  timezone, independent approval workflows, 12-hour default configurable inactivity
+  domain operation and normal next-inbound session reopening.
+- Runtime authority checks now audit before/after generation and fence control
+  versions. Queued AI sends and waiting receipts are suppressed after takeover;
+  only the exact backend receipt is allowed while waiting. Existing inbound
+  persistence is preserved. SQL transition guard prevents legacy API bypass.
+- Two FORCE-RLS tables, explicit least-privilege grants and composite tenant keys;
+  no security-definer addition, inbox UI, Generic REST or production credentials.
+
+Thirteen focused checks passed (policy, control lifecycle, races/outbound and the
+two new RLS matrices plus registry coverage). Six initially failed on a shared
+conversation-lock permission mismatch; only those six were retried after reusing
+the existing tenant-scoped app locking permission, without expanding privileges.
+No old passing suite or real API was rerun. Focused type/lint checks passed and
+local Supabase advisors found no issues. Captured
+`20260831160756_handoffs.sql`, retaining FORCE RLS, explicit revocations and
+function-before-trigger dependency ordering. See `docs/handoffs.md` for boundaries.
+
+The live provider bridge/eligibility and authenticated event evidence still require
+real integration acceptance; default enablement remains off. Non-text escalation
+producers have explicit backend service ports. Task 35 will wire inactivity
+scheduling along with the remaining scheduler policies. MS6 is not yet complete.

@@ -114,6 +114,7 @@ class AgentTurnExecution:
 @dataclass(frozen=True, slots=True)
 class _LoadedTurn:
     control_state: ConversationControlState
+    state_version: int
     messages: tuple[TurnMessage, ...]
     inbound_message: TurnMessage
 
@@ -174,6 +175,7 @@ class AgentTurnService:
             raise AgentTurnNotFound
 
         if not self._may_ai_respond(loaded.control_state):
+            await self._record_suppression(conversation_id, "before_generation")
             return AgentTurnExecution(status="blocked_by_conversation_control")
 
         agent_spec = await self._agent_specs.get_active(
@@ -215,8 +217,10 @@ class AgentTurnService:
             agent_spec=agent_spec,
             result=result,
             awaiting_human_policy=self._awaiting_human_policy,
+            expected_state_version=loaded.state_version,
         )
         if not persisted.authority_available:
+            await self._record_suppression(conversation_id, "after_generation")
             return AgentTurnExecution(status="blocked_by_conversation_control")
         if persisted.message_id is None:
             raise RuntimeError("assistant persistence produced no identity")
@@ -257,6 +261,15 @@ class AgentTurnService:
             assistant_message_id=persisted.message_id,
         )
 
+    async def _record_suppression(self, conversation_id: UUID, stage: str) -> None:
+        await self._audit.record(
+            context=self._context,
+            event_type="agent.turn.authority_suppressed",
+            entity_type="conversation",
+            entity_id=conversation_id,
+            payload={"stage": stage},
+        )
+
     def _may_ai_respond(self, state: ConversationControlState) -> bool:
         return self._state_machine.may_ai_respond(
             state=state,
@@ -276,17 +289,23 @@ class _RuntimeTurnRepository:
         inbound_message_id: UUID,
     ) -> _LoadedTurn | None:
         await set_tenant_context(self._session, context.tenant_id)
-        state = await self._session.scalar(
-            text(
-                "SELECT control_state FROM public.conversations "
-                "WHERE tenant_id = :tenant_id AND id = :conversation_id"
-            ),
-            {
-                "tenant_id": context.tenant_id,
-                "conversation_id": conversation_id,
-            },
+        state_row = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT control_state, state_version FROM public.conversations "
+                        "WHERE tenant_id = :tenant_id AND id = :conversation_id"
+                    ),
+                    {
+                        "tenant_id": context.tenant_id,
+                        "conversation_id": conversation_id,
+                    },
+                )
+            )
+            .mappings()
+            .one_or_none()
         )
-        if not isinstance(state, str):
+        if state_row is None:
             return None
         inbound_row = (
             (
@@ -334,7 +353,8 @@ class _RuntimeTurnRepository:
         inbound = _turn_message(inbound_row)
         messages = tuple(_turn_message(row) for row in prior_rows) + (inbound,)
         return _LoadedTurn(
-            control_state=ConversationControlState(state),
+            control_state=ConversationControlState(state_row["control_state"]),
+            state_version=state_row["state_version"],
             messages=messages,
             inbound_message=inbound,
         )
@@ -375,23 +395,32 @@ class _RuntimeTurnRepository:
         agent_spec: AgentSpecSnapshot,
         result: AgentTurnResult,
         awaiting_human_policy: AwaitingHumanPolicy,
+        expected_state_version: int,
     ) -> _PersistedAssistant:
         await set_tenant_context(self._session, context.tenant_id)
-        state = await self._session.scalar(
-            text(
-                "SELECT control_state FROM public.conversations "
-                "WHERE tenant_id = :tenant_id AND id = :conversation_id "
-                "FOR UPDATE"
-            ),
-            {
-                "tenant_id": context.tenant_id,
-                "conversation_id": conversation_id,
-            },
+        state_row = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT control_state, state_version FROM public.conversations "
+                        "WHERE tenant_id = :tenant_id AND id = :conversation_id "
+                        "FOR UPDATE"
+                    ),
+                    {
+                        "tenant_id": context.tenant_id,
+                        "conversation_id": conversation_id,
+                    },
+                )
+            )
+            .mappings()
+            .one_or_none()
         )
-        if not isinstance(state, str):
+        if state_row is None:
             raise AgentTurnNotFound
-        if not ConversationStateMachine.may_ai_respond(
-            state=ConversationControlState(state),
+        if state_row[
+            "state_version"
+        ] != expected_state_version or not ConversationStateMachine.may_ai_respond(
+            state=ConversationControlState(state_row["control_state"]),
             awaiting_human_policy=awaiting_human_policy,
         ):
             return _PersistedAssistant(
@@ -423,6 +452,7 @@ class _RuntimeTurnRepository:
         )
         message_id = new_uuid7()
         runtime_metadata = _runtime_metadata(agent_spec=agent_spec, result=result)
+        runtime_metadata["conversation_state_version"] = expected_state_version
         created_id = await self._session.scalar(
             text(
                 "INSERT INTO public.messages "

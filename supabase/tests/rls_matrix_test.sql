@@ -12,6 +12,8 @@ create temp table task5_tenant_isolation_registry (
 
 insert into task5_tenant_isolation_registry (table_name, owner_column)
 values
+  ('public.handoff_configurations', 'tenant_id'),
+  ('public.handoffs', 'tenant_id'),
   ('public.approval_routes', 'tenant_id'),
   ('public.approval_requests', 'tenant_id'),
   ('public.approval_links', 'tenant_id'),

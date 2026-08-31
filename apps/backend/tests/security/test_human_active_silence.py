@@ -96,13 +96,15 @@ async def test_human_active_persists_but_never_queues_or_allows_ai(
             awaiting_human_policy=AwaitingHumanPolicy.SILENT,
         )
         first = await service.ingest(event_ids[0])
-        await service.request_handoff(
-            conversation_id=first.conversation_id,
-            reason="customer_requested_human",
-        )
-        await service.activate_human(
-            conversation_id=first.conversation_id,
-            reason="human_joined",
+    from apps.backend.tests.handoff_support import activate_verified_handoff
+
+    await activate_verified_handoff(session_factory, context, first.conversation_id)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        service = ConversationService(
+            session=session,
+            context=context,
+            awaiting_human_policy=AwaitingHumanPolicy.SILENT,
         )
         assert await service.may_ai_respond(first.conversation_id) is False
         human_owned = await service.ingest(event_ids[1])
@@ -133,7 +135,7 @@ async def test_human_active_persists_but_never_queues_or_allows_ai(
                 "WHERE event_type = 'conversation.message.received'"
             )
         )
-    assert message_count == 2
+    assert message_count == 3  # Includes the deterministic handoff waiting receipt.
     assert response_jobs == 1
     assert attempt_count == 0
     assert audit_messages == 2

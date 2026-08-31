@@ -57,6 +57,12 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.handoff_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.handoffs", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.approval_routes", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -1180,6 +1186,29 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             ):
                 await connection.execute(text(sql), approval_values)
 
+            handoff_values = {
+                "tenant": tenant_id,
+                "config": rows["public.handoff_configurations"],
+                "handoff": rows["public.handoffs"],
+                "account": rows["public.whatsapp_accounts"],
+                "conversation": rows["public.conversations"],
+                "notice": rows["public.messages"],
+            }
+            await connection.execute(
+                text(
+                    "INSERT INTO public.handoff_configurations(id,tenant_id,whatsapp_account_id,revision,configuration) "
+                    "VALUES (:config,:tenant,:account,1,'{}')"
+                ),
+                handoff_values,
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.handoffs(id,tenant_id,conversation_id,status,reason,configuration,notice_message_id,requested_at,last_activity_at,closed_at) "
+                    "VALUES (:handoff,:tenant,:conversation,'CLOSED','EXPLICIT_REQUEST','{}',:notice,now(),now(),now())"
+                ),
+                handoff_values,
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1306,6 +1335,8 @@ async def _discover_tenant_owned_tables(
 def _insert_statement(table_name: str) -> str:
     statements = {
         "public.cases": "INSERT INTO public.cases(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.handoff_configurations": "INSERT INTO public.handoff_configurations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.handoffs": "INSERT INTO public.handoffs(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.approval_routes": "INSERT INTO public.approval_routes(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.approval_requests": "INSERT INTO public.approval_requests(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.approval_links": "INSERT INTO public.approval_links(id,tenant_id) VALUES (:id,:tenant_id)",
@@ -1604,6 +1635,8 @@ def _insert_parameters(
 def _matching_update(table_name: str) -> str | None:
     return {
         "public.cases": None,
+        "public.handoff_configurations": None,
+        "public.handoffs": None,
         "public.approval_routes": None,
         "public.approval_requests": None,
         "public.approval_links": None,

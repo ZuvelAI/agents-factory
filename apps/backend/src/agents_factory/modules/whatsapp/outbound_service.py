@@ -121,7 +121,8 @@ class OutboundMessageService:
                     await session.execute(
                         text(
                             "SELECT message.id, message.conversation_id, "
-                            "message.content, conversation.whatsapp_account_id, "
+                            "message.content, message.runtime_metadata, message.sender_type, "
+                            "conversation.state_version, conversation.whatsapp_account_id, "
                             "conversation.customer_wa_id, conversation.control_state, "
                             "account.phone_number_id, "
                             "(SELECT max(inbound.provider_timestamp) "
@@ -140,7 +141,7 @@ class OutboundMessageService:
                             "WHERE message.tenant_id = :tenant_id "
                             "AND message.id = :message_id "
                             "AND message.direction = 'outbound' "
-                            "AND message.sender_type = 'ai' "
+                            "AND message.sender_type IN ('ai', 'system') "
                             "AND message.message_type = 'text' "
                             "AND account.status = 'active' FOR UPDATE OF conversation"
                         ),
@@ -155,7 +156,14 @@ class OutboundMessageService:
             )
             if row is None:
                 raise OutboundMessageNotFound(message_id)
-            if row["control_state"] != "AI_ACTIVE":
+            if not await _source_authorized(
+                session,
+                tenant_id=self._context.tenant_id,
+                conversation_id=row["conversation_id"],
+                source_message_id=message_id,
+                control_state=row["control_state"],
+                state_version=row["state_version"],
+            ):
                 raise ApprovedTemplateRequired
             last_inbound = row["last_inbound_at"]
             if (
@@ -322,7 +330,7 @@ class OutboundMessageService:
                     (
                         await session.execute(
                             text(
-                                "SELECT control_state, "
+                                "SELECT control_state, state_version, "
                                 "(SELECT max(message.provider_timestamp) "
                                 " FROM public.messages AS message "
                                 " WHERE message.tenant_id = conversation.tenant_id "
@@ -345,7 +353,14 @@ class OutboundMessageService:
                 )
                 authority_available = authority is not None
                 if authority is not None:
-                    authority_available = authority["control_state"] == "AI_ACTIVE"
+                    authority_available = await _source_authorized(
+                        session,
+                        tenant_id=self._context.tenant_id,
+                        conversation_id=conversation_id,
+                        source_message_id=row["source_message_id"],
+                        control_state=authority["control_state"],
+                        state_version=authority["state_version"],
+                    )
                 if (
                     authority is not None
                     and row["kind"] == "text"
@@ -357,6 +372,13 @@ class OutboundMessageService:
                         and now - last_inbound <= _SERVICE_WINDOW
                     )
                 if not authority_available:
+                    await AuditService(session).record(
+                        context=self._context,
+                        event_type="whatsapp.outbound.authority_suppressed",
+                        entity_type="outbound_message",
+                        entity_id=message_id,
+                        payload={"stage": "before_send"},
+                    )
                     blocked = await _set_status(
                         session,
                         tenant_id=self._context.tenant_id,
@@ -450,6 +472,50 @@ class OutboundMessageService:
                 },
             )
             return result
+
+
+async def _source_authorized(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    conversation_id: UUID,
+    source_message_id: UUID | None,
+    control_state: str,
+    state_version: int,
+) -> bool:
+    if source_message_id is None:
+        return control_state == "AI_ACTIVE"
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT sender_type,runtime_metadata, EXISTS (SELECT 1 FROM public.handoffs h "
+                    "WHERE h.tenant_id=m.tenant_id AND h.conversation_id=m.conversation_id "
+                    "AND h.notice_message_id=m.id AND h.status='REQUESTED') AS handoff_notice "
+                    "FROM public.messages m WHERE m.tenant_id=:tenant AND m.conversation_id=:conversation AND m.id=:id"
+                ),
+                {
+                    "tenant": tenant_id,
+                    "conversation": conversation_id,
+                    "id": source_message_id,
+                },
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    if row["sender_type"] == "system":
+        # The single backend-created waiting receipt is not an AI conversation.
+        return control_state == "AWAITING_HUMAN" and row["handoff_notice"] is True
+    metadata = row["runtime_metadata"] or {}
+    epoch = metadata.get("conversation_state_version")
+    return (
+        row["sender_type"] == "ai"
+        and control_state == "AI_ACTIVE"
+        and (epoch is None or epoch == state_version)
+    )
 
 
 class OutboundStatusReconciler:
@@ -570,7 +636,7 @@ async def _load_outbound_for_update(
         (
             await session.execute(
                 text(
-                    "SELECT outbound.id, outbound.conversation_id, outbound.kind, "
+                    "SELECT outbound.id, outbound.conversation_id, outbound.kind, outbound.source_message_id, "
                     "outbound.whatsapp_account_id, outbound.recipient_wa_id, "
                     "outbound.payload, outbound.status, outbound.status_history, "
                     "outbound.provider_message_id, outbound.provider_error_code, "

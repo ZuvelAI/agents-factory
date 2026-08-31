@@ -32,11 +32,8 @@ class CustomerServiceInstructionsBuilder:
         resolved_business_name = (
             business_name or spec.configuration.persona.business_name
         )
-        resolved_handoff_surface = (
-            spec.configuration.human_operations.handoff_surface_available
-            if handoff_surface_available is None
-            else handoff_surface_available
-        )
+        # A tenant-authored boolean is not evidence of a working human surface.
+        resolved_handoff_surface = handoff_surface_available is True
         capabilities = frozenset(
             reference.name for reference in spec.configuration.capabilities
         )
