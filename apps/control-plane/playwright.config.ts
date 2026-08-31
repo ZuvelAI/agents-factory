@@ -5,6 +5,7 @@ const appPort = 3100;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: "approval.spec.ts", // Separate production-CSP configuration, no proof-bearing traces.
   fullyParallel: false,
   workers: 1,
   retries: 0,

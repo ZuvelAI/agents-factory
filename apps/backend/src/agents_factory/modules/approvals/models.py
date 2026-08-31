@@ -151,9 +151,12 @@ class OTPInput(TokenInput):
         return value.strip().lower() if isinstance(value, str) else value
 
 
-class DecideInput(OTPInput):
+class VerifyInput(OTPInput):
     challenge_id: UUID
     code: SecretStr = Field(min_length=1, max_length=64, repr=False)
+
+
+class DecideInput(VerifyInput):
     decision: Literal["APPROVE", "REJECT"]
     requested_result: RequestedDecisionResult
 
@@ -165,3 +168,15 @@ class OTPReceipt(InputModel):
 
 class PublicReceipt(InputModel):
     status: Literal["OPEN", "CLOSED", "RECORDED", "INVALID_VERIFICATION"]
+
+
+class ReviewDetails(InputModel):
+    request_id: UUID
+    action: str
+    resource_reference: str | None = None
+    expires_at: AwareDatetime
+
+
+class ReviewReceipt(InputModel):
+    status: Literal["OPEN", "CLOSED", "INVALID_VERIFICATION"]
+    details: ReviewDetails | None = None

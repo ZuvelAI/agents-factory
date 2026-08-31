@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -32,6 +33,9 @@ from agents_factory.modules.approvals.models import (
     OTPInput,
     OTPReceipt,
     PublicReceipt,
+    ReviewDetails,
+    ReviewReceipt,
+    VerifyInput,
 )
 from agents_factory.modules.approvals.otp import issue_otp, verify_otp
 from agents_factory.modules.approvals.repository import ApprovalRepository
@@ -512,6 +516,85 @@ class ApprovalService:
             )
         return receipt
 
+    async def _verified_link(
+        self, locked: LockedApproval, claims: LinkClaims, raw: str, command: VerifyInput
+    ) -> ApprovalLink | None:
+        link = await self._link(locked, claims, raw)
+        if link is None or link.email != command.email:
+            return None
+        policy, now = locked.route.configuration, self.now()
+        if link.otp_attempts >= policy.otp_max_attempts:
+            return None
+        valid = bool(
+            link.challenge_id == command.challenge_id
+            and link.otp_digest is not None
+            and link.otp_expires_at is not None
+            and now < link.otp_expires_at
+            and link.otp_delivery == "SENT"
+            and verify_otp(
+                self.proofs,
+                command.challenge_id,
+                command.code.get_secret_value(),
+                link.otp_digest,
+            )
+        )
+        if valid:
+            return link
+        attempts = link.otp_attempts + 1
+        await locked.repository.save_link(
+            link.model_copy(
+                update={
+                    "otp_attempts": attempts,
+                    "invalidated_at": now
+                    if attempts >= policy.otp_max_attempts
+                    else None,
+                    "otp_digest": None
+                    if attempts >= policy.otp_max_attempts
+                    else link.otp_digest,
+                }
+            )
+        )
+        await AuditService(locked.repository.session).record(
+            context=locked.repository.context,
+            event_type="approval.verification_failed",
+            entity_type="approval_request",
+            entity_id=claims.request_id,
+            payload={"link_id": str(link.id), "attempt": attempts},
+        )
+        return None
+
+    async def review(self, command: VerifyInput) -> ReviewReceipt:
+        raw = command.link_token.get_secret_value()
+        claims, context = self._public_context(raw)
+        async with self.locked(context, claims.request_id) as locked:
+            if not await self._usable(locked):
+                return ReviewReceipt(status="CLOSED")
+            assert locked is not None
+            link = await self._verified_link(locked, claims, raw, command)
+            if link is None:
+                return ReviewReceipt(status="INVALID_VERIFICATION")
+            # Only a verified reviewer sees bounded identifiers, never the complete
+            # Action parameters, contact details or raw connector/provider data.
+            reference = locked.action.parameters.get(
+                "order_id" if locked.action.capability == "orders" else "appointment_id"
+            )
+            safe_reference = (
+                str(reference)
+                if isinstance(reference, (str, int))
+                and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(reference))
+                else None
+            )
+            assert link.otp_expires_at is not None
+            return ReviewReceipt(
+                status="OPEN",
+                details=ReviewDetails(
+                    request_id=locked.request.id,
+                    action=locked.action.action_type,
+                    resource_reference=safe_reference,
+                    expires_at=min(locked.request.expires_at, link.otp_expires_at),
+                ),
+            )
+
     async def decide(
         self,
         command: DecideInput,
@@ -525,48 +608,10 @@ class ApprovalService:
             if not await self._usable(locked):
                 return PublicReceipt(status="CLOSED")
             assert locked is not None
-            link = await self._link(locked, claims, raw)
-            if link is None or link.email != command.email:
+            link = await self._verified_link(locked, claims, raw, command)
+            if link is None:
                 return PublicReceipt(status="INVALID_VERIFICATION")
-            policy, now = locked.route.configuration, self.now()
-            if link.otp_attempts >= policy.otp_max_attempts:
-                return PublicReceipt(status="INVALID_VERIFICATION")
-            valid = bool(
-                link.challenge_id == command.challenge_id
-                and link.otp_digest is not None
-                and link.otp_expires_at is not None
-                and now < link.otp_expires_at
-                and link.otp_delivery == "SENT"
-                and verify_otp(
-                    self.proofs,
-                    command.challenge_id,
-                    command.code.get_secret_value(),
-                    link.otp_digest,
-                )
-            )
-            if not valid:
-                attempts = link.otp_attempts + 1
-                await locked.repository.save_link(
-                    link.model_copy(
-                        update={
-                            "otp_attempts": attempts,
-                            "invalidated_at": now
-                            if attempts >= policy.otp_max_attempts
-                            else None,
-                            "otp_digest": None
-                            if attempts >= policy.otp_max_attempts
-                            else link.otp_digest,
-                        }
-                    )
-                )
-                await AuditService(locked.repository.session).record(
-                    context=context,
-                    event_type="approval.verification_failed",
-                    entity_type="approval_request",
-                    entity_id=claims.request_id,
-                    payload={"link_id": str(link.id), "attempt": attempts},
-                )
-                return PublicReceipt(status="INVALID_VERIFICATION")
+            now = self.now()
             decision = ApprovalDecision(
                 id=new_uuid7(),
                 tenant_id=context.tenant_id,

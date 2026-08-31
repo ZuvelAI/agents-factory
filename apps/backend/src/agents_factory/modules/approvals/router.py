@@ -1,5 +1,6 @@
 from collections.abc import Callable, Coroutine
 from typing import Any
+import json
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
@@ -21,6 +22,12 @@ from agents_factory.modules.approvals.models import (
     OTPReceipt,
     PublicReceipt,
     TokenInput,
+    VerifyInput,
+    ReviewReceipt,
+)
+from agents_factory.modules.approvals.result_schema import (
+    DecisionReceipt,
+    reviewer_result,
 )
 from agents_factory.modules.approvals.service import ApprovalService
 from agents_factory.modules.integrations.google.base import InputModel
@@ -58,9 +65,43 @@ class PrivateApprovalRoute(APIRoute):
                         raise HTTPException(
                             status_code=415, detail="approval_json_required"
                         )
-                    if len(await request.body()) > 16_384:
+                    bounded = bytearray()
+                    async for chunk in request.stream():
+                        bounded.extend(chunk)
+                        if len(bounded) > 16_384:
+                            raise HTTPException(
+                                status_code=413, detail="approval_body_too_large"
+                            )
+                    request._body = bytes(bounded)
+                    limiter = getattr(request.app.state, "approval_rate_limiter", None)
+                    if limiter is None:
                         raise HTTPException(
-                            status_code=413, detail="approval_body_too_large"
+                            status_code=503, detail="approval_unavailable"
+                        )
+                    peer = request.client.host if request.client else "unknown"
+                    peer_key = service.proofs.digest("rate_peer", peer)
+                    if not await limiter.allow(peer_key, limit=240, seconds=60):
+                        raise HTTPException(
+                            status_code=429, detail="approval_rate_limited"
+                        )
+                    try:
+                        body = json.loads(await request.body())
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=422, detail="invalid_approval_input"
+                        ) from None
+                    value = body.get("link_token") if isinstance(body, dict) else None
+                    if not isinstance(value, str) or len(value) > 300:
+                        raise HTTPException(
+                            status_code=422, detail="invalid_approval_input"
+                        )
+                    claims = service.proofs.verify_link(value)
+                    link_key = service.proofs.digest(
+                        "rate_link", f"{claims.tenant_id}:{claims.link_id}"
+                    )
+                    if not await limiter.allow(link_key, limit=30, seconds=60):
+                        raise HTTPException(
+                            status_code=429, detail="approval_rate_limited"
                         )
                 response = await handler(request)
             except RequestValidationError:
@@ -164,4 +205,26 @@ async def decide(command: DecideInput, request: Request) -> PublicReceipt:
         command,
         ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
+    )
+
+
+@public_router.post("/review")
+async def review(command: VerifyInput, request: Request) -> ReviewReceipt:
+    return await service_for(request).review(command)
+
+
+@public_router.post("/decision")
+async def record_decision(command: DecideInput, request: Request) -> DecisionReceipt:
+    receipt = await decide(command, request)
+    if receipt.status == "RECORDED":
+        return DecisionReceipt(
+            status="RECORDED",
+            result=reviewer_result(
+                decision=command.decision, proposal=command.requested_result
+            ),
+        )
+    return DecisionReceipt(
+        status="INVALID_VERIFICATION"
+        if receipt.status == "INVALID_VERIFICATION"
+        else "CLOSED"
     )

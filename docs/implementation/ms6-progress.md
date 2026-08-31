@@ -111,12 +111,47 @@ configuration, remaining integration boundaries and proof/privacy defaults.
 
 ## Continuation
 
-Next work is Task 32: the secure approval page and customer-safe DecisionResult.
-Then Task 33 supplies the revalidating execution/notification coordinator. Continue
+Task 32 implements the secure approval page and customer-safe DecisionResult (see
+the checkpoint below). Next is Task 33's revalidating execution/notification coordinator. Continue
 the remaining MS6 tasks and present the milestone gate before MS7. MS6 is not
-declared complete by this Task 31 backend checkpoint.
+declared complete by this checkpoint.
 
 Still pending for release: deferred Task 27 live-media/corpus acceptance, real
 Google/WooCommerce account verification, downstream evidence retention/deletion,
 and production configuration/deployment validation. This offline checkpoint is
 not a certification of provider behavior or production readiness.
+
+## Task 32 — secure approval surface and safe result
+
+- Public, responsive Spanish review page outside the private Control Plane shell:
+  email, OTP, verified minimal request summary, explicit decision/reason/internal
+  explanation/confirmation, and generic closed/result states. Other administrative
+  routes retain their existing Supabase claims checks.
+- Nonce-based production CSP, dynamic rendering, no-store/no-referrer, frame
+  denial, noindex, strict Origin/Host checks and validated Server Actions. Proofs
+  stay out of persistent browser storage, history URLs and serialized page props.
+  Same-tab link changes discard old state; navigation and BFCache clear proofs.
+- Shared backend Redis rate limits with keyed counters, fail-closed dependency,
+  bounded request bodies, OTP-protected review details and unchanged tenant RLS.
+  No migration, remote database mutation or authentication provider change.
+- Closed `DecisionResult` templates bind status/reason/customer-safe explanation/
+  next-action codes. Approval is pending execution, not success. Internal notes,
+  arbitrary provider text and requested next actions never pass to the customer.
+- Native Gmail/proof-service configuration remains explicit; no live API key was
+  required. Task 33's executor/outbound coordinator is not implemented here.
+
+Focused evidence: new contract test passed; new database/HTTP review scenario
+passed after granting the isolated local connection denied by the initial sandbox
+(the passing contract test was not rerun). Ruff, mypy, ESLint, TypeScript and
+production build passed. Desktop approval/CSP/history case passed. The new mobile
+case identified same-tab fragment navigation retaining the previous UI; fixed
+proof/state generation handling, then narrowed a test selector that also matched
+Next's route announcer. The corrected mobile case passed. Only that failing case
+was retried, without rerunning the passing desktop/backend cases. The mobile
+screenshot was visually inspected; browser
+trace/video recording stayed disabled. Details/configuration: `docs/approvals.md`.
+
+Skills influence: Next.js/React guidance shaped the Server Action boundary, nonce
+CSP/dynamic rendering and accessible component flow. Supabase guidance preserved
+the existing verified admin claims and tenant-data boundaries. No Superpowers,
+new master plan, feature expansion, full regression run or dependency upgrade.

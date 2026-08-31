@@ -44,6 +44,9 @@ async def test_approval_http_secrets_tenant_and_immutable_decision(order_world, 
     foreign = replace(world.context, tenant_id=uuid4())
     assert await h.service.get(context=foreign, request_id=approval.id) is None
     app = create_app(approval_service=h.service)
+    app.state.approval_rate_limiter = SimpleNamespace(
+        allow=AsyncMock(return_value=True)
+    )
     app.state.database = SimpleNamespace(session_factory=world.sessions)
     app.state.platform_admin_authorizer = PlatformAdminAuthorizer(AsyncMock())
     async with httpx.AsyncClient(

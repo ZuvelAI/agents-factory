@@ -25,6 +25,7 @@ from agents_factory.modules.approvals.router import (
     public_router as public_approval_router,
 )
 from agents_factory.modules.approvals.service import ApprovalService
+from agents_factory.modules.approvals.rate_limit import RedisApprovalRateLimiter
 from agents_factory.modules.cases.router import router as admin_case_router
 from agents_factory.modules.cases.service import CaseService
 from agents_factory.modules.agent_factory.router import (
@@ -157,6 +158,7 @@ def create_app(
             application.state.database = database
             application.state.case_service = CaseService(database.session_factory)
             application.state.redis = redis_client
+            application.state.approval_rate_limiter = RedisApprovalRateLimiter(redis_client)
             application.state.readiness_checks = ReadinessChecks(
                 database=database.ping,
                 redis=lambda: _probe_redis(redis_client),
