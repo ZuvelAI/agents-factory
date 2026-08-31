@@ -1,4 +1,4 @@
-# Usage foundation — Task 36, first checkpoint
+# Usage foundation — Task 36
 
 ## Product boundary
 
@@ -7,10 +7,11 @@ wizard. Prices, commercial quotas and technical limits belong to tenant
 configuration, not a customer-specific code fork. It does not add billing,
 subscription collection, a customer portal, extra model routing or live API access.
 
-This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads and
-policy decisions are implemented. Automatic producer instrumentation, distributed
-capacity reservations, durable threshold alerts and runtime enforcement of the
-new policies are still required before accepting Task 36 or its dashboards.
+This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
+runtime metering and part of technical enforcement are implemented. Non-runtime
+producer instrumentation, distributed capacity reservations, durable commercial
+threshold alerts and strict input-token preflight are still required before
+accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
 
@@ -79,10 +80,66 @@ configurable. Crossing 100 produces grace/overage signals, not automatic service
 shutdown. Missing measurements or mismatched currency produce an unknown signal.
 
 `check_hard_limits` separately evaluates projected tool calls, retries, model
-tokens, concurrent runs and requests/minute. A proposed operation exceeding a
-technical bound is denied irrespective of commercial grace. This is a pure decision
-function: it does not yet reserve distributed capacity, intercept provider calls,
-emit durable alerts, or replace the runtime's existing limits.
+tokens, concurrent runs and requests/minute. It remains a pure decision function;
+the execution integration below enforces the currently wired subset. Distributed
+capacity/rate reservations and commercial threshold delivery are still pending.
+
+## Runtime execution integration
+
+The agent worker wraps the shared runtime with `MeteredAgentRuntime`, loading
+tenant policy once per execution. The runtime receives effective limits separately
+from its immutable AgentSpec: configuration must not rewrite a compiled digest.
+Existing completed-message replay/control checks still run before this wrapper.
+This implements a common framework boundary; it does not introduce per-client code.
+
+The real Agents SDK loop records each model response through lifecycle hooks before
+business tool execution, final output validation or assistant persistence. Each
+record has an opaque run ID, sequence, tenant/conversation attribution, model,
+reported token components, requests and monotonic elapsed time. Observation writes
+use separate, short tenant-scoped transactions, so a later conversation rollback
+does not erase already consumed usage. Cancellation shields only the accounting
+write, not the provider request. A request without a usable response produces an
+unknown-usage record, never a zero-cost assertion.
+
+`preserve_raw_usage` is enabled. The accounting boundary selects only closed token
+fields from that SDK payload; it never persists the raw payload, prompts, tool
+arguments/results or transcripts. Missing, invalid or contradictory token details
+remain unknown instead of using the SDK's normalized zero defaults. Internal
+alternative/test adapters may fall back to one aggregate completion observation;
+the production SDK path records individual responses, including partial failed runs.
+
+SDK function-tool attempts, including failed argument validation/handlers, reserve
+their counter before an await and record `kind=tool`, `provider=agents_factory`.
+These are local invocation counts, **not** measured external API costs. External
+connector producers must record their own provider-specific billable occurrences.
+Without a configured price these local invocation costs remain unknown. This
+checkpoint uses USD as the runtime quote currency, not a live provider rate.
+
+Wired technical behavior:
+
+- Tool attempts use the smaller of the AgentSpec limit and tenant policy. Even
+  an unexpected burst of model tool calls cannot exceed that counter. Successful
+  calls remain the only entries in the customer-visible runtime tool result list.
+- HTTP and SDK model retries are disabled; the durable queue owns retries. The
+  worker reads the attempt number from the tenant-scoped durable job, not its
+  payload. Once `attempt_number - 1 > max_retries`, it stops before calling the
+  provider. The queue honors explicit non-retryable exceptions as dead letters.
+- Reported input+output usage accumulates per execution. The next output allowance
+  cannot exceed its remaining token budget. A response over budget (or with unknown
+  total usage) is recorded and stopped before its tools/follow-up request. This is
+  **not yet a strict preflight cap on input+output billing**: input tokens of the
+  current request can overshoot the remaining budget. Exact input admission is a
+  remaining Task 36 requirement, not a claimed completed hard cap.
+- Terminal runtime failures write a sanitized `usage.runtime_stopped` audit event.
+  The SDK wraps local tool errors; the adapter preserves typed terminal causes
+  rather than accidentally treating limit violations as retryable provider errors.
+  Commercial 100% quota remains grace/overage, with no implicit runtime cutoff.
+
+Accounting failures fail closed and are not retried as another potentially billed
+run. A process crash or unavailable database can still leave an unknown/unrecorded
+provider occurrence; durable reconciliation is not implemented by these hooks.
+No exactly-once billing guarantee is claimed. Live provider validation remains
+deferred, and no key or live rate was added.
 
 ## Persistence and remaining work
 
@@ -98,8 +155,10 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 by wiring metering around actual runtime/provider attempts,
-including errors and duplicate delivery reconciliation; enforce tenant policies in
-runtime/queue/tool services with atomic concurrency/rate reservations; record
-commercial threshold crossings once per tenant/period/revision; and prove the
-end-to-end runaway-loop stop. Only then accept Task 36 and build its MS7 views.
+Continue Task 36 with atomic tenant concurrency/rate reservations, strict token
+input admission, other producers (WhatsApp, external connectors, storage/infra),
+uncertain-occurrence reconciliation and commercial threshold crossings once per
+tenant/period/revision. The new local end-to-end scenario proves two-tenant runtime
+attribution, runaway-loop stop and a durable technical audit; it does not substitute
+for the pending commercial alerts or distributed-capacity acceptance. Only then
+accept Task 36 and build its MS7 views.

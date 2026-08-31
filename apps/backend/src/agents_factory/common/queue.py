@@ -386,6 +386,7 @@ class DurableJobRunner:
                 envelope=envelope,
                 attempt=started,
                 error_code=_exception_code(error),
+                terminal_error=getattr(error, "retryable", None) is False,
             )
             return JobRunResult(
                 status=status,
@@ -506,8 +507,9 @@ class DurableJobRunner:
         envelope: JobEnvelope,
         attempt: _StartedAttempt,
         error_code: str,
+        terminal_error: bool = False,
     ) -> Literal["retry", "dead_letter"]:
-        terminal = attempt.attempt_number >= attempt.max_attempts
+        terminal = terminal_error or attempt.attempt_number >= attempt.max_attempts
         async with self._session_factory.begin() as session:
             context = await _prepare_worker_session(session, envelope)
             await session.execute(

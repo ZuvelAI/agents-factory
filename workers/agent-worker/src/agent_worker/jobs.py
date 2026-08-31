@@ -26,6 +26,8 @@ from agents_factory.modules.runtime.turn_service import (
     AgentTurnService,
     Milestone2AgentSpecProvider,
 )
+from agents_factory.modules.usage.recorder import UsageRecorder
+from agents_factory.modules.usage.runtime import MeteredAgentRuntime
 from agent_worker.approval_jobs import configure_approval_execution
 
 
@@ -118,15 +120,21 @@ async def handle_agent_turn(
     async with database.session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         await set_tenant_context(session, envelope.tenant_id)
-        payload = await session.scalar(
-            text(
-                "SELECT payload FROM public.outbox_jobs "
-                "WHERE tenant_id = :tenant_id AND id = :job_id"
-            ),
-            {"tenant_id": envelope.tenant_id, "job_id": envelope.job_id},
+        job = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT payload, attempt_count FROM public.outbox_jobs "
+                        "WHERE tenant_id = :tenant_id AND id = :job_id"
+                    ),
+                    {"tenant_id": envelope.tenant_id, "job_id": envelope.job_id},
+                )
+            )
+            .mappings()
+            .one_or_none()
         )
         conversation_id, inbound_message_id = _parse_payload(
-            payload,
+            job["payload"] if job is not None else None,
             expected_conversation_id=envelope.aggregate_id,
         )
         context = TenantContext(
@@ -148,7 +156,11 @@ async def handle_agent_turn(
         await AgentTurnService(
             session=session,
             context=context,
-            runtime=runtime,
+            runtime=MeteredAgentRuntime(
+                runtime,
+                UsageRecorder(database.session_factory),
+                attempt_number=max(1, job["attempt_count"]) if job is not None else 1,
+            ),
             agent_specs=agent_specs,
             tools=tools,
         ).process(
