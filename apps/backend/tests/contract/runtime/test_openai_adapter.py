@@ -29,6 +29,7 @@ class _CapturedRunner:
         *,
         max_turns: int,
         run_config: Any,
+        meter: Any,
     ) -> Any:
         self.calls.append(
             {

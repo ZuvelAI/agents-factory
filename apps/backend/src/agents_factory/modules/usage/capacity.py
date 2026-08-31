@@ -128,7 +128,15 @@ class CapacityLease:
     active_at_admission: int
     requests_started: int = 0
 
+    async def before_input_token_count(self) -> None:
+        # The exact token-count endpoint is an OpenAI request and therefore
+        # consumes the same tenant request-rate budget as generation.
+        await self._reserve_request()
+
     async def before_model(self) -> None:
+        await self._reserve_request()
+
+    async def _reserve_request(self) -> None:
         await self._check("request")
         self.requests_started += 1
 

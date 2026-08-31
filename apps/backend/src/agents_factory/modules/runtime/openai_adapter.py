@@ -7,9 +7,11 @@ from typing import Any, Protocol, cast
 
 from agents import Agent, FunctionTool, ModelSettings, RunConfig, Runner, Tool
 from agents.models.openai_provider import OpenAIProvider
+from agents.models.openai_responses import OpenAIResponsesModel
 from agents.retry import ModelRetrySettings
+from agents.run_config import CallModelData
 from agents.run_config import ToolExecutionConfig
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, omit
 from openai.types.shared import Reasoning
 
 from agents_factory.common.deferral import JobDeferred
@@ -27,7 +29,57 @@ from agents_factory.modules.runtime.errors import AgentRuntimeError as AgentRunt
 from agents_factory.modules.runtime.errors import (
     RuntimeToolLimitExceeded as RuntimeToolLimitExceeded,
 )
-from agents_factory.modules.runtime.metering import RuntimeMeter, count
+from agents_factory.modules.runtime.metering import (
+    InputTokenCounter,
+    RuntimeMeter,
+    count,
+)
+
+
+class OpenAIInputTokenCounter:
+    """Count the exact Responses payload before allowing model generation."""
+
+    _COUNT_FIELDS = (
+        "input",
+        "instructions",
+        "model",
+        "parallel_tool_calls",
+        "reasoning",
+        "text",
+        "tool_choice",
+        "tools",
+        "truncation",
+    )
+
+    def __init__(self, client: AsyncOpenAI) -> None:
+        self.client = client
+
+    async def count(self, data: CallModelData[Any], *, model: str) -> int:
+        # Reuse the pinned Agents SDK payload builder so tool schemas and later
+        # tool outputs are counted exactly as they will be sent to Responses.
+        builder = OpenAIResponsesModel(model=model, openai_client=self.client)
+        create = builder._build_response_create_kwargs(
+            system_instructions=data.model_data.instructions,
+            input=data.model_data.input,
+            model_settings=data.agent.model_settings,
+            tools=data.agent.tools,
+            output_schema=None,
+            handoffs=[],
+            stream=False,
+            prompt=None,
+        )
+        payload = {
+            key: create[key]
+            for key in self._COUNT_FIELDS
+            if key in create and create[key] is not omit
+        }
+        response = await self.client.responses.input_tokens.count(**cast(Any, payload))
+        input_tokens = getattr(response, "input_tokens", None)
+        if type(input_tokens) is not int or input_tokens < 0:
+            raise AgentRuntimeError(
+                "runtime_input_token_count_invalid", retryable=False
+            )
+        return input_tokens
 
 
 class _SdkRunner(Protocol):
@@ -38,6 +90,7 @@ class _SdkRunner(Protocol):
         *,
         max_turns: int,
         run_config: RunConfig,
+        meter: RuntimeMeter,
     ) -> object: ...
 
 
@@ -49,10 +102,13 @@ class _DefaultSdkRunner:
         *,
         max_turns: int,
         run_config: RunConfig,
+        meter: RuntimeMeter,
     ) -> object:
         # The durable queue owns retries. Hidden HTTP/SDK retries would bypass
         # tenant attempt limits and merge distinct billable occurrences.
         async with AsyncOpenAI(max_retries=0) as client:
+            if meter.input_token_counter is None:
+                meter.input_token_counter = OpenAIInputTokenCounter(client)
             run_config.model_provider = OpenAIProvider(
                 openai_client=client, use_responses=True
             )
@@ -70,16 +126,18 @@ class OpenAIAgentsRuntime:
         *,
         runner: _SdkRunner | None = None,
         require_api_key: bool = True,
+        input_token_counter: InputTokenCounter | None = None,
     ) -> None:
         self._runner = runner or _DefaultSdkRunner()
         self._require_api_key = require_api_key
+        self._input_token_counter = input_token_counter
 
     async def run(self, turn: AgentTurnInput) -> AgentTurnResult:
         if self._require_api_key and not os.environ.get("OPENAI_API_KEY"):
             raise AgentRuntimeError("openai_api_key_missing", retryable=False)
 
         tool_calls: list[RuntimeToolCall] = []
-        meter = RuntimeMeter(turn)
+        meter = RuntimeMeter(turn, input_token_counter=self._input_token_counter)
         sdk_tools: list[Tool] = (
             [
                 self._to_sdk_tool(
@@ -129,6 +187,7 @@ class OpenAIAgentsRuntime:
                     input_items,
                     max_turns=max(1, meter.max_tools + 1),
                     run_config=run_config,
+                    meter=meter,
                 )
         except asyncio.CancelledError:
             raise

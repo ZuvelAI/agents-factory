@@ -99,7 +99,7 @@ async def test_token_stop_uses_raw_usage_and_prevents_followup_tools():
             ).run(turn)
         assert failure.value.retryable is False
         assert len(model.calls) == len(observer.models) == 1
-        assert model.calls[0]["model_settings"].max_tokens == 100
+        assert model.calls[0]["model_settings"].max_tokens == 99
         assert observer.tools == []
         assert observer.models[0].cached_input_tokens is None
 

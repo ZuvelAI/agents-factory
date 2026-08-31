@@ -146,3 +146,33 @@ provider-occurrence reconciliation. Later operational closure still needs live
 provider checks, Redis recovery/load validation, retention and production setup.
 Alerts are persisted for the future Control Plane, not external notifications or a
 completed dashboard. Task 36 and MS7 remain open.
+
+## Task 36 — strict model-token admission checkpoint
+
+- Added exact input-token admission before every OpenAI generation using the
+  Responses input-token count endpoint already supported by the pinned SDK. The
+  count payload reuses the SDK's Responses payload builder, so instructions,
+  evolving tool-call history, function schemas and model settings match generation.
+- The whole-run token limit now subtracts prior reported usage plus current exact
+  input and clamps `max_output_tokens` to the smaller remaining allowance. Input
+  that cannot leave one output token stops before model generation; missing or
+  malformed counters fail closed.
+- Count and generation calls each reserve the shared tenant request window. A
+  denial before any external work remains deferrable; a partial run never replays
+  already executed tools as free work. The count is not duplicated as billable LLM
+  token usage in the ledger.
+- The implementation remains one shared runtime configured by the client wizard.
+  No model routing, customer-specific code, live key, provider call or master-plan
+  scope change was introduced.
+
+Four focused cases passed in one new contract file: exact first/follow-up payload
+counting through a real SDK loop, per-response output clamping, and fail-closed
+behavior for missing, malformed and exhausted token counts. A first assertion
+captured a mutable SDK settings reference; only this new file was retried after the
+fixture saved the value at call time. Affected-file lint passed. No old passing suite,
+database test, live API or credential setup was repeated.
+
+The official Agents SDK guide and Responses input-token count reference confirmed
+the lifecycle and endpoint contract. Live provider validation remains deferred as
+approved. Next: non-runtime usage producers and uncertain provider-occurrence
+reconciliation. Task 36 and MS7 remain open.

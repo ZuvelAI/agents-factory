@@ -77,10 +77,15 @@ class LocalModel(Model):
 
 
 class LocalRunner:
-    def __init__(self, model):
+    def __init__(self, model, *, input_tokens=1):
         self.model = model
+        self.counter = (
+            None if input_tokens is None else LocalInputTokenCounter(input_tokens)
+        )
 
-    async def run(self, agent, input_items, *, max_turns, run_config):
+    async def run(self, agent, input_items, *, max_turns, run_config, meter):
+        if meter.input_token_counter is None and self.counter is not None:
+            meter.input_token_counter = self.counter
         agent.model = self.model
         run_config.tracing_disabled = True
         assert agent.model_settings.retry.max_retries == 0
@@ -88,6 +93,17 @@ class LocalRunner:
         return await Runner.run(
             agent, input_items, max_turns=max_turns, run_config=run_config
         )
+
+
+class LocalInputTokenCounter:
+    def __init__(self, *counts):
+        self.counts = list(counts or (1,))
+        self.calls = []
+
+    async def count(self, data, *, model):
+        self.calls.append((data, model))
+        index = min(len(self.calls) - 1, len(self.counts) - 1)
+        return self.counts[index]
 
 
 def with_order_tool(turn, handler):

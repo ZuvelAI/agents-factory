@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Mapping
 from time import monotonic_ns
-from typing import Any
+from typing import Any, Protocol
 
 from agents import Agent, AgentHooks, ModelResponse, RunContextWrapper
 from agents.run_config import CallModelData, ModelInputData
@@ -13,6 +13,10 @@ from agents_factory.modules.runtime.errors import (
     AgentRuntimeError,
     RuntimeToolLimitExceeded,
 )
+
+
+class InputTokenCounter(Protocol):
+    async def count(self, data: CallModelData[Any], *, model: str) -> int: ...
 
 
 async def finish_observation(operation: Awaitable[None]) -> None:
@@ -62,8 +66,14 @@ def response_usage(raw: Mapping[str, object] | None) -> RuntimeUsage:
 
 
 class RuntimeMeter(AgentHooks[Any]):
-    def __init__(self, turn: AgentTurnInput) -> None:
+    def __init__(
+        self,
+        turn: AgentTurnInput,
+        *,
+        input_token_counter: InputTokenCounter | None = None,
+    ) -> None:
         self.turn = turn
+        self.input_token_counter = input_token_counter
         self.max_tools = min(
             turn.agent_spec.limits.max_tool_calls,
             turn.execution.max_tool_calls if turn.execution else 32,
@@ -75,11 +85,29 @@ class RuntimeMeter(AgentHooks[Any]):
         self.started_at: int | None = None
         self.observed: list[RuntimeUsage] = []
 
-    def filter_input(self, data: CallModelData[Any]) -> ModelInputData:
+    async def filter_input(self, data: CallModelData[Any]) -> ModelInputData:
         if self.max_tokens is not None:
             if self.total_tokens is None:
                 raise AgentRuntimeError("runtime_usage_unknown", retryable=False)
             remaining = self.max_tokens - self.total_tokens
+            if remaining <= 0:
+                raise AgentRuntimeError("runtime_model_token_limit", retryable=False)
+            if self.input_token_counter is None:
+                raise AgentRuntimeError(
+                    "runtime_input_token_counter_missing", retryable=False
+                )
+            if self.turn.admission:
+                await self.turn.admission.before_input_token_count()
+            input_tokens = await self.input_token_counter.count(
+                data, model=self.turn.agent_spec.model.model
+            )
+            if type(input_tokens) is not int or input_tokens < 0:
+                raise AgentRuntimeError(
+                    "runtime_input_token_count_invalid", retryable=False
+                )
+            remaining -= input_tokens
+            # At least one output token must fit. The provider receives the
+            # smaller of the per-response and whole-run allowances.
             if remaining <= 0:
                 raise AgentRuntimeError("runtime_model_token_limit", retryable=False)
             data.agent.model_settings.max_tokens = min(

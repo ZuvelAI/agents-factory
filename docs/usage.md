@@ -9,8 +9,8 @@ subscription collection, a customer portal, extra model routing or live API acce
 
 This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
 runtime metering, shared runtime capacity/rate reservations and durable commercial
-alerts are implemented. Non-runtime producer instrumentation, strict input-token
-preflight and uncertain-occurrence reconciliation are still required before
+alerts, and exact input-token admission are implemented. Non-runtime producer
+instrumentation and uncertain-occurrence reconciliation are still required before
 accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
@@ -118,11 +118,12 @@ composition exists only for isolated internal/test callers; it is not the produc
 worker setup. No per-client Redis instance or runtime fork is introduced.
 
 An atomic Redis script reserves a tenant-tagged run lease and checks the shared
-rolling 60-second **SDK model-request** window using Redis server time. Separate
-workers cannot admit more than the configured run capacity, or more SDK requests
-within that window. Each model call reserves before provider I/O, including later
-calls in the same SDK loop. Business tools re-check lease ownership before execution.
-Other connectors' request-rate producers are not wired by this runtime-only boundary.
+rolling 60-second **OpenAI request** window using Redis server time. Separate
+workers cannot admit more than the configured run capacity or request rate. Exact
+input-token counts and model generations each reserve before provider I/O, including
+later calls in the same SDK loop. Business tools re-check lease ownership before
+execution. Other connectors' request-rate producers are not wired by this
+runtime-only boundary.
 
 Leases have an absolute deadline of the bounded runtime timeout plus a five-second
 cleanup margin, no indefinite renewal, and owner-specific release in `finally`.
@@ -132,7 +133,7 @@ This is admission control, not a way to retract an already sent external request
 process pauses, network partitions and Redis data-loss recovery still need the
 production operational safeguards. Redis AOF is already enabled in local Compose.
 
-If capacity/rate is unavailable before the first model request, the queue records
+If capacity/rate is unavailable before the first external request, the queue records
 `capacity_deferred`, returns the job to `pending` with a future `available_at`, and
 releases its lease. Physical deliveries remain auditable; `deferral_count` separates
 these waits from chargeable attempts. Both runtime and queue retry budgets use the
@@ -184,12 +185,16 @@ Wired technical behavior:
   worker reads the attempt number from the tenant-scoped durable job, not its
   payload. Once `attempt_number - 1 > max_retries`, it stops before calling the
   provider. The queue honors explicit non-retryable exceptions as dead letters.
-- Reported input+output usage accumulates per execution. The next output allowance
-  cannot exceed its remaining token budget. A response over budget (or with unknown
-  total usage) is recorded and stopped before its tools/follow-up request. This is
-  **not yet a strict preflight cap on input+output billing**: input tokens of the
-  current request can overshoot the remaining budget. Exact input admission is a
-  remaining Task 36 requirement, not a claimed completed hard cap.
+- Reported input+output usage accumulates per execution. Before every generation,
+  the runtime uses OpenAI's exact Responses input-token endpoint with the same
+  instructions, evolving input, reasoning settings and function-tool schemas. It
+  reserves one rate-window request for that count, subtracts exact input plus prior
+  reported usage, and clamps the current output allowance to what remains. Input
+  that leaves no output token is rejected before generation. A missing or malformed
+  counter fails closed. A provider response with unknown or unexpectedly excessive
+  usage is still recorded and stopped before tools/follow-up work. This implements
+  the strict per-execution model-token hard cap for the fixed v1 runtime contract.
+  The count itself is admission evidence, not a second billable LLM usage record.
 - Terminal runtime failures write a sanitized `usage.runtime_stopped` audit event.
   The SDK wraps local tool errors; the adapter preserves typed terminal causes
   rather than accidentally treating limit violations as retryable provider errors.
@@ -215,9 +220,9 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with strict token-input admission, other producers (WhatsApp,
-external connectors, storage/infra) and uncertain-occurrence reconciliation. The
-local scenarios now cover shared capacity/rate admission and persisted commercial
+Continue Task 36 with other producers (WhatsApp, external connectors, storage/infra)
+and uncertain-occurrence reconciliation. The local scenarios now cover exact
+per-request token admission, shared capacity/rate admission and persisted commercial
 alerts as well as runtime attribution and loop termination. They do not substitute
 for live-provider validation, Redis failure-recovery/load verification or remaining
 producer coverage. Task 36 and the MS7 views are not yet accepted.

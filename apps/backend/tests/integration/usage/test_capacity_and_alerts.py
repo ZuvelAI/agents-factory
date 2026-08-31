@@ -185,7 +185,7 @@ async def test_sdk_followup_rate_limit_stops_without_partial_run_replay(
 ):
     context, conversation, _ = await _seed_inbound(session_factory)
     await save_config(
-        session_factory, context, technical=TechnicalLimits(max_requests_per_minute=1)
+        session_factory, context, technical=TechnicalLimits(max_requests_per_minute=2)
     )
     envelope = await queued_turn(session_factory, context, conversation)
     capacity, model, calls = UsageCapacity(redis_client), LocalModel(tool_calls=1), []
