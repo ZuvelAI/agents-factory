@@ -276,3 +276,18 @@ Real handoff bridge/eligibility and delivery evidence, live provider/corpus
 acceptance, maintenance credentials/storage composition, downstream evidence
 deletion and the later production/privacy/backup gates remain explicit prerequisites.
 No new PR, merge or MS7 start is authorized by this checkpoint alone.
+
+## Review outcome — MS6 approved
+
+The user approved Milestone 6 after reviewing the deferred live-provider and
+production prerequisites. The technical checkpoint is accepted for progression;
+those release requirements remain outstanding, not waived or represented as tested.
+Task 36 and then MS7 proceed from this checkpoint on `codex/m7-control-plane`.
+This approval does not itself perform a merge or authorize a production launch.
+
+The user reaffirmed the product direction: Agents Factory is the reusable product
+framework around its replaceable runtime. Each client is configured and brought
+through validation and deployment using the canonical resumable 12-step wizard,
+not a separately rebuilt application. This restates master specification §§4/29;
+it does not add a separately distributed SDK, a client portal, or per-client
+dedicated infrastructure outside the approved v1 scope.

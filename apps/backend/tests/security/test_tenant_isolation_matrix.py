@@ -57,6 +57,10 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.usage_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration("public.usage_records", update_allowed=False),
+    TenantIsolationRegistration(
         "public.retention_policies", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -1195,6 +1199,18 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 ),
                 {"id": rows["public.retention_policies"], "tenant": tenant_id},
             )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.usage_configurations(id,tenant_id,configuration,revision) VALUES (:id,:tenant,'{}'::jsonb,1)"
+                ),
+                {"id": rows["public.usage_configurations"], "tenant": tenant_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,currency,event,quote,configuration_revision) VALUES (:id,:tenant,'fixture',repeat('0',64),now(),'tool','fixture','fixture','USD','{}'::jsonb,'{}'::jsonb,0)"
+                ),
+                {"id": rows["public.usage_records"], "tenant": tenant_id},
+            )
             handoff_values = {
                 "tenant": tenant_id,
                 "config": rows["public.handoff_configurations"],
@@ -1343,6 +1359,8 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.usage_configurations": "INSERT INTO public.usage_configurations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.usage_records": "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,currency,event,quote,configuration_revision) VALUES (:id,:tenant_id,CAST(CAST(:id AS uuid) AS text),repeat('0',64),now(),'tool','fixture','fixture','USD','{}'::jsonb,'{}'::jsonb,0)",
         "public.cases": "INSERT INTO public.cases(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.retention_policies": "INSERT INTO public.retention_policies(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.handoff_configurations": "INSERT INTO public.handoff_configurations(id,tenant_id) VALUES (:id,:tenant_id)",
@@ -1644,6 +1662,8 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.usage_configurations": None,
+        "public.usage_records": None,
         "public.cases": None,
         "public.retention_policies": None,
         "public.handoff_configurations": None,

@@ -31,6 +31,8 @@ from agents_factory.modules.cases.service import CaseService
 from agents_factory.modules.handoffs.router import router as admin_handoff_router
 from agents_factory.modules.handoffs.service import HandoffService
 from agents_factory.modules.handoffs.surfaces import HumanSurfaceRegistry
+from agents_factory.modules.usage.recorder import UsageRecorder
+from agents_factory.modules.usage.router import router as admin_usage_router
 from agents_factory.modules.agent_factory.router import (
     router as admin_agent_spec_router,
 )
@@ -162,6 +164,7 @@ def create_app(
             )
             application.state.database = database
             application.state.case_service = CaseService(database.session_factory)
+            application.state.usage_recorder = UsageRecorder(database.session_factory)
             application.state.handoff_service = handoff_service or HandoffService(
                 database.session_factory, surfaces=HumanSurfaceRegistry()
             )
@@ -192,6 +195,7 @@ def create_app(
     application.include_router(public_approval_router)
     application.include_router(admin_case_router)
     application.include_router(admin_handoff_router)
+    application.include_router(admin_usage_router)
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)
