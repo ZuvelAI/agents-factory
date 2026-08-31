@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import text
+from redis.asyncio import Redis
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.queue import (
@@ -28,6 +29,7 @@ from agents_factory.modules.runtime.turn_service import (
 )
 from agents_factory.modules.usage.recorder import UsageRecorder
 from agents_factory.modules.usage.runtime import MeteredAgentRuntime
+from agents_factory.modules.usage.capacity import UsageCapacity
 from agent_worker.approval_jobs import configure_approval_execution
 
 
@@ -38,6 +40,7 @@ class InvalidAgentTurnJob(ValueError):
 async def configure_agent_worker(context: dict[Any, Any]) -> None:
     await configure_durable_worker(context)
     database = cast(Database, context["database"])
+    capacity = UsageCapacity(cast(Redis, context["redis"]))
     runtime = cast(
         AgentRuntime,
         context.get("agent_runtime") or OpenAIAgentsRuntime(),
@@ -66,6 +69,7 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
             tools=tools,
             media=media,
             handoffs=handoffs,
+            capacity=capacity,
         )
 
     async def whatsapp_inbound_handler(envelope: JobEnvelope) -> None:
@@ -114,6 +118,7 @@ async def handle_agent_turn(
     tools: RuntimeToolRegistry,
     media: MediaProcessor | None = None,
     handoffs: HandoffService | None = None,
+    capacity: UsageCapacity | None = None,
 ) -> None:
     if envelope.kind != "agent.turn":
         raise InvalidAgentTurnJob("unexpected job kind")
@@ -124,8 +129,8 @@ async def handle_agent_turn(
             (
                 await session.execute(
                     text(
-                        "SELECT payload, attempt_count FROM public.outbox_jobs "
-                        "WHERE tenant_id = :tenant_id AND id = :job_id"
+                        "SELECT payload, attempt_count-deferral_count AS attempt_count "
+                        "FROM public.outbox_jobs WHERE tenant_id = :tenant_id AND id = :job_id"
                     ),
                     {"tenant_id": envelope.tenant_id, "job_id": envelope.job_id},
                 )
@@ -160,6 +165,7 @@ async def handle_agent_turn(
                 runtime,
                 UsageRecorder(database.session_factory),
                 attempt_number=max(1, job["attempt_count"]) if job is not None else 1,
+                capacity=capacity,
             ),
             agent_specs=agent_specs,
             tools=tools,

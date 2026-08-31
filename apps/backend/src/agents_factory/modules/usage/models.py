@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -171,10 +171,22 @@ class TechnicalLimits(UsageModel):
     max_requests_per_minute: int = Field(default=60, ge=1, le=100000)
 
 
+class QuotaWindow(UsageModel):
+    start: AwareDatetime
+    end: AwareDatetime
+
+    @model_validator(mode="after")
+    def valid_window(self) -> "QuotaWindow":
+        if not timedelta(0) < self.end - self.start <= timedelta(days=366):
+            raise ValueError("invalid_quota_window")
+        return self
+
+
 class UsageConfiguration(UsageModel):
     prices: tuple[PriceCard, ...] = Field(default=(), max_length=500)
     commercial: CommercialPolicy = Field(default_factory=CommercialPolicy)
     technical: TechnicalLimits = Field(default_factory=TechnicalLimits)
+    quota_window: QuotaWindow | None = None
 
     @model_validator(mode="after")
     def unique_versions(self) -> "UsageConfiguration":

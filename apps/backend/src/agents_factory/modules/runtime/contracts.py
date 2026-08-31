@@ -160,6 +160,7 @@ class AgentTurnInput:
     trace: RuntimeTraceMetadata
     execution: RuntimeExecutionPolicy | None = None
     observer: RuntimeObserver | None = field(default=None, repr=False, compare=False)
+    admission: RuntimeAdmission | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.messages or self.messages[-1].role != "user":
@@ -203,6 +204,12 @@ class RuntimeObserver(Protocol):
     async def model_response(self, usage: RuntimeUsage, latency_ms: int) -> None: ...
 
     async def tool_attempt(self, name: str, latency_ms: int) -> None: ...
+
+
+class RuntimeAdmission(Protocol):
+    async def before_model(self) -> None: ...
+
+    async def before_tool(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

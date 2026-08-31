@@ -8,9 +8,9 @@ configuration, not a customer-specific code fork. It does not add billing,
 subscription collection, a customer portal, extra model routing or live API access.
 
 This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
-runtime metering and part of technical enforcement are implemented. Non-runtime
-producer instrumentation, distributed capacity reservations, durable commercial
-threshold alerts and strict input-token preflight are still required before
+runtime metering, shared runtime capacity/rate reservations and durable commercial
+alerts are implemented. Non-runtime producer instrumentation, strict input-token
+preflight and uncertain-occurrence reconciliation are still required before
 accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
@@ -58,6 +58,8 @@ PlatformAdmin routes under `/admin/tenants/{tenant_id}/usage`:
 - `GET /summary`: bounded half-open date range, grouped by tenant, run,
   conversation, Action, Case, model or kind. Case reports may filter currently
   RESOLVED/CLOSED cases. Unattributed records remain a visible null group.
+- `GET /alerts`: tenant-scoped immutable threshold alerts, newest first, with
+  bounded `limit` (1–200), UUID `before` cursor and `has_more`.
 
 Every cost group has its own currency, known subtotal, unknown-cost record count
 and completeness flag. Token/request sums and mean latency use reported values
@@ -81,8 +83,66 @@ shutdown. Missing measurements or mismatched currency produce an unknown signal.
 
 `check_hard_limits` separately evaluates projected tool calls, retries, model
 tokens, concurrent runs and requests/minute. It remains a pure decision function;
-the execution integration below enforces the currently wired subset. Distributed
-capacity/rate reservations and commercial threshold delivery are still pending.
+the execution integration below enforces the currently wired subset. Commercial
+alerts are persisted for the Control Plane, not sent by email or WhatsApp.
+
+### Commercial alert periods and evidence
+
+`UsageConfiguration.quota_window` explicitly supplies an aware `start` and `end`
+(half-open, at most 366 days). Without it, no commercial period or billing cycle
+is invented and no commercial alerts are emitted. Configuring/rolling this window
+is separate from payment collection and remains a future wizard consumer.
+
+Each new ledger event atomically evaluates recorded usage in that window and
+persists each crossed threshold once per tenant/window/configuration-revision/
+metric/threshold. A tenant-scoped transaction lock serializes this with configuration
+updates, and a unique constraint is the final deduplication boundary. A matching
+`usage.quota_threshold_crossed` audit event is saved in the same transaction.
+Alert history saves the threshold, percentage and state at that revision; it is not
+a full historical copy of the customer's commercial contract.
+
+Known recorded model tokens, WhatsApp messages, tool invocations, distinct attributed
+conversations and same-currency cost can trigger alerts. Concurrency uses the
+admission snapshot and is only evaluated for the currently active quota window.
+Incomplete token/cost measurements, mixed currencies and unsupported aggregate
+magnitudes remain unknown. Byte-hours are not converted into a storage-byte quota.
+Alerts explicitly identify `recorded_data_only`; absence of an alert is not proof
+that uninstrumented consumption is below budget. At 100%, state is `grace_overage`,
+with no commercial shutdown or request denial.
+
+### Shared runtime capacity and rate limits
+
+The configured worker always supplies `UsageCapacity` using its existing Redis
+connection, as required by the master specification. Optional uncoordinated runtime
+composition exists only for isolated internal/test callers; it is not the production
+worker setup. No per-client Redis instance or runtime fork is introduced.
+
+An atomic Redis script reserves a tenant-tagged run lease and checks the shared
+rolling 60-second **SDK model-request** window using Redis server time. Separate
+workers cannot admit more than the configured run capacity, or more SDK requests
+within that window. Each model call reserves before provider I/O, including later
+calls in the same SDK loop. Business tools re-check lease ownership before execution.
+Other connectors' request-rate producers are not wired by this runtime-only boundary.
+
+Leases have an absolute deadline of the bounded runtime timeout plus a five-second
+cleanup margin, no indefinite renewal, and owner-specific release in `finally`.
+Redis commands have a three-second timeout. Expired/lost ownership cannot authorize
+another model/tool invocation, and a stale owner cannot release a replacement run.
+This is admission control, not a way to retract an already sent external request;
+process pauses, network partitions and Redis data-loss recovery still need the
+production operational safeguards. Redis AOF is already enabled in local Compose.
+
+If capacity/rate is unavailable before the first model request, the queue records
+`capacity_deferred`, returns the job to `pending` with a future `available_at`, and
+releases its lease. Physical deliveries remain auditable; `deferral_count` separates
+these waits from chargeable attempts. Both runtime and queue retry budgets use the
+non-deferred count, with a database CHECK still enforcing the maximum. Apply the
+new migration before starting these worker versions.
+
+If a run has already issued a request, losing capacity or reaching the shared rate
+limit is a terminal technical stop, not a free replay of earlier tools. Missing
+Redis never grants unlimited execution. Cancellation/error releases the lease;
+if Redis cannot acknowledge cleanup, its bounded deadline remains the fallback.
 
 ## Runtime execution integration
 
@@ -155,10 +215,9 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with atomic tenant concurrency/rate reservations, strict token
-input admission, other producers (WhatsApp, external connectors, storage/infra),
-uncertain-occurrence reconciliation and commercial threshold crossings once per
-tenant/period/revision. The new local end-to-end scenario proves two-tenant runtime
-attribution, runaway-loop stop and a durable technical audit; it does not substitute
-for the pending commercial alerts or distributed-capacity acceptance. Only then
-accept Task 36 and build its MS7 views.
+Continue Task 36 with strict token-input admission, other producers (WhatsApp,
+external connectors, storage/infra) and uncertain-occurrence reconciliation. The
+local scenarios now cover shared capacity/rate admission and persisted commercial
+alerts as well as runtime attribution and loop termination. They do not substitute
+for live-provider validation, Redis failure-recovery/load verification or remaining
+producer coverage. Task 36 and the MS7 views are not yet accepted.

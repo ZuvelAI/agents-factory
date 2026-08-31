@@ -1,5 +1,6 @@
 """Tenant-scoped accounting around the shared runtime, not a per-client runtime."""
 
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -19,6 +20,7 @@ from agents_factory.modules.runtime.errors import AgentRuntimeError
 from agents_factory.modules.runtime.metering import finish_observation
 from agents_factory.modules.usage.models import Measurements, UsageEvent
 from agents_factory.modules.usage.recorder import UsageRecorder
+from agents_factory.modules.usage.capacity import CapacityLease, UsageCapacity
 
 
 class _RunObserver:
@@ -84,13 +86,19 @@ class _RunObserver:
 
 class MeteredAgentRuntime:
     def __init__(
-        self, runtime: AgentRuntime, recorder: UsageRecorder, *, attempt_number: int = 1
+        self,
+        runtime: AgentRuntime,
+        recorder: UsageRecorder,
+        *,
+        attempt_number: int = 1,
+        capacity: UsageCapacity | None = None,
     ) -> None:
         if attempt_number < 1:
             raise ValueError("invalid durable runtime attempt")
         self.runtime = runtime
         self.recorder = recorder
         self.attempt_number = attempt_number
+        self.capacity = capacity
 
     async def run(self, turn: AgentTurnInput) -> AgentTurnResult:
         context = TenantContext(
@@ -101,6 +109,7 @@ class MeteredAgentRuntime:
         )
         configuration, revision = await self.recorder.configuration(context)
         observer = _RunObserver(self.recorder, context, turn)
+        lease: CapacityLease | None = None
         try:
             if self.attempt_number - 1 > configuration.technical.max_retries:
                 raise AgentRuntimeError("runtime_retry_limit", retryable=False)
@@ -109,9 +118,23 @@ class MeteredAgentRuntime:
                 max_model_tokens=configuration.technical.max_model_tokens,
             )
             started_at = monotonic_ns()
-            result = await self.runtime.run(
-                replace(turn, execution=execution, observer=observer)
-            )
+            if self.capacity:
+                lease = await self.capacity.acquire(
+                    tenant_id=context.tenant_id,
+                    run_id=observer.run_id,
+                    limits=configuration.technical,
+                    timeout_seconds=turn.agent_spec.limits.timeout_seconds,
+                )
+            async with asyncio.timeout(turn.agent_spec.limits.timeout_seconds):
+                await self.recorder.check_alerts(
+                    context,
+                    concurrent_runs=lease.active_at_admission if lease else None,
+                )
+                result = await self.runtime.run(
+                    replace(
+                        turn, execution=execution, observer=observer, admission=lease
+                    )
+                )
             # Internal test/alternative adapters can expose aggregate usage only.
             # The production SDK adapter records every response before side effects.
             if observer.model_observations == 0:
@@ -142,3 +165,6 @@ class MeteredAgentRuntime:
                     # into a retryable SQL error and trigger another billed run.
                     raise error from None
             raise
+        finally:
+            if lease is not None:
+                await finish_observation(lease.release())

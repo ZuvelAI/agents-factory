@@ -108,6 +108,8 @@ class RuntimeMeter(AgentHooks[Any]):
         system_prompt: str | None,
         input_items: list[Any],
     ) -> None:
+        if self.turn.admission:
+            await self.turn.admission.before_model()
         self.started_at = monotonic_ns()
 
     async def on_llm_end(

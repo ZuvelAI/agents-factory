@@ -14,6 +14,7 @@ insert into task5_tenant_isolation_registry (table_name, owner_column)
 values
   ('public.usage_configurations', 'tenant_id'),
   ('public.usage_records', 'tenant_id'),
+  ('public.usage_alerts', 'tenant_id'),
   ('public.retention_policies', 'tenant_id'),
   ('public.handoff_configurations', 'tenant_id'),
   ('public.handoffs', 'tenant_id'),

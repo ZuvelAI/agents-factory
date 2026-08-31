@@ -12,6 +12,8 @@ from agents.run_config import ToolExecutionConfig
 from openai import AsyncOpenAI
 from openai.types.shared import Reasoning
 
+from agents_factory.common.deferral import JobDeferred
+
 from agents_factory.modules.runtime.contracts import (
     AgentTurnInput,
     AgentTurnResult,
@@ -132,14 +134,14 @@ class OpenAIAgentsRuntime:
             raise
         except TimeoutError:
             raise AgentRuntimeError("runtime_timeout", retryable=True) from None
-        except AgentRuntimeError:
+        except (AgentRuntimeError, JobDeferred):
             raise
         except Exception as error:
             # The SDK wraps local tool exceptions in UserError. Preserve our
             # typed terminal signal, never infer retry policy from error text.
             cause: BaseException | None = error.__cause__
             for _ in range(8):
-                if isinstance(cause, AgentRuntimeError):
+                if isinstance(cause, (AgentRuntimeError, JobDeferred)):
                     raise cause from None
                 if cause is None:
                     break
@@ -171,6 +173,8 @@ class OpenAIAgentsRuntime:
         meter: RuntimeMeter,
     ) -> FunctionTool:
         async def invoke(_context: object, arguments_json: str) -> object:
+            if turn.admission:
+                await turn.admission.before_tool()
             started_at = meter.start_tool()
             try:
                 return await execute(arguments_json)

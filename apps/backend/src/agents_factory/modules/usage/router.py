@@ -8,6 +8,7 @@ from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.modules.usage.aggregates import Dimension, UsageSummary, summarize
 from agents_factory.modules.usage.models import UsageConfiguration, UsageModel
 from agents_factory.modules.usage.recorder import UsageConflict, UsageRecorder
+from agents_factory.modules.usage.alerts import UsageAlertPage, list_alerts
 
 
 router = APIRouter(
@@ -88,3 +89,20 @@ async def summary(
         raise HTTPException(
             status_code=422, detail="invalid_usage_summary_range"
         ) from exc
+
+
+@router.get("/alerts")
+async def alerts(
+    tenant_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    before: UUID | None = None,
+    limit: int = 100,
+) -> UsageAlertPage:
+    try:
+        async with _service(request).transaction(
+            _context(request, principal, tenant_id)
+        ) as session:
+            return await list_alerts(session, before=before, limit=limit)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid_alert_query") from None

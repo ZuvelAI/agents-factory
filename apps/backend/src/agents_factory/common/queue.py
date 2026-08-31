@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
+from agents_factory.common.deferral import JobDeferred
 from agents_factory.common.ids import new_uuid7
 from agents_factory.common.locks import ConversationLockManager
 from agents_factory.config import load_settings
@@ -28,6 +29,7 @@ JobRunStatus = Literal[
     "retry",
     "dead_letter",
     "already_complete",
+    "deferred",
 ]
 JobHandler = Callable[["JobEnvelope"], Awaitable[None]]
 
@@ -327,6 +329,7 @@ class JobRunResult:
 class _StartedAttempt:
     attempt_number: int
     max_attempts: int
+    budget_attempt_number: int
 
 
 class DurableJobRunner:
@@ -381,6 +384,11 @@ class DurableJobRunner:
             except asyncio.CancelledError:
                 await cleanup
             raise
+        except JobDeferred as deferred:
+            await self._finish_deferred(envelope, started, deferred.delay_seconds)
+            return JobRunResult(
+                status="deferred", attempt_number=started.attempt_number
+            )
         except Exception as error:
             status = await self._finish_failure(
                 envelope=envelope,
@@ -409,7 +417,7 @@ class DurableJobRunner:
                 (
                     await session.execute(
                         text(
-                            "SELECT status, topic, payload, attempt_count, max_attempts "
+                            "SELECT status, topic, payload, attempt_count, max_attempts, deferral_count "
                             "FROM public.outbox_jobs WHERE id = :job_id "
                             "AND tenant_id = :tenant_id FOR UPDATE"
                         ),
@@ -431,6 +439,7 @@ class DurableJobRunner:
             _validate_ledger_envelope(envelope=envelope, row=row)
             attempt_number = int(row["attempt_count"]) + 1
             max_attempts = int(row["max_attempts"])
+            budget_attempt_number = attempt_number - int(row["deferral_count"])
             await session.execute(
                 text(
                     "UPDATE public.outbox_jobs SET status = 'processing', "
@@ -461,6 +470,47 @@ class DurableJobRunner:
             return _StartedAttempt(
                 attempt_number=attempt_number,
                 max_attempts=max_attempts,
+                budget_attempt_number=budget_attempt_number,
+            )
+
+    async def _finish_deferred(
+        self, envelope: JobEnvelope, attempt: _StartedAttempt, delay: float
+    ) -> None:
+        async with self._session_factory.begin() as session:
+            context = await _prepare_worker_session(session, envelope)
+            params = {
+                "tenant": envelope.tenant_id,
+                "job": envelope.job_id,
+                "attempt": attempt.attempt_number,
+                "available": datetime.now(UTC) + timedelta(seconds=delay),
+            }
+            await session.execute(
+                text(
+                    "UPDATE public.job_attempts SET status='failed',error_code='capacity_deferred' "
+                    "WHERE tenant_id=:tenant AND outbox_job_id=:job AND attempt_number=:attempt"
+                ),
+                params,
+            )
+            updated = await session.scalar(
+                text(
+                    "UPDATE public.outbox_jobs SET status='pending',available_at=:available,deferral_count=deferral_count+1, "
+                    "last_error_code='capacity_deferred',updated_at=now() "
+                    "WHERE tenant_id=:tenant AND id=:job AND status='processing' "
+                    "AND attempt_count=:attempt RETURNING id"
+                ),
+                params,
+            )
+            if updated != envelope.job_id:
+                raise RuntimeError("job deferral state changed concurrently")
+            await AuditService(session).record(
+                context=context,
+                event_type="job.capacity_deferred",
+                entity_type="outbox_job",
+                entity_id=envelope.job_id,
+                payload={
+                    "attempt_number": attempt.attempt_number,
+                    "delay_seconds": delay,
+                },
             )
 
     async def _finish_success(
@@ -509,7 +559,9 @@ class DurableJobRunner:
         error_code: str,
         terminal_error: bool = False,
     ) -> Literal["retry", "dead_letter"]:
-        terminal = terminal_error or attempt.attempt_number >= attempt.max_attempts
+        terminal = (
+            terminal_error or attempt.budget_attempt_number >= attempt.max_attempts
+        )
         async with self._session_factory.begin() as session:
             context = await _prepare_worker_session(session, envelope)
             await session.execute(

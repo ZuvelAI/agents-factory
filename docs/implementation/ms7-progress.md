@@ -97,3 +97,52 @@ threshold alerts, then remaining non-runtime producers, strict token-input admis
 and uncertain-occurrence reconciliation. The technical stop audit is not a delivered
 commercial quota alert. Task 36 and MS7 remain open; no PR merge or production
 readiness is implied by this checkpoint.
+
+## Task 36 — shared capacity and commercial alert checkpoint
+
+- Added Redis-coordinated run leases and rolling per-tenant SDK request windows,
+  preserving the specification's Redis/Supabase responsibility split. Admission
+  uses atomic scripts and server time; model requests and business tools check
+  ownership before execution. Leases and Redis calls have bounded deadlines.
+- Connected capacity to the configured agent worker. A busy client does not block
+  an independent tenant. A stale owner cannot authorize more work or release a
+  replacement lease. Limits remain tenant settings, not per-customer code forks.
+- Added durable capacity deferral before provider work. `outbox_jobs.deferral_count`
+  separates scheduling waits from chargeable retries while retaining monotonic
+  attempt history and a database CHECK on the actual retry budget. Partial runs
+  that hit a shared rate limit stop rather than replay earlier tools for free.
+- Added immutable, FORCE-RLS commercial alerts and `GET /usage/alerts` under the
+  existing tenant PlatformAdmin route prefix. Cursor pagination is bounded; alerts
+  and matching audits deduplicate per tenant/window/revision/metric/threshold.
+- Added explicit `quota_window.start/end` configuration. No monthly billing cycle
+  is assumed, no payment/subscription behavior is added, and 100% remains grace/
+  overage. Unsupported/missing measurements and mixed currencies stay unknown.
+  Alerts describe recorded usage only; storage-byte producers remain pending.
+
+Seven focused checks passed: five new feature scenarios (atomic capacity/rate
+windows and stale fencing; worker deferral/retry recovery with its database bound;
+SDK follow-up throttling without replay; concurrent threshold deduplication and
+period/tenant pagination; unknown/mixed-currency/oversized cost aggregates), plus
+the new alert-table RLS matrix and updated registry completeness. No old feature
+suite or previously passing scenario was rerun. One initial deferral failure
+identified the existing delivery-count CHECK; only that failed scenario was retried
+after adding the separate deferral counter. Ruff/mypy passed on affected code.
+
+Redis was started using the existing local container; no data reset or live provider
+call was used. Supabase advisors identified two new-policy expression warnings;
+using the existing initialization-plan form resolved them without changing tenant
+authorization. Advisors then reported no issues. Captured
+`20260831192143_usage_alerts.sql`, restoring FORCE RLS and explicit revocations
+omitted by the generated diff. Migration history is aligned with the local database.
+Deploy this migration before the changed workers.
+
+Supabase/Postgres guidance informed tenant isolation and atomic alert writes; the
+Agents SDK guide informed admission at lifecycle boundaries. Redis scripting docs
+confirmed atomic server-side admission. The approved master plan is unchanged and
+no Superpowers workflow was used.
+
+Next: strict model-token input admission, non-runtime usage producers and uncertain
+provider-occurrence reconciliation. Later operational closure still needs live
+provider checks, Redis recovery/load validation, retention and production setup.
+Alerts are persisted for the future Control Plane, not external notifications or a
+completed dashboard. Task 36 and MS7 remain open.

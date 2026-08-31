@@ -17,6 +17,7 @@ from agents_factory.modules.usage.models import (
     UsageRecord,
 )
 from agents_factory.modules.usage.pricing import quote_usage
+from agents_factory.modules.usage.alerts import persist_alerts
 
 
 class UsageConflict(ValueError):
@@ -135,6 +136,9 @@ class UsageRecorder:
         )
         digest = hashlib.sha256(serialized.encode()).hexdigest()
         async with self.transaction(context) as session:
+            # Serialize insertion + threshold evaluation so concurrent records
+            # cannot both miss a crossing or publish duplicate alerts.
+            await self._lock_alerts(session, context)
             existing = await self._existing(session, context, event.source_key)
             if existing is not None:
                 return self._replay(existing, digest)
@@ -184,7 +188,27 @@ class UsageRecorder:
             saved = await self._existing(session, context, event.source_key)
             if saved is None:
                 raise UsageConflict("usage_record_unavailable")
+            await persist_alerts(session, context, config, revision)
             return self._replay(saved, digest)
+
+    @staticmethod
+    async def _lock_alerts(session: AsyncSession, context: TenantContext) -> None:
+        key = int.from_bytes(
+            hashlib.sha256(f"usage-config:{context.tenant_id}".encode()).digest()[:8],
+            "big",
+            signed=True,
+        )
+        await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    async def check_alerts(
+        self, context: TenantContext, *, concurrent_runs: int | None = None
+    ) -> None:
+        async with self.transaction(context) as session:
+            await self._lock_alerts(session, context)
+            config, revision = await self._configuration(session, context)
+            await persist_alerts(
+                session, context, config, revision, concurrent_runs=concurrent_runs
+            )
 
     async def _existing(
         self, session: AsyncSession, context: TenantContext, key: str
