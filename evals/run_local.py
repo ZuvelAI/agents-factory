@@ -265,6 +265,13 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         artifact["claim_intake_behavior"] = observe_claim_intake(
             case.fixture_setup.claim_intake_probe
         ).model_dump(mode="json")
+    if case.fixture_setup.approval_probe is not None:
+        from agents_factory.modules.approvals.result_schema import execution_result
+
+        probe = case.fixture_setup.approval_probe
+        artifact["approval_result"] = execution_result(
+            operation=probe.operation, state=probe.state, payload=probe.payload
+        ).model_dump(mode="json")
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),

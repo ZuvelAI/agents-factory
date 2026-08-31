@@ -330,7 +330,8 @@ async def test_crash_receipt_uncertainty_outage_and_approval_revalidation(order_
     )
     await world.confirm(cancellation, approve=True)
     fixture.order["status"] = "completed"
-    assert (await world.execute(cancellation)).state == "FAILED"
+    # Task 33 rejects changed preconditions before entering EXECUTING.
+    assert (await world.execute(cancellation)).state == "REJECTED"
     assert not any(req.method == "PUT" for req in fixture.calls)
     world.bindings[binding_id] = world.bindings[binding_id].model_copy(
         update={"enabled": False}

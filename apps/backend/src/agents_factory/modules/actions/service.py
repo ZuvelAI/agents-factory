@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 from uuid import UUID
@@ -64,6 +65,11 @@ class ApprovalVerifier(Protocol):
     ) -> bool: ...
 
 
+ResultBuilder = Callable[
+    [ActionRecord, ActionState, dict[str, object]], dict[str, object]
+]
+
+
 class ActionService:
     def __init__(
         self,
@@ -76,6 +82,7 @@ class ActionService:
         audit: AuditService,
         outbox: OutboxService,
         confirmation_ttl: timedelta = timedelta(minutes=15),
+        result_builder: ResultBuilder | None = None,
     ) -> None:
         self._context = context
         self._repository = repository
@@ -87,6 +94,7 @@ class ActionService:
         self._policy = ActionPolicyEvaluator()
         self._machine = ActionStateMachine()
         self._confirmation_ttl = confirmation_ttl
+        self._result_builder = result_builder
 
     async def request(
         self,
@@ -301,19 +309,33 @@ class ActionService:
     async def execute(
         self, *, action_id: UUID, executed_at: datetime | None = None
     ) -> ActionOutcome:
+        action = await self.prepare_execution(
+            action_id=action_id, executed_at=executed_at
+        )
+        if self._machine.is_terminal(action.state):
+            return _outcome(action)
+        result = await self.invoke_connector(action)
+        return await self.complete_execution(
+            action_id=action.id, result=result, finished_at=executed_at
+        )
+
+    async def prepare_execution(
+        self, *, action_id: UUID, executed_at: datetime | None = None
+    ) -> ActionRecord:
+        """Revalidate and claim; durable coordinators commit before provider writes."""
         now = executed_at or datetime.now(UTC)
         action = await self._required_locked(action_id)
         if self._machine.is_terminal(action.state):
-            return _outcome(action)
+            return action
         if action.state == "EXECUTING":
-            action = await self._repository.finish(
+            action = await self._finish(
                 action=action,
                 target="UNCERTAIN",
                 result_payload={"reason_code": "interrupted_execution"},
                 finished_at=now,
             )
             await self._record_final(action)
-            return _outcome(action)
+            return action
         ready = action.state == "CONFIRMED" and not action.approval_required
         approved = (
             action.state == "AWAITING_APPROVAL"
@@ -324,18 +346,68 @@ class ActionService:
         if not (ready or approved):
             raise _invalid_state(action.state)
 
-        precondition = await self._connector.revalidate(action)
-        if not precondition.valid:
-            action = await self._repository.finish(
+        if approved and not await self._approval_verifier.verify(
+            route_ref=action.approval_route_ref or "",
+            approval_reference=action.approval_reference or "",
+            action_id=action.id,
+            parameter_digest=action.parameter_digest,
+        ):
+            action = await self._finish(
                 action=action,
-                target="FAILED",
+                target="REJECTED",
+                result_payload={"reason_code": "approval_no_longer_valid"},
+                finished_at=now,
+            )
+            await self._record_final(action)
+            return action
+        try:
+            precondition = await self._connector.revalidate(action)
+        except Exception:
+            precondition = PreconditionDecision(
+                valid=False, reason_code="connector_unavailable"
+            )
+        await self._audit.record(
+            context=self._context,
+            event_type="action.revalidated",
+            entity_type="action",
+            entity_id=action.id,
+            payload={
+                "valid": precondition.valid,
+                "parameter_digest": action.parameter_digest,
+            },
+        )
+        if not precondition.valid:
+            action = await self._finish(
+                action=action,
+                target="REJECTED"
+                if approved and precondition.reason_code != "connector_unavailable"
+                else "FAILED",
                 result_payload={"reason_code": precondition.reason_code},
                 finished_at=now,
             )
             await self._record_final(action)
-            return _outcome(action)
+            return action
 
-        action = await self._repository.begin_execution(action=action, started_at=now)
+        # Revalidation may involve slow reads: do not execute an approval that
+        # expired while those reads were in flight.
+        if approved and not await self._approval_verifier.verify(
+            route_ref=action.approval_route_ref or "",
+            approval_reference=action.approval_reference or "",
+            action_id=action.id,
+            parameter_digest=action.parameter_digest,
+        ):
+            action = await self._finish(
+                action=action,
+                target="REJECTED",
+                result_payload={"reason_code": "approval_no_longer_valid"},
+                finished_at=now,
+            )
+            await self._record_final(action)
+            return action
+        return await self._repository.begin_execution(action=action, started_at=now)
+
+    async def invoke_connector(self, action: ActionRecord) -> ConnectorResult:
+        """Use the permit issued by prepare_execution, without holding a DB transaction."""
         safe_read = self._connector.is_safe_read(action.action_type)
         max_attempts = 2 if safe_read else 1
         final_result: ConnectorResult | None = None
@@ -370,6 +442,22 @@ class ActionService:
                 continue
             break
         assert final_result is not None
+        return final_result
+
+    async def complete_execution(
+        self,
+        *,
+        action_id: UUID,
+        result: ConnectorResult,
+        finished_at: datetime | None = None,
+    ) -> ActionOutcome:
+        action = await self._required_locked(action_id)
+        if self._machine.is_terminal(action.state):
+            return _outcome(action)
+        if action.state != "EXECUTING":
+            raise _invalid_state(action.state)
+        safe_read = self._connector.is_safe_read(action.action_type)
+        final_result = result
         try:
             reject_sensitive_fields(final_result.data)
             safe_data = final_result.data
@@ -388,14 +476,31 @@ class ActionService:
         }
         if final_result.error_code is not None:
             payload["error_code"] = final_result.error_code
-        action = await self._repository.finish(
+        action = await self._finish(
             action=action,
             target=target,
             result_payload=payload,
-            finished_at=now,
+            finished_at=finished_at or datetime.now(UTC),
         )
         await self._record_final(action)
         return _outcome(action)
+
+    async def _finish(
+        self,
+        *,
+        action: ActionRecord,
+        target: ActionState,
+        result_payload: dict[str, object],
+        finished_at: datetime,
+    ) -> ActionRecord:
+        if self._result_builder is not None:
+            result_payload = self._result_builder(action, target, result_payload)
+        return await self._repository.finish(
+            action=action,
+            target=target,
+            result_payload=result_payload,
+            finished_at=finished_at,
+        )
 
     async def _transition(
         self,

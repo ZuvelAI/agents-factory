@@ -24,6 +24,7 @@ from agents_factory.modules.runtime.turn_service import (
     AgentTurnService,
     Milestone2AgentSpecProvider,
 )
+from agent_worker.approval_jobs import configure_approval_execution
 
 
 class InvalidAgentTurnJob(ValueError):
@@ -63,6 +64,7 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
     handlers["whatsapp.inbound.received"] = whatsapp_inbound_handler
     handlers["agent.turn"] = agent_turn_handler
+    configure_approval_execution(context)
 
 
 async def handle_whatsapp_inbound(

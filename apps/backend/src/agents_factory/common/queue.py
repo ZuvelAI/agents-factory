@@ -180,6 +180,11 @@ class OutboxDispatcher:
         for job in claimed:
             try:
                 envelope = job.envelope()
+                if (
+                    envelope.kind == "approvals.result.held"
+                    and not await self._release_approval_hold(job)
+                ):
+                    continue
                 queued = await self._queue.enqueue_job(
                     "process_job",
                     envelope.to_arq_payload(),
@@ -246,6 +251,28 @@ class OutboxDispatcher:
                 )
                 for row in rows
             ]
+
+    async def _release_approval_hold(self, job: _ClaimedOutboxJob) -> bool:
+        # The global dispatcher can read job envelopes, not tenant business rows.
+        # Check the conversation in a separate, explicitly tenant-scoped session.
+        async with self._session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+            await set_tenant_context(session, job.tenant_id)
+            ready = await session.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM public.actions a JOIN public.conversations c ON c.tenant_id=a.tenant_id AND c.id=a.conversation_id WHERE a.tenant_id=:tenant AND a.id=:action AND c.control_state='AI_ACTIVE')"
+                ),
+                {"tenant": job.tenant_id, "action": job.envelope().aggregate_id},
+            )
+            if ready:
+                return True
+            await session.execute(
+                text(
+                    "UPDATE public.outbox_jobs SET status='pending',dispatch_lease_id=NULL,dispatch_lease_expires_at=NULL,available_at=now()+interval '30 seconds',updated_at=now() WHERE tenant_id=:tenant AND id=:id AND dispatch_lease_id=:lease"
+                ),
+                {"tenant": job.tenant_id, "id": job.job_id, "lease": job.lease_id},
+            )
+            return False
 
     async def _mark_queued(self, *, job: _ClaimedOutboxJob) -> None:
         async with self._session_factory.begin() as session:

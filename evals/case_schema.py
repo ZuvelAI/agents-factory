@@ -17,6 +17,7 @@ GraderName = Literal[
     "appointment_behavior",
     "order_behavior",
     "claim_intake_behavior",
+    "approval_result",
 ]
 PolicyClassification = Literal["IN_SCOPE", "REDIRECT", "SAFETY_INCIDENT"]
 ResponseLanguage = Literal["es", "en"]
@@ -128,12 +129,25 @@ class ClaimIntakeBehavior(StrictEvalModel):
     business_decision: Literal["NOT_MADE"] = "NOT_MADE"
 
 
+class ApprovalProbe(StrictEvalModel):
+    operation: str
+    state: Literal["SUCCEEDED", "REJECTED", "FAILED", "UNCERTAIN", "EXPIRED"]
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class ApprovalExpected(StrictEvalModel):
+    status: Literal["succeeded", "rejected", "failed", "uncertain", "expired"]
+    reason_code: str
+    next_actions: tuple[str, ...] = ()
+
+
 class EvalFixtureSetup(StrictEvalModel):
     fake_outputs: tuple[str, ...]
     tools: tuple[EvalToolFixture, ...] = ()
     appointment_probe: AppointmentProbe | None = None
     order_probe: OrderProbe | None = None
     claim_intake_probe: ClaimIntakeProbe | None = None
+    approval_probe: ApprovalProbe | None = None
 
     @field_validator("fake_outputs")
     @classmethod
@@ -159,6 +173,7 @@ class EvalExpected(StrictEvalModel):
     selected_tools: tuple[str, ...]
     persisted_result: bool
     credentials_absent: bool
+    approval_result: ApprovalExpected | None = None
     policy_classification: PolicyClassification | None = None
     response_language: ResponseLanguage | None = None
     truthful_disclosure: bool | None = None

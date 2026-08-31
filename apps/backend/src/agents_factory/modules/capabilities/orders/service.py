@@ -490,6 +490,29 @@ class OrdersActionConnector:
             )
             if not valid:
                 raise OrderUnavailable("order_action_not_authorized")
+            if action.approval_required and "order_id" in action.parameters:
+                live = await self.orders._provider(
+                    binding,
+                    READS[1],
+                    {
+                        "order_id": action.parameters["order_id"],
+                        "customer": customer.match.model_dump(exclude_none=True),
+                    },
+                )
+                if live.status != "SUCCEEDED":
+                    return PreconditionDecision(
+                        valid=False, reason_code="connector_unavailable"
+                    )
+                if live.data.get("status") == "SHIPPED":
+                    return PreconditionDecision(
+                        valid=False, reason_code="order_already_shipped"
+                    )
+                if live.data.get("version") != action.parameters.get(
+                    "expected_version"
+                ):
+                    return PreconditionDecision(
+                        valid=False, reason_code="precondition_changed"
+                    )
         except (OrderUnavailable, KeyError, ValidationError) as error:
             return PreconditionDecision(
                 valid=False,

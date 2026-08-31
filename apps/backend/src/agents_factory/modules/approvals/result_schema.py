@@ -113,3 +113,45 @@ class DecisionReceipt(InputModel):
         if (self.status == "RECORDED") != (self.result is not None):
             raise ValueError("only the winning reviewer receives their receipt")
         return self
+
+
+def execution_result(
+    *, operation: str, state: str, payload: dict[str, object]
+) -> DecisionResult:
+    """Interpret verified backend outcomes, never the reviewer's proposed reason."""
+    reason = payload.get("reason_code", payload.get("error_code"))
+    if state == "UNCERTAIN":
+        code = "outcome_unknown"
+    elif state == "EXPIRED":
+        code = "approval_expired"
+    elif state == "SUCCEEDED":
+        if operation in {
+            "orders.request_order_cancellation",
+            "appointments.request_cancellation",
+        }:
+            data = payload.get("data")
+            code = (
+                "request_recorded"
+                if isinstance(data, dict) and data.get("cancellation_executed") is False
+                else "outcome_unknown"
+            )
+        else:
+            code = "action_completed"
+    elif reason in {
+        "order_already_shipped",
+        "appointment_already_cancelled",
+        "reviewer_rejected",
+    }:
+        code = str(reason)
+    elif reason in {
+        "connector_unavailable",
+        "integration_not_connected",
+        "order_provider_unavailable",
+        "provider_unavailable",
+    }:
+        code = "connector_unavailable"
+    elif state == "REJECTED" or payload.get("connector_status") == "REJECTED":
+        code = "precondition_changed"
+    else:
+        code = "execution_failed"
+    return DecisionResult.for_reason(code)

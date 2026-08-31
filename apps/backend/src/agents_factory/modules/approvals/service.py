@@ -39,6 +39,7 @@ from agents_factory.modules.approvals.models import (
 )
 from agents_factory.modules.approvals.otp import issue_otp, verify_otp
 from agents_factory.modules.approvals.repository import ApprovalRepository
+from agents_factory.modules.approvals.result_schema import DecisionResult
 from agents_factory.modules.approvals.routes import validate_route_action
 from agents_factory.modules.approvals.tokens import (
     ApprovalProofs,
@@ -304,12 +305,26 @@ class ApprovalService:
             state in {"REJECTED", "EXPIRED"}
             and locked.action.state == "AWAITING_APPROVAL"
         ):
-            await ActionRepository(repo.session, repo.context).transition(
+            result = DecisionResult.for_reason(
+                "reviewer_rejected" if state == "REJECTED" else "approval_expired"
+            )
+            await ActionRepository(repo.session, repo.context).finish(
                 action=locked.action,
                 target="REJECTED" if state == "REJECTED" else "EXPIRED",
-                event_type=f"action.approval_{state.lower()}",
-                payload={"approval_request_id": str(request.id)},
-                changed_at=now,
+                result_payload={
+                    "approval_request_id": str(request.id),
+                    "decision_result": result.model_dump(mode="json"),
+                },
+                finished_at=now,
+            )
+            await OutboxService(repo.session).enqueue(
+                context=repo.context,
+                idempotency_key=f"approvals.result:{locked.action.id}",
+                topic="approvals.result",
+                payload={
+                    "aggregate_id": str(locked.action.id),
+                    "approval_request_id": str(request.id),
+                },
             )
         await AuditService(repo.session).record(
             context=repo.context,
@@ -644,8 +659,8 @@ class ApprovalService:
                         "parameter_digest": decision.parameter_digest,
                     },
                 )
-            # No Action execution, customer notification or raw decision metadata
-            # crosses the public endpoint. Task 33 revalidates before execution.
+            # Only durable jobs are queued here; no provider execution or delivery
+            # occurs inside this public endpoint.
             return PublicReceipt(status="RECORDED")
 
     async def expire(self, *, context: TenantContext, request_id: UUID) -> None:

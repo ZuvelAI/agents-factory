@@ -1,11 +1,11 @@
-# Approvals — Tasks 31–32
+# Approvals — Tasks 31–33
 
 ## Boundary and composition
 
-This backend implements approval requests and decisions, not external execution.
-Task 32 now supplies the public review page and sanitized `DecisionResult`. Task 33
-will supply delayed Action revalidation/execution and customer notification. Do not
-dispatch `approvals.execute` before that coordinator exists.
+The backend implements approval requests/decisions, the secure review page and
+delayed revalidate-execute-notify. Public HTTP handlers never execute business
+operations or send WhatsApp messages inline. Task 33's coordinator must be explicitly
+configured in both scheduler and agent-worker before its topics are dispatched.
 
 Inject an `ApprovalService` into `create_app(approval_service=...)` and the scheduler
 context's `approval_service`. Its dependencies are the backend session factory,
@@ -65,7 +65,7 @@ transaction holding that Action is forbidden: it can wait on its own row lock.
   closes the awaiting Action without business execution. No HTTP handler calls a
   business connector or tells the customer an operation succeeded.
 - `PersistedApprovalVerifier` checks the decision, tenant, Action, parameter digest,
-  route digest, enabled state and expiry. The Task 33 coordinator must revalidate
+  route digest, enabled state and expiry. The Task 33 coordinator revalidates
   this and current identity/confirmation/business preconditions immediately before
   execution, outside the public approval transaction.
 
@@ -84,7 +84,7 @@ generic state, not winner identity, connector results or reviewer explanation.
 `RequestedDecisionResult` is a proposal with reason code, explanation and requested
 next-action codes. It is **not** a customer-safe result or authority to execute
 those next actions. `DecisionResult` validates the customer-facing contract;
-Task 33 must combine it with actual execution outcome.
+Task 33 combines it with the actual execution outcome.
 
 Network metadata retention is off by default. If justified and explicitly enabled,
 store only tenant/day-keyed HMACs of the IPv4 /24 or IPv6 /48 prefix and bounded
@@ -184,6 +184,83 @@ native Gmail integration use the existing local/synthetic fixture. Redis's adapt
 is checked with an injected command stub; live Redis deployment acceptance remains
 separate. No old passing test suite was repeated.
 
-Next: Task 33's current-state revalidation, execution and automatic customer
-notification. This page does not remove that execution boundary or certify live
-provider behavior/production readiness.
+Next: Task 34's Live Human Handoff. The public page does not remove the backend
+execution boundary or certify live provider behavior/production readiness.
+
+## Task 33 — durable revalidate-execute-notify
+
+Inject an `ApprovalExecutionService` as `approval_execution_service` into both the
+scheduler and agent-worker contexts. Required dependencies are:
+
+- The existing backend session factory; identified backend actors and tenant RLS
+  remain mandatory. No anonymous, browser, service-role or model access is added.
+- `agent_specs(session, context)`: a trusted factory for the current bound Agent
+  Instance, normally `ProductionAgentSpecProvider(session, agent_instance_id=...)`.
+  Resolve the instance from trusted tenant/channel configuration, never job text.
+  No Milestone 2 fallback is installed by this coordinator.
+- `connectors(context, action)`: reload current trusted bindings/connection state
+  and construct the appropriate native `OrdersActionConnector` or
+  `AppointmentActionConnector`. Do not reuse a different tenant's adapter or
+  create a connector from model-supplied settings. Native identity, binding digest,
+  resource ownership and business preconditions remain enforced by these adapters.
+- Tenant `ApprovalNotificationBinding(template_name, language)`. Before enabling
+  dispatch, synchronize an APPROVED WhatsApp UTILITY template with exactly the
+  variables `request_id` and `result`. It is sent through the existing Meta outbound
+  worker and SecretRef-backed provider configuration. No free-text/LLM fallback.
+
+Only APPROVE queues `approvals.execute`. Rejection and expiry persist their
+reviewed terminal result and queue `approvals.result` without execution. Workers
+bind envelope IDs/topic/tenant/aggregate to a durable outbox row, then reload the
+Action, approval, route, exact parameter digest and active AgentSpec/tool permission.
+An approval reference is reverified by ActionService immediately before execution,
+including after connector reads. Changed routes/spec/parameters, expired approvals,
+shipped orders and cancelled appointments cannot authorize the write.
+
+Execution uses short entity transactions: commit approval evidence and EXECUTING,
+invoke the native connector, then atomically persist the terminal result and its
+notification job. A separate per-Action advisory mutex serializes duplicate jobs;
+only the mutex spans provider I/O, not locked Action/route rows. Existing native
+operation receipts remain independently durable. An orphaned EXECUTING Action
+becomes UNCERTAIN even if the connector/configuration is now unavailable; it never
+blindly repeats the external write. Concurrent/completed replays reuse the same
+terminal Action and uniquely keyed result notification.
+
+`actions.result.decision_result` is the closed reviewed `DecisionResult`, alongside
+internal provenance and safe connector output where available. Approval alone never
+produces success. Native cancellation requests return `request_recorded` and
+explicitly say that cancellation is not confirmed. Missing/malformed success
+receipts become UNCERTAIN. Reviewer prose, provider exception text and arbitrary
+next-action proposals never become customer messages. Suggested next actions remain
+subject to a new authorized Action, not automatically executed.
+
+While a conversation is not AI_ACTIVE, notification preparation creates a durable
+`approvals.result.held` job keyed by Action and conversation-state version, without
+an AI reply. The dispatcher checks that conversation under explicit tenant scope;
+held jobs wait 30 seconds between checks without consuming send attempts or blocking
+other work. They become dispatchable when normal conversation authority resumes.
+Template preparation and outbound send independently recheck authority. A takeover
+after message preparation can leave an observably BLOCKED outbound message; it is
+not silently resent. Task 34 owns the human takeover/resume policy itself.
+
+Trace reconstruction uses Action ID and `action_events` (request, identity,
+confirmation, approval reference, executing, terminal), `approval_decisions`
+(reviewer/proof/time), audit `approval.execution_validated` (current spec/binding/
+digest), `action.revalidated`, `approval.result_queued` (notification job ID), and
+`approval.customer_notification_prepared` (outbound ID). `outbound_messages` retains
+the provider message ID, status/history/timestamps through delivery reconciliation.
+The stable idempotency key `approvals.result:{action_id}` also links the Action to
+its single outbound message if a worker stops before the final audit append.
+
+No tables or grants were added. The lifecycle migration only permits writing a
+terminal result while AWAITING_APPROVAL becomes REJECTED/EXPIRED; existing immutable
+fields, terminal states and RLS remain intact. Supabase/Postgres guidance informed
+the short entity transactions and tenant-scoped hold lookup; see the official
+[RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+Local evidence: the Task 33 integration scenarios exercise real PostgreSQL, native
+WooCommerce/Gmail adapters with synthetic transports, appointment preconditions,
+worker envelope checks, held-job release, one outbound send and delivery
+reconciliation. The eight new `approval_results.jsonl` cases run through Eval Runner
+v0 without a model/API. Earlier passing suites were not rerun. Deployment wiring,
+approved live Meta templates, provider credentials and real-account acceptance
+remain release prerequisites, not claims established by this offline checkpoint.

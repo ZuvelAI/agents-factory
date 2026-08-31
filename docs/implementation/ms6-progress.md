@@ -111,8 +111,8 @@ configuration, remaining integration boundaries and proof/privacy defaults.
 
 ## Continuation
 
-Task 32 implements the secure approval page and customer-safe DecisionResult (see
-the checkpoint below). Next is Task 33's revalidating execution/notification coordinator. Continue
+Tasks 32 and 33 implement the secure review page and revalidating execution/
+notification coordinator (see checkpoints below). Next is Task 34's Live Human Handoff. Continue
 the remaining MS6 tasks and present the milestone gate before MS7. MS6 is not
 declared complete by this checkpoint.
 
@@ -155,3 +155,47 @@ Skills influence: Next.js/React guidance shaped the Server Action boundary, nonc
 CSP/dynamic rendering and accessible component flow. Supabase guidance preserved
 the existing verified admin claims and tenant-data boundaries. No Superpowers,
 new master plan, feature expansion, full regression run or dependency upgrade.
+
+## Task 33 — revalidate approved Actions and notify customers
+
+- Backend-only coordinator reloads Action, immutable decision, route/digests,
+  current active AgentSpec/tool permission and trusted native connector bindings.
+  ActionService rechecks persisted approval authority before and after precondition
+  reads. Shipped orders, cancelled appointments, changed permissions/routes/spec,
+  connector outage and expired approval produce safe terminal results, not success.
+- EXECUTING is committed before external writes. Per-Action serialization plus
+  native durable receipts prevents concurrent/replayed effects; interrupted claims
+  become UNCERTAIN without needing a working connector or retrying the write.
+- One persisted reviewed DecisionResult and uniquely keyed WhatsApp result job.
+  Cancellation requests explicitly do not claim completed cancellations. Rejection
+  and expiry enqueue notifications without execution; malformed success receipts
+  become uncertainty. No model-generated message or arbitrary reviewer explanation.
+- Configured agent-worker handlers and scheduler routing. HUMAN_ACTIVE and other
+  non-AI states retain structured updates in the outbox; tenant-scoped checks release
+  them after authority resumes, with a short backoff and no delivery-attempt burn.
+  Existing Meta templates, outbound claims and status reconciliation provide one
+  observable send. Appointment cancellation does not emit a second native notice.
+- Audit IDs connect request/identity/confirmation/decision, current spec/binding,
+  revalidation, execution, notification job and outbound delivery history.
+- No new tables or privileges. A narrow lifecycle-function migration permits
+  terminal rejection/expiry results and preserves immutable fields, terminal-state
+  guards and FORCE RLS. Supabase/Postgres guidance shaped transaction boundaries
+  and tenant-scoped notification eligibility; no Superpowers was used.
+
+Verification is limited to new Task 33 cases and the changed notification path.
+Eight deterministic approval-result evals passed on their first run. Local
+integration checks cover duplicate execution, interruption/recovery, changed
+preconditions, outage/ambiguity, expiry, rejection, approval-reference revalidation,
+tenant envelope binding, human hold/resume and delivery IDs/status. Initial failures
+identified a missing tenant scope in a fixture and in the cross-tenant dispatcher's
+hold lookup; corrected those without rerunning the nine passing cases. The hold
+backoff check was updated to avoid host/container clock skew. No old passing
+milestone suite, complete CI, browser suite, live API or dependency upgrade was run.
+All 14 new integration cases are passing, as are focused Ruff/mypy checks. The
+notification case was rechecked only when its backoff/clock fixture changed;
+other passing cases were not repeated.
+The existing Orders expectation was aligned with pre-execution REJECTED (instead
+of a post-execution FAILED); its old suite was not rerun. Captured
+`20260831152925_approval_action_results.sql`; local migration history matches.
+Supabase local advisors reported no issues. Detailed composition and remaining
+release prerequisites are recorded in `docs/approvals.md`.

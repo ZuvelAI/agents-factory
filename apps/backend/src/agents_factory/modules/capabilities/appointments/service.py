@@ -350,10 +350,9 @@ class AppointmentsService:
                         "provider_status": live.get("status", "confirmed"),
                     },
                 ), None
-            if (
-                live.get("etag") != appointment.etag
-                or live.get("status") == "cancelled"
-            ):
+            if live.get("status") == "cancelled":
+                raise AppointmentUnavailable("appointment_already_cancelled")
+            if live.get("etag") != appointment.etag:
                 raise AppointmentUnavailable("appointment_changed")
             if appointment.status != "BOOKED":
                 raise AppointmentUnavailable("cancellation_already_requested")
@@ -500,6 +499,10 @@ class AppointmentsService:
                     "cancellation": previous + "cancellation_request",
                 },
             )
+        if action.approval_required and kind == "cancellation_request":
+            # The approval coordinator owns this one customer result; still
+            # suppress obsolete reminders above, but do not send a second notice.
+            return
         for message_kind, due in messages:
             await outbox.enqueue(
                 context=self.context,
@@ -580,6 +583,30 @@ class AppointmentActionConnector:
             async with self.service.transaction() as repository:
                 config = await repository.config()
             valid = action.connector_binding_id == config.binding_id
+            if valid and action.approval_required:
+                try:
+                    async with self.service.transaction() as repository:
+                        appointment = await repository.get(
+                            UUID(str(action.parameters["appointment_id"])),
+                            customer_ref=action.customer_ref,
+                        )
+                    live = await self.service._call(
+                        config,
+                        "calendar.get_event",
+                        {"event_id": appointment.external_event_id},
+                    )
+                    if live.get("status") == "cancelled":
+                        return PreconditionDecision(
+                            valid=False, reason_code="appointment_already_cancelled"
+                        )
+                    valid = (
+                        live.get("etag") == appointment.etag
+                        and appointment.status == "BOOKED"
+                        and action.parameters.get("configuration_digest")
+                        == configuration_digest(config)
+                    )
+                except (AppointmentUnavailable, KeyError, ValueError):
+                    valid = False
         if valid:
             self._permits[str(action.id)] = action
         return PreconditionDecision(
