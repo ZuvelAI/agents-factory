@@ -57,6 +57,12 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.media_observations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.media_evidence", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.order_operations", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -428,6 +434,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
     }
     row_a["public.tenants"] = tenant_a
     row_b["public.tenants"] = tenant_b
+    row_a["public.media_observations"] = row_a["public.messages"]
+    row_b["public.media_observations"] = row_b["public.messages"]
     row_a["public.knowledge_proposals"] = row_a["public.knowledge_ingestion_artifacts"]
     row_b["public.knowledge_proposals"] = row_b["public.knowledge_ingestion_artifacts"]
     insert_parent_a = uuid4()
@@ -1058,6 +1066,29 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            await connection.execute(
+                text(
+                    "INSERT INTO public.media_evidence(id,tenant_id,whatsapp_account_id,provider_media_id,customer_ref,first_message_id,kind,status,expires_at) VALUES (:id,:tenant,:account,'2700','media-fixture',:message,'image','PROCESSING',now()+interval '90 days')"
+                ),
+                {
+                    "id": rows["public.media_evidence"],
+                    "tenant": tenant_id,
+                    "account": rows["public.whatsapp_accounts"],
+                    "message": rows["public.messages"],
+                },
+            )
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.media_observations(id,tenant_id,media_id,observation) VALUES (:id,:tenant,:media,'{}')"
+                ),
+                {
+                    "id": rows["public.media_observations"],
+                    "tenant": tenant_id,
+                    "media": rows["public.media_evidence"],
+                },
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1183,6 +1214,8 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.media_observations": "INSERT INTO public.media_observations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.media_evidence": "INSERT INTO public.media_evidence (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.order_operations": "INSERT INTO public.order_operations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.appointment_configurations": "INSERT INTO public.appointment_configurations (id, tenant_id) VALUES (:id, :tenant_id)",
         "public.appointments": "INSERT INTO public.appointments (id, tenant_id) VALUES (:id, :tenant_id)",
@@ -1471,6 +1504,8 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.media_observations": None,
+        "public.media_evidence": None,
         "public.order_operations": None,
         "public.appointment_configurations": None,
         "public.appointments": None,

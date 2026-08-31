@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import AsyncIterator, Mapping, cast
 from uuid import UUID
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import SecretStr, ValidationError
@@ -58,6 +59,106 @@ class MetaCloudApiProvider:
     access_tokens: MetaAccessTokenResolver | None = field(default=None, repr=False)
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     graph_api_base_url: str | None = None
+
+    async def download_media(
+        self,
+        *,
+        context: TenantContext,
+        whatsapp_account_id: UUID,
+        phone_number_id: str,
+        media_id: str,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
+        from agents_factory.modules.media.contracts import MediaError
+        from agents_factory.modules.media.validation import matches_provider_digest
+
+        if self.access_tokens is None or self.graph_api_base_url is None:
+            raise MediaError("media_provider_unavailable")
+        if not re.fullmatch(r"[0-9]+", media_id) or not re.fullmatch(
+            r"[0-9]+", phone_number_id
+        ):
+            raise MediaError("media_reference_invalid")
+        base = urlsplit(self.graph_api_base_url)
+        if (
+            base.scheme != "https"
+            or base.hostname != "graph.facebook.com"
+            or base.port not in {None, 443}
+            or base.username
+            or base.password
+            or base.query
+            or base.fragment
+        ):
+            raise MediaError("media_provider_unavailable")
+        try:
+            resolved = await self.access_tokens.resolve(
+                context=context, whatsapp_account_id=whatsapp_account_id
+            )
+            headers = {"Authorization": f"Bearer {resolved.reveal().decode('utf-8')}"}
+            async with self._media_client() as client:
+                metadata = await client.get(
+                    f"{self.graph_api_base_url.rstrip('/')}/{media_id}",
+                    params={"phone_number_id": phone_number_id},
+                    headers=headers,
+                    follow_redirects=False,
+                    timeout=15,
+                )
+                metadata.raise_for_status()
+                value = metadata.json()
+                if str(value.get("id")) != media_id or not isinstance(
+                    value.get("url"), str
+                ):
+                    raise MediaError("media_provider_invalid")
+                location = urlsplit(value["url"])
+                if (
+                    location.scheme != "https"
+                    or location.hostname
+                    not in {"lookaside.fbsbx.com", "mmg.whatsapp.net"}
+                    or location.port not in {None, 443}
+                    or location.username
+                    or location.password
+                    or location.fragment
+                ):
+                    raise MediaError("media_download_host_denied")
+                if (
+                    not isinstance(value.get("file_size"), int)
+                    or not 0 < value["file_size"] <= max_bytes
+                ):
+                    raise MediaError("media_size_invalid")
+                content = bytearray()
+                async with client.stream(
+                    "GET",
+                    value["url"],
+                    headers=headers,
+                    follow_redirects=False,
+                    timeout=30,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > max_bytes:
+                            raise MediaError("media_size_invalid")
+                if len(content) != value["file_size"] or not matches_provider_digest(
+                    bytes(content), value.get("sha256")
+                ):
+                    raise MediaError("media_integrity_failed")
+                media_type = value.get("mime_type")
+                if not isinstance(media_type, str):
+                    raise MediaError("media_provider_invalid")
+                return bytes(content), media_type
+        except MediaError:
+            raise
+        except Exception:
+            raise MediaError("media_download_unavailable") from None
+
+    @asynccontextmanager
+    async def _media_client(self) -> AsyncIterator[httpx.AsyncClient]:
+        if self.http_client is not None:
+            yield self.http_client
+        else:
+            async with httpx.AsyncClient(
+                trust_env=False, follow_redirects=False
+            ) as client:
+                yield client
 
     def verify_signature(self, *, raw_body: bytes, signature: str) -> bool:
         match = _SIGNATURE_PATTERN.fullmatch(signature)
@@ -397,7 +498,31 @@ def _provider_timestamp(value: str) -> datetime:
 def _normalized_content(message: Mapping[str, object]) -> dict[str, object]:
     message_type = message.get("type")
     if message_type != "text":
-        return {}
+        if message_type in {"audio", "image", "document", "video"}:
+            value = message.get(str(message_type))
+            if not isinstance(value, Mapping) or not isinstance(value.get("id"), str):
+                raise InvalidWebhookPayload
+            # Preserve bounded provider references, not arbitrary URLs or extra fields.
+            return {
+                key: item
+                for key in ("id", "mime_type", "sha256", "caption", "filename")
+                if isinstance(item := value.get(key), str) and len(item) <= 4000
+            }
+        if message_type == "location":
+            value = message.get("location")
+            if not isinstance(value, dict):
+                raise InvalidWebhookPayload
+            return {
+                key: value[key]
+                for key in ("latitude", "longitude", "name", "address")
+                if key in value
+            }
+        if message_type == "contacts":
+            value = message.get("contacts")
+            if not isinstance(value, list) or len(value) > 20:
+                raise InvalidWebhookPayload
+            return {"contacts": value}
+        raise InvalidWebhookPayload
     text_content = message.get("text")
     if not isinstance(text_content, dict):
         raise InvalidWebhookPayload

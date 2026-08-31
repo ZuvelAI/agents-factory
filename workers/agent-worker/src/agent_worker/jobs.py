@@ -15,6 +15,7 @@ from agents_factory.common.queue import (
 from agents_factory.database import Database, set_tenant_context
 from agents_factory.modules.conversations.models import AwaitingHumanPolicy
 from agents_factory.modules.conversations.service import ConversationService
+from agents_factory.modules.media.contracts import MediaProcessor
 from agents_factory.modules.runtime.contracts import AgentRuntime
 from agents_factory.modules.runtime.openai_adapter import OpenAIAgentsRuntime
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
@@ -44,6 +45,7 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
         RuntimeToolRegistry,
         context.get("runtime_tool_registry") or RuntimeToolRegistry(()),
     )
+    media = cast(MediaProcessor | None, context.get("media_processor"))
 
     async def agent_turn_handler(envelope: JobEnvelope) -> None:
         await handle_agent_turn(
@@ -52,10 +54,11 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
             runtime=runtime,
             agent_specs=agent_specs,
             tools=tools,
+            media=media,
         )
 
     async def whatsapp_inbound_handler(envelope: JobEnvelope) -> None:
-        await handle_whatsapp_inbound(envelope=envelope, database=database)
+        await handle_whatsapp_inbound(envelope=envelope, database=database, media=media)
 
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
     handlers["whatsapp.inbound.received"] = whatsapp_inbound_handler
@@ -66,6 +69,7 @@ async def handle_whatsapp_inbound(
     *,
     envelope: JobEnvelope,
     database: Database,
+    media: MediaProcessor | None = None,
 ) -> None:
     if envelope.kind != "whatsapp.inbound.received":
         raise InvalidAgentTurnJob("unexpected inbound job kind")
@@ -74,15 +78,19 @@ async def handle_whatsapp_inbound(
         await set_tenant_context(session, envelope.tenant_id)
         context = TenantContext(
             tenant_id=envelope.tenant_id,
-            actor_id=None,
+            actor_id=envelope.job_id,
             actor_type="system",
             correlation_id=envelope.job_id,
         )
-        await ConversationService(
+        ingested = await ConversationService(
             session=session,
             context=context,
             awaiting_human_policy=AwaitingHumanPolicy.SILENT,
         ).ingest(envelope.aggregate_id)
+    # Preserve evidence even under human takeover. The committed inbound remains
+    # replayable if normalization fails; do not hold its transaction over I/O.
+    if media is not None:
+        await media.process(context=context, message_id=ingested.message_id)
 
 
 async def handle_agent_turn(
@@ -92,6 +100,7 @@ async def handle_agent_turn(
     runtime: AgentRuntime,
     agent_specs: AgentSpecProvider,
     tools: RuntimeToolRegistry,
+    media: MediaProcessor | None = None,
 ) -> None:
     if envelope.kind != "agent.turn":
         raise InvalidAgentTurnJob("unexpected job kind")
@@ -111,10 +120,14 @@ async def handle_agent_turn(
         )
         context = TenantContext(
             tenant_id=envelope.tenant_id,
-            actor_id=None,
+            actor_id=envelope.job_id,
             actor_type="system",
             correlation_id=envelope.job_id,
         )
+        # This may race inbound normalization; MediaService serializes the same
+        # provider object and reuses its durable observation without a second call.
+        if media is not None:
+            await media.process(context=context, message_id=inbound_message_id)
         await AgentTurnService(
             session=session,
             context=context,

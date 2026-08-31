@@ -185,8 +185,54 @@ Focused verification:
 See `docs/capabilities/orders.md` for composition, guarantees and deferred ports.
 The approved implementation plan and master specification are unchanged.
 
+## Task 27 — media normalization and private evidence (offline checkpoint)
+
+Preserved bounded native WhatsApp attachment/structured input data; added private
+original storage, MIME/container/size checks, mandatory fail-closed scan hook,
+local bounded PDF parsing, structured location/contacts and video-only human
+review. Prepared explicit-client voice/image adapters using the approved models.
+No OpenAI key was created, read or used, and no live provider call was made.
+
+Added separate tenant-scoped evidence and per-message observation tables. The
+security review rejected a proposed broad message-update policy before it was
+written/applied. The final implementation grants no new message editing powers:
+observations are stored separately and loaded into the runtime as untrusted user
+text with no identity increase. Media is processed even under human takeover.
+
+Backend receipts/locking suppress duplicate downloads and paid-call replays.
+Private authenticated signed downloads, access expiry, deletion/tombstones,
+bounded retention cleanup and the Orders evidence-access port are implemented.
+HTTP/worker composition is explicit; missing providers/scanner fail closed.
+
+Focused evidence for this checkpoint:
+
+- Two new compact unit scenarios passed for input types, structured fields,
+  WER/percentile arithmetic, native Meta download restrictions and typed OpenAI
+  request contracts using fakes.
+- Three new database scenarios passed for all modalities, concurrency/replay,
+  signed HTTP access, cross-tenant/customer denial, expiration/deletion, quarantine,
+  corruption/crash recovery, human-control inbound worker composition and runtime
+  loading of separate observations without modifying original messages.
+- Private filesystem isolation and both new tables' RLS matrix cases passed.
+  Table registration passed after the final schema change.
+- Only failed scenarios were retried after fixing JSON NULL serialization,
+  structured JSON output and macOS PDF resource limits; passed scenarios were
+  not rerun. The registration check was refreshed for the newly added table.
+- Focused Ruff/format/mypy checks passed, and repository credential scanning found
+  no credential-like assignments/private keys. Supabase advisors found no issues.
+- No old milestone test suite, full CI, schema reset or dependency upgrade ran.
+
+Task 27 is not claimed fully accepted: real speech-corpus WER, model p50/p95,
+priced cost, image quality and live provider validation remain pending. Synthetic
+fixtures are not substituted for that evidence. Release also needs the configured
+production scanner, persistent private storage/signing material and purge schedule.
+
+See `docs/capabilities/media.md`. The approved master specification and plan are
+unchanged; Generic REST, advanced video analysis and multimodal replies remain out.
+
 ## Continuation
 
-Continue with Task 27: multimodal normalization and tenant-scoped evidence
-storage. Tasks 27–28 remain pending. MS5 has not been declared complete and will
-still require its approved milestone review before proceeding to MS6.
+Task 27 backend/local implementation is in place; its real provider/corpus
+acceptance checks remain deferred by the user's explicit decision not to create
+or use an OpenAI key yet. Next implementation task: Task 28, Returns & Claims.
+MS5 is not complete and still requires its approved review before MS6.

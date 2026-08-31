@@ -293,7 +293,7 @@ class _RuntimeTurnRepository:
                 await self._session.execute(
                     text(
                         "SELECT id, direction, sender_type, message_type, content, "
-                        "arrival_sequence FROM public.messages "
+                        "arrival_sequence, (SELECT observation FROM public.media_observations o WHERE o.tenant_id=public.messages.tenant_id AND o.id=public.messages.id) AS media_observation FROM public.messages "
                         "WHERE tenant_id = :tenant_id "
                         "AND conversation_id = :conversation_id "
                         "AND id = :inbound_message_id "
@@ -315,7 +315,7 @@ class _RuntimeTurnRepository:
             (
                 await self._session.execute(
                     text(
-                        "SELECT id, direction, sender_type, message_type, content "
+                        "SELECT id, direction, sender_type, message_type, content, (SELECT observation FROM public.media_observations o WHERE o.tenant_id=public.messages.tenant_id AND o.id=public.messages.id) AS media_observation "
                         "FROM public.messages WHERE tenant_id = :tenant_id "
                         "AND conversation_id = :conversation_id "
                         "AND arrival_sequence < :arrival_sequence "
@@ -479,8 +479,14 @@ def _turn_message(row: RowMapping) -> TurnMessage:
     content = row["content"]
     text_value: str | None = None
     if isinstance(content, Mapping):
+        if row["message_type"] != "text" and row["sender_type"] == "customer":
+            from agents_factory.modules.media.service import observation_text
+
+            text_value = observation_text(
+                {"media_observation": row.get("media_observation")}
+            )
         candidate = content.get("text")
-        if isinstance(candidate, str) and candidate.strip():
+        if text_value is None and isinstance(candidate, str) and candidate.strip():
             text_value = candidate
     if text_value is None:
         text_value = f"[Inbound {row['message_type']} message]"

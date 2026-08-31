@@ -30,6 +30,9 @@ htmlcov/
 
 # Generated media, builds, and evaluation results
 media/
+!apps/backend/src/agents_factory/modules/media/
+!apps/backend/tests/unit/media/
+!apps/backend/tests/integration/media/
 uploads/
 dist/
 build/
