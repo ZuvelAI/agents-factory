@@ -20,6 +20,11 @@ from agents_factory.common.security import (
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.actions.router import router as admin_action_router
+from agents_factory.modules.approvals.router import (
+    admin_router as admin_approval_router,
+    public_router as public_approval_router,
+)
+from agents_factory.modules.approvals.service import ApprovalService
 from agents_factory.modules.cases.router import router as admin_case_router
 from agents_factory.modules.cases.service import CaseService
 from agents_factory.modules.agent_factory.router import (
@@ -121,6 +126,7 @@ def create_app(
     settings_loader: SettingsLoader = load_settings,
     readiness_checks: ReadinessChecks | None = None,
     token_verifier: TokenVerifier | None = None,
+    approval_service: ApprovalService | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -167,8 +173,11 @@ def create_app(
                 await database.dispose()
 
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
+    application.state.approval_service = approval_service
     application.include_router(admin_tenant_router)
     application.include_router(admin_action_router)
+    application.include_router(admin_approval_router)
+    application.include_router(public_approval_router)
     application.include_router(admin_case_router)
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)

@@ -57,6 +57,18 @@ class TenantIsolationRegistration:
 
 TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
+        "public.approval_routes", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_requests", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_links", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_decisions", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
         "public.cases", insert_allowed=False, update_allowed=False
     ),
     TenantIsolationRegistration(
@@ -361,6 +373,7 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("approval_decisions", "approval_decisions_append_only"),
             ("case_events", "case_events_append_only"),
             ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
@@ -405,6 +418,7 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("approval_decisions", "approval_decisions_append_only"),
             ("case_events", "case_events_append_only"),
             ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
@@ -1149,6 +1163,23 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            approval_values = {
+                "tenant": tenant_id,
+                "action": rows["public.actions"],
+                "route": rows["public.approval_routes"],
+                "request": rows["public.approval_requests"],
+                "link": rows["public.approval_links"],
+                "decision": rows["public.approval_decisions"],
+                "digest": "0" * 64,
+            }
+            for sql in (
+                "INSERT INTO public.approval_routes(id,tenant_id,ref,capability,action,revision,configuration,digest) VALUES (:route,:tenant,'route','orders','orders.request_order_cancellation',1,'{}',:digest)",
+                "INSERT INTO public.approval_requests(id,tenant_id,action_id,parameter_digest,route_id,route_digest,state,expires_at,created_at) VALUES (:request,:tenant,:action,:digest,:route,:digest,'PENDING',now()+interval '1 day',now())",
+                "INSERT INTO public.approval_links(id,tenant_id,request_id,email,token_digest) VALUES (:link,:tenant,:request,'review@example.com',:digest)",
+                "INSERT INTO public.approval_decisions(id,tenant_id,request_id,action_id,parameter_digest,approver_email,decision,requested_result,decided_at,verification) VALUES (:decision,:tenant,:request,:action,:digest,'review@example.com','APPROVE','{}',now(),'LINK_AND_EMAIL_OTP')",
+            ):
+                await connection.execute(text(sql), approval_values)
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1275,6 +1306,10 @@ async def _discover_tenant_owned_tables(
 def _insert_statement(table_name: str) -> str:
     statements = {
         "public.cases": "INSERT INTO public.cases(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_routes": "INSERT INTO public.approval_routes(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_requests": "INSERT INTO public.approval_requests(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_links": "INSERT INTO public.approval_links(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_decisions": "INSERT INTO public.approval_decisions(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.case_events": "INSERT INTO public.case_events(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.case_operations": "INSERT INTO public.case_operations(id,tenant_id) VALUES (:id,:tenant_id)",
         "public.case_delivery_operations": "INSERT INTO public.case_delivery_operations(id,tenant_id) VALUES (:id,:tenant_id)",
@@ -1569,6 +1604,10 @@ def _insert_parameters(
 def _matching_update(table_name: str) -> str | None:
     return {
         "public.cases": None,
+        "public.approval_routes": None,
+        "public.approval_requests": None,
+        "public.approval_links": None,
+        "public.approval_decisions": None,
         "public.case_events": None,
         "public.case_operations": None,
         "public.case_delivery_operations": None,

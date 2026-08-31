@@ -20,6 +20,7 @@ from agents_factory.database import Database
 from scheduler.knowledge_jobs import configure_knowledge_jobs
 from scheduler.appointment_jobs import configure_appointment_jobs
 from scheduler.case_jobs import configure_case_jobs
+from scheduler.approval_jobs import configure_approval_jobs
 
 
 async def startup(context: dict[Any, Any]) -> None:
@@ -39,6 +40,7 @@ async def startup(context: dict[Any, Any]) -> None:
             "knowledge.detect_change": "scheduler",
             "appointments.notify": "scheduler",
             "cases.timer": "scheduler",
+            **configure_approval_jobs(context),
         },
         retry_delay_seconds=1.0,
     )

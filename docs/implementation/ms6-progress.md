@@ -70,11 +70,51 @@ adapters. See `docs/cases.md` for wiring and operational boundaries.
   list matches the isolated database; FORCE RLS and explicit revocations were
   retained in the captured SQL, and unrelated pg_net extension drift was excluded.
 
+## Task 31 — secure first-response approvals
+
+Implemented the backend approval foundation without changing the master plan:
+
+- Persisted per-Capability/Action routes, explicit authorized recipients, revision
+  checks and audit digests. Requests pin the committed confirmed Action, tenant,
+  exact parameter digest, route revision digest and expiry; replay is idempotent.
+- Stable SecretRef-backed HMAC proofs, per-reviewer links and separate email OTPs.
+  OTP hashes, cumulative attempt/send limits, expiry and cooldown; no plaintext
+  proof in persistence, audit, outbox or returned validation errors.
+- Atomic first valid decision, immutable actor/time/structured proposal, and
+  invalidation of every remaining link/challenge. Expiry/rejection cannot enqueue
+  execution; only approval emits one uniquely keyed execution job.
+- Native Gmail mailer through existing encrypted IntegrationService connections.
+  Independently committed delivery claims prevent blind resend after uncertain
+  results. Missing proof/mail configuration fails closed; no live API was called.
+- Registered authenticated admin endpoints and token-bound public JSON endpoints
+  with origin checking, sanitized errors, no-store and no-referrer. The public UI,
+  final customer-safe result and execution coordinator remain Tasks 32 and 33.
+- Four FORCE-RLS tables, explicit grants/revocations, tenant-composite references
+  and append-only decisions. Supabase/Postgres guidance informed those boundaries
+  and short transaction/lock ordering; provider calls happen after claims commit.
+- Scheduler handlers for notice/expiry only when the service is configured.
+  `approvals.execute` stays pending until Task 33 revalidates all execution guards.
+
+Verification: the five new unit/integration/security scenarios passed on their
+first test run. The four new-table RLS scenarios and updated registration check
+also passed (47 existing scenarios deselected). Focused Ruff/mypy passed after
+correcting two new type annotations and a test-import lint annotation before
+running tests. No old passing suite was rerun. One harmless Pydantic/FastAPI warning
+about Field repr metadata appeared; SecretStr masking and HTTP sanitization passed.
+Supabase local advisors reported no issues. Captured
+`20260831042410_approvals.sql` through the local CLI, retaining FORCE RLS and
+explicit revocations and excluding unrelated pg_net drift. Credential-pattern
+checks found no matches after renaming synthetic fixture variables that triggered
+the repository's conservative scanner; test behavior was unchanged and no passing
+test was repeated. See `docs/approvals.md` for exact
+configuration, remaining integration boundaries and proof/privacy defaults.
+
 ## Continuation
 
-Next approved work is Task 31: approval routes/requests, first-response decision and
-secure email OTP. Then continue the remaining MS6 tasks and present the milestone
-gate before MS7. MS6 is not declared complete by this Task 30 checkpoint.
+Next work is Task 32: the secure approval page and customer-safe DecisionResult.
+Then Task 33 supplies the revalidating execution/notification coordinator. Continue
+the remaining MS6 tasks and present the milestone gate before MS7. MS6 is not
+declared complete by this Task 31 backend checkpoint.
 
 Still pending for release: deferred Task 27 live-media/corpus acceptance, real
 Google/WooCommerce account verification, downstream evidence retention/deletion,
