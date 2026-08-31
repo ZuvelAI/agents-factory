@@ -32,11 +32,7 @@ class UsageRecorder:
     async def transaction(
         self, context: TenantContext, *, admin: bool = False
     ) -> AsyncIterator[AsyncSession]:
-        if context.actor_id is None or context.actor_type not in {
-            "system",
-            "platform_admin",
-        }:
-            raise UsageConflict("usage_backend_actor_required")
+        self._require_backend_context(context)
         if admin and context.actor_type != "platform_admin":
             raise UsageConflict("usage_admin_required")
         async with self.sessions.begin() as session:
@@ -131,65 +127,86 @@ class UsageRecorder:
             return revision + 1
 
     async def record(self, *, context: TenantContext, event: UsageEvent) -> UsageRecord:
+        async with self.transaction(context) as session:
+            return await self.record_in_session(
+                session=session, context=context, event=event
+            )
+
+    async def record_in_session(
+        self,
+        *,
+        session: AsyncSession,
+        context: TenantContext,
+        event: UsageEvent,
+    ) -> UsageRecord:
+        """Append usage inside an already tenant-scoped business transaction."""
+        self._require_backend_context(context)
         serialized = json.dumps(
             event.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         )
         digest = hashlib.sha256(serialized.encode()).hexdigest()
-        async with self.transaction(context) as session:
-            # Serialize insertion + threshold evaluation so concurrent records
-            # cannot both miss a crossing or publish duplicate alerts.
-            await self._lock_alerts(session, context)
-            existing = await self._existing(session, context, event.source_key)
-            if existing is not None:
-                return self._replay(existing, digest)
-            # References are checked inside tenant scope before a write. No global
-            # lookups and no raw provider response/customer content enter this ledger.
-            for table, identifier in (
-                ("conversations", event.conversation_id),
-                ("actions", event.action_id),
-                ("cases", event.case_id),
-            ):
-                if identifier is not None and not await session.scalar(
-                    text(
-                        f"SELECT EXISTS(SELECT 1 FROM public.{table} WHERE tenant_id=:tenant AND id=:id)"
-                    ),
-                    {"tenant": context.tenant_id, "id": identifier},
-                ):
-                    raise UsageConflict("usage_reference_unavailable")
-            config, revision = await self._configuration(session, context)
-            quote, price = quote_usage(event, config.prices)
-            await session.execute(
+        # Serialize insertion + threshold evaluation so concurrent records
+        # cannot both miss a crossing or publish duplicate alerts.
+        await self._lock_alerts(session, context)
+        existing = await self._existing(session, context, event.source_key)
+        if existing is not None:
+            return self._replay(existing, digest)
+        # References are checked inside tenant scope before a write. No global
+        # lookups and no raw provider response/customer content enter this ledger.
+        for table, identifier in (
+            ("conversations", event.conversation_id),
+            ("actions", event.action_id),
+            ("cases", event.case_id),
+        ):
+            if identifier is not None and not await session.scalar(
                 text(
-                    "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,model,run_id,conversation_id,action_id,case_id,currency,cost_amount,event,quote,price_snapshot,configuration_revision) "
-                    "VALUES (:id,:tenant,:key,:digest,:at,:kind,:provider,:product,:model,:run,:conversation,:action,:case,:currency,:amount,CAST(:event AS jsonb),CAST(:quote AS jsonb),CAST(:price AS jsonb),:revision) ON CONFLICT(tenant_id,source_key) DO NOTHING"
+                    f"SELECT EXISTS(SELECT 1 FROM public.{table} WHERE tenant_id=:tenant AND id=:id)"
                 ),
-                {
-                    "id": new_uuid7(),
-                    "tenant": context.tenant_id,
-                    "key": event.source_key,
-                    "digest": digest,
-                    "at": event.occurred_at,
-                    "kind": event.kind,
-                    "provider": event.provider,
-                    "product": event.product,
-                    "model": event.model,
-                    "run": event.run_id,
-                    "conversation": event.conversation_id,
-                    "action": event.action_id,
-                    "case": event.case_id,
-                    "currency": event.currency,
-                    "amount": quote.amount,
-                    "event": serialized,
-                    "quote": quote.model_dump_json(),
-                    "price": None if price is None else price.model_dump_json(),
-                    "revision": revision,
-                },
-            )
-            saved = await self._existing(session, context, event.source_key)
-            if saved is None:
-                raise UsageConflict("usage_record_unavailable")
-            await persist_alerts(session, context, config, revision)
-            return self._replay(saved, digest)
+                {"tenant": context.tenant_id, "id": identifier},
+            ):
+                raise UsageConflict("usage_reference_unavailable")
+        config, revision = await self._configuration(session, context)
+        quote, price = quote_usage(event, config.prices)
+        await session.execute(
+            text(
+                "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,model,run_id,conversation_id,action_id,case_id,currency,cost_amount,event,quote,price_snapshot,configuration_revision) "
+                "VALUES (:id,:tenant,:key,:digest,:at,:kind,:provider,:product,:model,:run,:conversation,:action,:case,:currency,:amount,CAST(:event AS jsonb),CAST(:quote AS jsonb),CAST(:price AS jsonb),:revision) ON CONFLICT(tenant_id,source_key) DO NOTHING"
+            ),
+            {
+                "id": new_uuid7(),
+                "tenant": context.tenant_id,
+                "key": event.source_key,
+                "digest": digest,
+                "at": event.occurred_at,
+                "kind": event.kind,
+                "provider": event.provider,
+                "product": event.product,
+                "model": event.model,
+                "run": event.run_id,
+                "conversation": event.conversation_id,
+                "action": event.action_id,
+                "case": event.case_id,
+                "currency": event.currency,
+                "amount": quote.amount,
+                "event": serialized,
+                "quote": quote.model_dump_json(),
+                "price": None if price is None else price.model_dump_json(),
+                "revision": revision,
+            },
+        )
+        saved = await self._existing(session, context, event.source_key)
+        if saved is None:
+            raise UsageConflict("usage_record_unavailable")
+        await persist_alerts(session, context, config, revision)
+        return self._replay(saved, digest)
+
+    @staticmethod
+    def _require_backend_context(context: TenantContext) -> None:
+        if context.actor_id is None or context.actor_type not in {
+            "system",
+            "platform_admin",
+        }:
+            raise UsageConflict("usage_backend_actor_required")
 
     @staticmethod
     async def _lock_alerts(session: AsyncSession, context: TenantContext) -> None:

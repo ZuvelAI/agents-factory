@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from time import monotonic_ns
 from typing import Literal, Protocol, cast
 from uuid import UUID
 
@@ -23,6 +25,8 @@ from agents_factory.modules.whatsapp.contracts import (
     ProviderMessageResult,
     WhatsAppDeliveryStatusEvent,
 )
+from agents_factory.modules.usage.models import Measurements, UsageEvent
+from agents_factory.modules.usage.recorder import UsageRecorder
 
 
 OutboundSendStatus = Literal[
@@ -84,6 +88,8 @@ class _ClaimedOutbound:
     whatsapp_account_id: UUID
     phone_number_id: str
     recipient_wa_id: str
+    conversation_id: UUID | None
+    attempt_number: int
     payload: dict[str, object]
 
 
@@ -94,10 +100,12 @@ class OutboundMessageService:
         session_factory: async_sessionmaker[AsyncSession],
         context: TenantContext,
         provider: OutboundProvider,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._context = context
         self._provider = provider
+        self._usage_recorder = usage_recorder
 
     async def prepare_text(self, *, message_id: UUID) -> UUID:
         now = datetime.now(UTC)
@@ -236,6 +244,7 @@ class OutboundMessageService:
             return existing
         if claimed is None:
             raise RuntimeError("outbound claim returned no result")
+        occurred_at, started_at = datetime.now(UTC), monotonic_ns()
         try:
             if claimed.kind == "text":
                 body = claimed.payload.get("body")
@@ -279,7 +288,49 @@ class OutboundMessageService:
                 outcome="uncertain",
                 error_code="provider_exception",
             )
-        return await self._complete(message_id, provider_result)
+        usage_event = self._usage_event(
+            claimed=claimed,
+            result=provider_result,
+            occurred_at=occurred_at,
+            latency_ms=(monotonic_ns() - started_at) // 1_000_000,
+        )
+        return await self._complete(message_id, provider_result, usage_event)
+
+    def _usage_event(
+        self,
+        *,
+        claimed: _ClaimedOutbound,
+        result: ProviderMessageResult,
+        occurred_at: datetime,
+        latency_ms: int,
+    ) -> UsageEvent:
+        return UsageEvent.model_validate(
+            {
+                "source_key": (
+                    f"whatsapp:outbound:{claimed.message_id}:{claimed.attempt_number}"
+                ),
+                "occurred_at": occurred_at,
+                "kind": "whatsapp",
+                "provider": "meta",
+                "product": f"whatsapp_cloud_api.{claimed.kind}",
+                "currency": "USD",
+                "run_id": self._context.correlation_id,
+                "conversation_id": claimed.conversation_id,
+                "measurements": Measurements(
+                    requests=(
+                        1 if result.outcome in {"accepted", "uncertain"} else None
+                    ),
+                    messages=(
+                        1
+                        if result.outcome == "accepted"
+                        else 0
+                        if result.outcome == "rejected"
+                        else None
+                    ),
+                    latency_ms=Decimal(latency_ms),
+                ),
+            }
+        )
 
     async def _claim(
         self,
@@ -418,6 +469,8 @@ class OutboundMessageService:
                     whatsapp_account_id=cast(UUID, row["whatsapp_account_id"]),
                     phone_number_id=cast(str, row["phone_number_id"]),
                     recipient_wa_id=cast(str, row["recipient_wa_id"]),
+                    conversation_id=cast(UUID | None, row["conversation_id"]),
+                    attempt_number=cast(int, row["attempt_count"]) + 1,
                     payload=cast(dict[str, object], row["payload"]),
                 ),
                 None,
@@ -427,6 +480,7 @@ class OutboundMessageService:
         self,
         message_id: UUID,
         provider_result: ProviderMessageResult,
+        usage_event: UsageEvent,
     ) -> OutboundSendResult:
         now = datetime.now(UTC)
         status = cast(
@@ -471,6 +525,12 @@ class OutboundMessageService:
                     "error_code": provider_result.error_code,
                 },
             )
+            if self._usage_recorder is not None:
+                await self._usage_recorder.record_in_session(
+                    session=session,
+                    context=self._context,
+                    event=usage_event,
+                )
             return result
 
 
@@ -640,6 +700,7 @@ async def _load_outbound_for_update(
                     "outbound.whatsapp_account_id, outbound.recipient_wa_id, "
                     "outbound.payload, outbound.status, outbound.status_history, "
                     "outbound.provider_message_id, outbound.provider_error_code, "
+                    "outbound.attempt_count, "
                     "account.phone_number_id, account.status AS account_status "
                     "FROM public.outbound_messages AS outbound "
                     "JOIN public.whatsapp_accounts AS account "

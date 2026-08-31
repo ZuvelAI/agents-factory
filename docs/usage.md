@@ -9,9 +9,10 @@ subscription collection, a customer portal, extra model routing or live API acce
 
 This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
 runtime metering, shared runtime capacity/rate reservations and durable commercial
-alerts, and exact input-token admission are implemented. Non-runtime producer
-instrumentation and uncertain-occurrence reconciliation are still required before
-accepting Task 36 or its dashboards.
+alerts, exact input-token admission, and outbound WhatsApp attempt recording are
+implemented. External connector/storage/infrastructure producers, complete WhatsApp
+cost reconciliation and uncertain-occurrence reconciliation are still required
+before accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
 
@@ -206,6 +207,31 @@ provider occurrence; durable reconciliation is not implemented by these hooks.
 No exactly-once billing guarantee is claimed. Live provider validation remains
 deferred, and no key or live rate was added.
 
+## Outbound WhatsApp producer
+
+The durable outbound worker now supplies `UsageRecorder` to the existing shared
+WhatsApp service. Every claimed provider attempt receives a stable source key from
+the outbound message ID plus persisted attempt number. The final outbound status,
+sanitized audit event and usage record commit together in the same tenant-scoped
+transaction. Replaying an already final message neither calls the provider nor
+creates another usage occurrence.
+
+Accepted sends record one provider request and one message. A known rejection
+records zero messages and leaves request count unknown because the provider boundary
+cannot prove whether rejection happened before or after transport. An uncertain
+send records one attempted request and unknown messages, so cost and message quota
+remain unknown rather than falsely free. Product attribution distinguishes Cloud
+API text from template sends; run and conversation IDs remain opaque references,
+and message bodies, recipient numbers and provider payloads never enter usage.
+
+No live Meta tariff, recipient-market inference or delivery-callback cost is invented.
+Without a matching configured price card, the outbound cost is explicitly unknown.
+Meta callback category/billable evidence already retained on the outbound record is
+not yet reconciled into immutable usage because a trustworthy recipient-market
+mapping and correction occurrence are still pending. A process loss after provider
+I/O but before the atomic completion stays `UNCERTAIN` and is never blindly resent;
+Task 36 reconciliation must recover or mark the corresponding missing occurrence.
+
 ## Persistence and remaining work
 
 `usage_configurations` and `usage_records` have explicit role grants, FORCE RLS,
@@ -220,9 +246,9 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with other producers (WhatsApp, external connectors, storage/infra)
-and uncertain-occurrence reconciliation. The local scenarios now cover exact
-per-request token admission, shared capacity/rate admission and persisted commercial
-alerts as well as runtime attribution and loop termination. They do not substitute
-for live-provider validation, Redis failure-recovery/load verification or remaining
-producer coverage. Task 36 and the MS7 views are not yet accepted.
+Continue Task 36 with external connector, storage/infrastructure and remaining
+WhatsApp/reconciliation producers. The local scenarios now cover exact per-request
+token admission, shared capacity/rate admission, persisted commercial alerts,
+outbound WhatsApp attribution, runtime attribution and loop termination. They do
+not substitute for live-provider validation, Redis failure-recovery/load verification
+or remaining producer coverage. Task 36 and the MS7 views are not yet accepted.

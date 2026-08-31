@@ -176,3 +176,33 @@ The official Agents SDK guide and Responses input-token count reference confirme
 the lifecycle and endpoint contract. Live provider validation remains deferred as
 approved. Next: non-runtime usage producers and uncertain provider-occurrence
 reconciliation. Task 36 and MS7 remain open.
+
+## Task 36 — outbound WhatsApp usage checkpoint
+
+- Wired the existing outbound worker to the common usage ledger. Every provider
+  attempt is attributed to tenant, durable job/run, conversation, Cloud API message
+  kind, request/message units and measured latency without persisting message content,
+  recipient identifiers or provider payloads.
+- Persisted final outbound state, its audit and its usage record in one existing
+  tenant-scoped transaction. The recorder now supports this already-scoped path
+  while retaining backend-actor validation, RLS, idempotency, versioned pricing and
+  atomic commercial-alert evaluation.
+- Accepted sends record one request/message; known rejections record zero messages
+  with unknown request count; uncertain outcomes keep the message unit unknown.
+  Replaying a final outbound message creates neither another provider call nor
+  another usage row.
+- No schema, migration, live tariff, market inference, credential or new connector
+  was added. Callback cost reconciliation and crash-window occurrence recovery remain
+  explicit pending work instead of mutating immutable records or assuming zero cost.
+
+One new local database scenario passed, proving accepted state and usage commit once
+together and a replay stays single-send/single-record. Its first execution was
+blocked before the test by missing local database configuration; the actual first
+assertion then exposed only JSON Decimal representation, and only this new case was
+retried. Affected-file lint, formatting and mypy passed; no old suite or database
+reset ran.
+
+The Supabase transaction/RLS guidance kept the write inside the existing tenant
+transaction; the current changelog has no applicable breaking change for this path.
+Next: external connector request producers, storage/infrastructure allocation and
+uncertain occurrence/callback cost reconciliation. Task 36 and MS7 remain open.
