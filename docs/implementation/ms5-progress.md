@@ -256,9 +256,53 @@ test/eval suite, full CI, database reset/migration or live API was run.
 See `docs/capabilities/returns-claims.md` for implemented boundaries and continuation.
 The approved master specification and implementation plan are unchanged.
 
-## Continuation
+## Task 28 — confirmed case and Google destination composition
 
-Continue Task 28 from its intake core into the confirmed case/destination handoff;
-do not repeat prior passing tests. Task 27's real provider/corpus acceptance remains
-deferred by the user's decision not to use an OpenAI key yet. MS5 is not complete
-and still requires its approved review before MS6.
+Connected the intake core to the existing Action engine with exact confirmation,
+fresh identity, scoped case lookup, revision checks and execution-time revalidation.
+The native source adapter checks the exact approved Knowledge policy membership /
+digest / environment and reads owned orders through the existing native providers.
+No database schema, RLS policy or permission change was needed.
+
+Implemented the separate incremental Cases port and the standard Sheets queue +
+Drive evidence + Gmail notice composition. Delivery requires a durable per-effect
+ledger and tenant/case serialization; uncertain writes are not automatically resent.
+Case persistence and provider delivery are reported independently. Media now has a
+backend-only original export, and Drive supports bounded MP4/WebP evidence storage
+without video analysis or public sharing operations.
+
+Registered the two claim operations and added explicit multi-binding manifest
+requirements for the multi-provider workflow. Status reads remain independent of
+Google delivery. Missing Cases/ledger ports hide unavailable tools. Stronger tenant
+policy remains enforced, and there is no autonomous refund/approval operation.
+
+Verification for this continuation:
+
+- Three focused local-database scenarios passed using the real Action engine,
+  scoped Knowledge query and Media export plus synthetic native provider transports.
+- One new composition scenario passed for cross-binding requirements, queue
+  duplicate/newer-revision protection and uncertainty suppression.
+- Only a failed scenario was retried after aligning its expectation with the
+  existing Action engine's FAILED/connector-REJECTED mapping; passed scenarios
+  and the previous 15 intake evals were not rerun.
+- Cases persistence and the delivery ledger are explicit test-only doubles, not
+  production engines. The Action rollback itself was real; durable cross-process
+  Cases/delivery persistence is not claimed by that simulated contract evidence.
+- Focused formatting, Ruff and mypy checks passed. These were static checks of the
+  changes, not another run of the previously passing test suites.
+- No live API/key, real Google account, new migration, database reset, full CI,
+  MS5 PR merge or MS6 implementation was performed. Test fixtures used the existing
+  isolated database cleanup, not a schema reset.
+
+Before production: implement the deferred Task 30 Cases/delivery persistence,
+verify Google permissions/live bindings and downstream evidence deletion/retention.
+The approved specification and master implementation plan remain unchanged.
+
+## Continuation / MS5 review boundary
+
+Task 28 now has its backend workflow and native destination composition, with
+explicit MS6 persistence dependencies and offline verification. Consolidate/review
+MS5 before entering Task 30; do not rerun passing suites or treat fixtures as live
+acceptance evidence. Task 27's real provider/corpus acceptance remains deferred by
+the user's decision not to use an OpenAI key yet. MS5 is not fully accepted and
+requires the user's milestone review before MS6 or a merge.

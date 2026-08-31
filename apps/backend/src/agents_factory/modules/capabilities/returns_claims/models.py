@@ -59,6 +59,11 @@ class ClaimStatusInput(InputModel):
     case_id: UUID
 
 
+class ClaimSubmission(ClaimDraft):
+    # A locator, not authorization: the Cases port must recheck tenant/customer.
+    case_id: UUID | None = None
+
+
 class ClaimsBinding(InputModel):
     """Backend configuration pinned to the approved AgentSpec Knowledge version."""
 

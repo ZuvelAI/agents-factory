@@ -33,9 +33,22 @@ class ActionDefinition(FrozenManifest):
     handoff_behavior: str = Field(min_length=1, max_length=500)
     eval_case_ids: tuple[str, ...] = Field(min_length=1)
     required_connector_operations: tuple[str, ...] = ()
+    connector_requirement_mode: Literal["single_binding", "all_bindings", "none"] = (
+        "single_binding"
+    )
 
     @model_validator(mode="after")
     def valid_connector_requirements(self) -> Self:
+        if (
+            self.connector_requirement_mode == "none"
+            and self.required_connector_operations
+        ):
+            raise ValueError("internal actions cannot require connector operations")
+        if (
+            self.connector_requirement_mode == "all_bindings"
+            and not self.required_connector_operations
+        ):
+            raise ValueError("multi-binding actions must declare connector operations")
         if len(set(self.required_connector_operations)) != len(
             self.required_connector_operations
         ) or any(

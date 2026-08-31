@@ -19,6 +19,7 @@ from agents_factory.database import set_tenant_context
 from agents_factory.modules.media.contact import normalize_contacts
 from agents_factory.modules.media.contracts import (
     MAX_BYTES,
+    BinaryMedia,
     MalwareScanner,
     MediaError,
     MediaKind,
@@ -378,6 +379,31 @@ class MediaService:
             and not record.deleted_at
             and record.expires_at > self.now()
         )
+
+    async def export_evidence(
+        self, *, context: TenantContext, customer_ref: str, evidence_id: UUID
+    ) -> BinaryMedia:
+        """Backend-only scoped original for an authorized evidence destination.
+
+        No URL, public object, identity assertion or model annotation is exported.
+        The caller must retain the destination receipt for downstream deletion.
+        """
+        async with self._lock(context, evidence_id):
+            if not await self.allowed(
+                context=context, customer_ref=customer_ref, evidence_id=evidence_id
+            ):
+                raise MediaError("media_access_denied")
+            record = await self._get(context, evidence_id)
+            if record is None or not record.content_digest or not record.media_type:
+                raise MediaError("media_unavailable")
+            return BinaryMedia(
+                content=await self.storage.read(
+                    tenant_id=context.tenant_id,
+                    media_id=evidence_id,
+                    digest=record.content_digest,
+                ),
+                media_type=record.media_type,
+            )
 
     async def signed_access(
         self,

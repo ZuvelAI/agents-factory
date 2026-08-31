@@ -72,6 +72,7 @@ class CapabilityService:
 
     def _available_binding_operations(self, spec: AgentSpec) -> set[str]:
         operations: set[str] = set()
+        native_operations: set[str] = set()
         declarations = [
             action
             for reference in spec.configuration.capabilities
@@ -98,8 +99,19 @@ class CapabilityService:
                     f"{sorted(bound - declared)}"
                 )
             operations.update(bound)
+            native_operations.update(bound)
             for action in declarations:
+                if action.connector_requirement_mode != "single_binding":
+                    continue
                 required = set(action.required_connector_operations or (action.name,))
                 if required.issubset(bound):
                     operations.add(action.name)
+        for action in declarations:
+            if action.connector_requirement_mode == "none" or (
+                action.connector_requirement_mode == "all_bindings"
+                and set(action.required_connector_operations).issubset(
+                    native_operations
+                )
+            ):
+                operations.add(action.name)
         return operations

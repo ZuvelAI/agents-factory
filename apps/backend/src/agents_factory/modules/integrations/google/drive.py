@@ -23,7 +23,15 @@ from agents_factory.modules.integrations.google.base import (
 
 
 ALLOWED_MIMES = frozenset(
-    {"application/pdf", "text/plain", "text/csv", "image/jpeg", "image/png"}
+    {
+        "application/pdf",
+        "text/plain",
+        "text/csv",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "video/mp4",
+    }
 )
 EXPORT_MIMES = {
     "application/vnd.google-apps.document": "text/plain",
@@ -38,13 +46,13 @@ class ReadFile(InputModel):
 class StoreFile(InputModel):
     name: str = Field(min_length=1, max_length=200, pattern=r"^[^/\\\r\n]+$")
     mime_type: str
-    content_base64: str = Field(min_length=1, max_length=14_000_000)
+    content_base64: str = Field(min_length=1, max_length=28_000_000)
 
 
 class DriveResource(InputModel):
     evidence_folder_id: ResourceId
     readable_file_ids: frozenset[ResourceId] = frozenset()
-    max_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=10 * 1024 * 1024)
+    max_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=20 * 1024 * 1024)
 
 
 class GoogleDriveConnector(GoogleConnector[DriveResource]):

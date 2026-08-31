@@ -6,6 +6,7 @@ from agents_factory.modules.capabilities.returns_claims.models import (
     ISSUE_CLASSES,
     ClaimDraft,
     ClaimStatusInput,
+    ClaimSubmission,
 )
 
 
@@ -34,6 +35,17 @@ RETURNS_CLAIMS_MANIFEST = CapabilityManifest(
             required_identity_level=1,
             requires_confirmation=mutation,
             requires_approval=False,
+            connector_requirement_mode="all_bindings" if mutation else "none",
+            required_connector_operations=(
+                "orders.get_status",
+                "drive.store_evidence",
+                "sheets.read_rows",
+                "sheets.append_row",
+                "sheets.update_row",
+                "gmail.send_approval_notice",
+            )
+            if mutation
+            else (),
             failure_behavior="Never approve a return, refund, issue credit, promise acceptance, or report an unpersisted case.",
             handoff_behavior="Collect missing information; policy/ownership ambiguity requires backoffice review. Requested resolution is not a decision.",
             eval_case_ids=("returns_claims.confirmation",)
@@ -44,7 +56,7 @@ RETURNS_CLAIMS_MANIFEST = CapabilityManifest(
             (
                 "returns_claims.create_or_update_case",
                 "Submit the customer's claim for backoffice review, never approve its resolution.",
-                ClaimDraft,
+                ClaimSubmission,
                 True,
             ),
             (
