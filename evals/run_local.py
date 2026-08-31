@@ -259,6 +259,12 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         from evals.orders import observe_order
 
         artifact["order_behavior"] = observe_order(case.fixture_setup.order_probe)
+    if case.fixture_setup.claim_intake_probe is not None:
+        from evals.returns_claims import observe_claim_intake
+
+        artifact["claim_intake_behavior"] = observe_claim_intake(
+            case.fixture_setup.claim_intake_probe
+        ).model_dump(mode="json")
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),

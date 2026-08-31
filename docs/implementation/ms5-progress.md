@@ -230,9 +230,35 @@ production scanner, persistent private storage/signing material and purge schedu
 See `docs/capabilities/media.md`. The approved master specification and plan are
 unchanged; Generic REST, advanced video analysis and multimodal replies remain out.
 
+## Task 28 — Returns & Claims intake core (partial checkpoint)
+
+Implemented the seven-class input schema, explicit classification, conservative
+completeness/policy checks, incremental evidence collection and a candidate risk /
+identity / confirmation manifest. There are no refund, return-approval, credit-note
+or acceptance-promise operations. Requested resolution remains a customer request.
+
+Preparation validates tenant/customer/binding scope, fresh identity, pinned policy
+provenance and trusted order references; it rechecks all media access on every
+message/replay. Per-message patch digests prevent an old replay from overwriting a
+new correction. Canonical resource keys and semantic digests prepare the later
+Cases deduplication handoff without claiming to persist or approve a case.
+
+No runtime tool or manifest registration, database change, provider call or Google
+write was activated. This is explicitly a preparation checkpoint: trusted native
+policy/Orders composition, confirmed Actions, incremental Cases port, Sheets /
+Drive / Gmail destination and their integration acceptance remain Task 28 work.
+Full Cases persistence/lifecycle stays in Task 30, as already planned.
+
+Focused verification: both new compact unit scenarios and all 15 new intake evals
+passed on their first run. Ruff/format and focused mypy passed. No prior passing
+test/eval suite, full CI, database reset/migration or live API was run.
+
+See `docs/capabilities/returns-claims.md` for implemented boundaries and continuation.
+The approved master specification and implementation plan are unchanged.
+
 ## Continuation
 
-Task 27 backend/local implementation is in place; its real provider/corpus
-acceptance checks remain deferred by the user's explicit decision not to create
-or use an OpenAI key yet. Next implementation task: Task 28, Returns & Claims.
-MS5 is not complete and still requires its approved review before MS6.
+Continue Task 28 from its intake core into the confirmed case/destination handoff;
+do not repeat prior passing tests. Task 27's real provider/corpus acceptance remains
+deferred by the user's decision not to use an OpenAI key yet. MS5 is not complete
+and still requires its approved review before MS6.

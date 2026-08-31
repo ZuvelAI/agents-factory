@@ -240,7 +240,25 @@ class OrderBehaviorGrader:
         )
 
 
+class ClaimIntakeBehaviorGrader:
+    name: GraderName = "claim_intake_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        expected = case.expected.claim_intake_behavior
+        passed = expected is not None and observation.artifact_data.get(
+            "claim_intake_behavior"
+        ) == expected.model_dump(mode="json")
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="claim intake behavior matched"
+            if passed
+            else "claim intake behavior differed",
+        )
+
+
 GRADERS: dict[GraderName, EvalGrader] = {
+    "claim_intake_behavior": ClaimIntakeBehaviorGrader(),
     "order_behavior": OrderBehaviorGrader(),
     "appointment_behavior": AppointmentBehaviorGrader(),
     "response_exists": ResponseExistsGrader(),

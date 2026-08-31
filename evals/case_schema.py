@@ -16,6 +16,7 @@ GraderName = Literal[
     "truthful_disclosure",
     "appointment_behavior",
     "order_behavior",
+    "claim_intake_behavior",
 ]
 PolicyClassification = Literal["IN_SCOPE", "REDIRECT", "SAFETY_INCIDENT"]
 ResponseLanguage = Literal["es", "en"]
@@ -87,11 +88,52 @@ class OrderProbe(StrictEvalModel):
     issue: dict[str, object] | None = None
 
 
+class ClaimIntakeProbe(StrictEvalModel):
+    operation: str = Field(pattern=r"^returns_claims\.[a-z_]+$")
+    identity_level: int = Field(ge=0, le=3)
+    confirmed: bool = False
+    supported: bool = True
+    draft: dict[str, object] | None = None
+    policy_fields: (
+        tuple[
+            Literal["item_ids", "incident_date", "purchase_date", "evidence_ids"], ...
+        ]
+        | None
+    ) = None
+
+
+class ClaimIntakeBehavior(StrictEvalModel):
+    state: Literal[
+        "READY",
+        "UNAVAILABLE",
+        "IDENTITY_REQUIRED",
+        "CONFIRMATION_REQUIRED",
+        "OPEN",
+        "AWAITING_INFORMATION",
+        "READY_FOR_REVIEW",
+    ]
+    issue_type: (
+        Literal[
+            "wrong_product",
+            "damaged_product",
+            "incomplete_order",
+            "not_received",
+            "late_delivery",
+            "nonconformity",
+            "return_request",
+        ]
+        | None
+    ) = None
+    missing_fields: tuple[str, ...] = ()
+    business_decision: Literal["NOT_MADE"] = "NOT_MADE"
+
+
 class EvalFixtureSetup(StrictEvalModel):
     fake_outputs: tuple[str, ...]
     tools: tuple[EvalToolFixture, ...] = ()
     appointment_probe: AppointmentProbe | None = None
     order_probe: OrderProbe | None = None
+    claim_intake_probe: ClaimIntakeProbe | None = None
 
     @field_validator("fake_outputs")
     @classmethod
@@ -120,6 +162,7 @@ class EvalExpected(StrictEvalModel):
     policy_classification: PolicyClassification | None = None
     response_language: ResponseLanguage | None = None
     truthful_disclosure: bool | None = None
+    claim_intake_behavior: ClaimIntakeBehavior | None = None
     order_behavior: (
         Literal[
             "IDENTITY_REQUIRED",
