@@ -389,3 +389,31 @@ infrastructure telemetry dependency remains explicitly deferred to Task 47.
 Task 38 is complete at this checkpoint. Next: Task 39, the canonical 12-step
 resumable onboarding wizard derived from domain facts. Task 36's infrastructure
 telemetry remains deferred to Task 47 as previously approved.
+
+## Task 39 — canonical resumable onboarding checkpoint
+
+- Added the exact approved Company → Agent → Capabilities → Integrations →
+  Knowledge & Conflict Review → Policies & Identity → Human Operations → Approval
+  Routes → WhatsApp → Test → Quality Gate → Production sequence. Each step exposes
+  instructions, required fields, validation rules, current status, available action,
+  blockers or warnings, and internal documentation.
+- Progress is derived from tenant, immutable AgentSpec, capability manifests,
+  connector health, exact Knowledge bindings/reviews, approval routes, handoff
+  configuration and WhatsApp health. There is no mutable completion checkbox.
+- Returning administrators resume at the first non-complete step. A newer Draft
+  makes the previously tested candidate visibly stale and keeps downstream release
+  gates blocked until the exact current candidate is tested again.
+- Quality Gate and Production are explicitly unavailable until Task 45 supplies
+  persisted exact-digest evidence. The UI does not imply that Task 39 can bypass
+  this release dependency.
+- Unsupported client needs retain the approved classification boundary: Standard,
+  Custom Connector, Custom Workflow or New Capability. The wizard does not create
+  customer-specific code paths or add Generic REST to v1.
+- Added one deterministic unit scenario for the status engine and one consolidated
+  Playwright scenario for all 12 links, re-entry, classifications, release blockers
+  and downstream invalidation. Both pass. Targeted Ruff, mypy, Prettier, TypeScript
+  and ESLint checks pass; no previous passing suite or live provider test was rerun.
+
+Task 39 is complete locally at this checkpoint. Next: Task 40, the business-facing
+configuration UX behind these steps. Task 36's measured infrastructure allocation
+remains deferred to Task 47.

@@ -18,6 +18,102 @@ const tenants = [
   },
 ];
 const agents = new Map();
+let onboardingConfigurationChanged = false;
+
+const onboardingSteps = [
+  ["company", "Company", "/settings"],
+  ["agent", "Agent", "/agent"],
+  ["capabilities", "Capabilities", "/capabilities"],
+  ["integrations", "Integrations", "/integrations"],
+  ["knowledge-conflict-review", "Knowledge & Conflict Review", "/knowledge"],
+  ["policies-identity", "Policies & Identity", "/capabilities"],
+  ["human-operations", "Human Operations", "/settings"],
+  ["approval-routes", "Approval Routes", "/capabilities"],
+  ["whatsapp", "WhatsApp", "/whatsapp"],
+  ["test", "Test", "/agent"],
+  ["quality-gate", "Quality Gate", "/agent"],
+  ["production", "Production", "/agent"],
+];
+
+function onboardingStatus(tenantId) {
+  const steps = onboardingSteps.map(([slug, name, suffix], index) => {
+    let status = index < 10 ? "COMPLETE" : "UNAVAILABLE";
+    let blockers = [];
+    if (slug === "test" && onboardingConfigurationChanged) {
+      status = "STALE";
+      blockers = [
+        {
+          code: "tested_candidate_stale",
+          message: "A newer Agent Draft exists after the last tested version.",
+        },
+      ];
+    }
+    if (slug === "quality-gate") {
+      blockers = [
+        ...(onboardingConfigurationChanged
+          ? [
+              {
+                code: "test_required",
+                message: "Complete the current Test candidate first.",
+              },
+            ]
+          : []),
+        {
+          code: "production_quality_gate_task_45_required",
+          message:
+            "Task 45 must persist exact-digest Production Quality Gate evidence.",
+        },
+      ];
+    }
+    if (slug === "production") {
+      blockers = [
+        {
+          code: "quality_gate_required",
+          message: "Production requires the unavailable Task 45 Quality Gate.",
+        },
+      ];
+    }
+    return {
+      number: index + 1,
+      slug,
+      name,
+      instructions: [`Complete the approved ${name} configuration.`],
+      required_fields: [`${name} configuration`],
+      validations: [`${name} validation is derived from saved domain facts.`],
+      status,
+      blockers,
+      warnings: [],
+      test_actions: [
+        {
+          label: `Review ${name}`,
+          href: `/tenants/${tenantId}${suffix}`,
+          available: status !== "UNAVAILABLE" && status !== "BLOCKED",
+        },
+      ],
+      documentation: [
+        {
+          label: `${name} internal documentation`,
+          href: "https://github.com/ZuvelAI/agents-factory/blob/main/docs/implementation/ms7-progress.md",
+        },
+      ],
+    };
+  });
+  return {
+    tenant_id: tenantId,
+    agent_instance_id: "20000000-0000-4000-8000-000000000039",
+    agent_version_id: "30000000-0000-4000-8000-000000000039",
+    agent_version_number: onboardingConfigurationChanged ? 8 : 7,
+    complete_steps: onboardingConfigurationChanged ? 9 : 10,
+    current_step_slug: onboardingConfigurationChanged ? "test" : "quality-gate",
+    classifications: [
+      "STANDARD",
+      "CUSTOM_CONNECTOR",
+      "CUSTOM_WORKFLOW",
+      "NEW_CAPABILITY",
+    ],
+    steps,
+  };
+}
 
 function json(response, status, body) {
   response.writeHead(status, {
@@ -96,6 +192,14 @@ function version(number, businessName, configuration) {
 
 createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (
+    request.method === "POST" &&
+    url.pathname === "/__test/onboarding/upstream-change"
+  ) {
+    onboardingConfigurationChanged = true;
+    json(response, 204, null);
+    return;
+  }
   if (!request.headers.authorization?.startsWith("Bearer ")) {
     json(response, 401, { error: "authentication_required" });
     return;
@@ -214,6 +318,19 @@ createServer(async (request, response) => {
       updated_at: now,
     });
     json(response, 200, tenant);
+    return;
+  }
+
+  const onboardingMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/onboarding$/,
+  );
+  if (onboardingMatch && request.method === "GET") {
+    const tenant = tenants.find((item) => item.id === onboardingMatch[1]);
+    if (!tenant) {
+      json(response, 404, { error: "not_found" });
+      return;
+    }
+    json(response, 200, onboardingStatus(tenant.id));
     return;
   }
 

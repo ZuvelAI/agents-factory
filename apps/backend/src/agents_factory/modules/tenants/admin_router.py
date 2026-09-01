@@ -14,6 +14,10 @@ from agents_factory.common.errors import DomainError
 from agents_factory.common.security import PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.tenants.models import Tenant, TenantStatus
+from agents_factory.modules.tenants.onboarding import (
+    OnboardingService,
+    OnboardingStatus,
+)
 from agents_factory.modules.tenants.repository import TenantRepository
 from agents_factory.modules.tenants.service import TenantService
 
@@ -139,6 +143,24 @@ async def read_admin_tenant(
             code="tenant_not_found",
         )
     return TenantResponse.from_tenant(tenant)
+
+
+@router.get("/{tenant_id}/onboarding", response_model=OnboardingStatus)
+async def read_tenant_onboarding(
+    tenant_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> OnboardingStatus:
+    return await OnboardingService(
+        session,
+        TenantContext(
+            tenant_id=tenant_id,
+            actor_id=principal.user_id,
+            actor_type="platform_admin",
+            correlation_id=request.state.correlation_id,
+        ),
+    ).status()
 
 
 @router.put("/{tenant_id}", response_model=TenantResponse)

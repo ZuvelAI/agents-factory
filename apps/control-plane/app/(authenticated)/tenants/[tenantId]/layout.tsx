@@ -8,6 +8,7 @@ import type { Tenant } from "../../../../lib/tenant";
 
 const tabs = [
   ["Overview", ""],
+  ["Onboarding", "/onboarding/company"],
   ["Agent", "/agent"],
   ["Capabilities", "/capabilities"],
   ["Integrations", "/integrations"],
