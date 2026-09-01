@@ -356,3 +356,36 @@ mypy, Prettier, ESLint and TypeScript checks passed; no prior test suite was rer
 Task 37 is complete at this checkpoint. Next: Task 38 tenant detail and Draft Agent
 configuration screens, still using the shared wizard-driven framework. Task 36's
 infrastructure telemetry dependency remains explicitly deferred to Task 47.
+
+## Task 38 — tenant and versioned Agent Draft checkpoint
+
+- Added the tenant directory, business-profile creation/editing, tenant workspace
+  and the approved overview, Agent, capabilities, integrations, knowledge,
+  conversations, cases, usage and settings tabs. The same shared Control Plane
+  resumes every client; onboarding does not fork code or repositories.
+- Added company legal name, industry, IANA timezone, locale and revision to the
+  tenant contract. Profile writes use optimistic concurrency and return a visible
+  conflict instead of silently overwriting another administrator's update.
+- Added the business-facing Customer Service Agent editor. It exposes only agent
+  name, tone, formality, brand vocabulary, greeting and the approved `es-CO` /
+  `en-US` language set. Model, runtime, raw AgentSpec, code and policy controls stay
+  behind the product boundary.
+- Agent configuration remains immutable: initial setup creates version 1 Draft and
+  every presentation save creates a new Draft based on the latest version. An edit
+  opened against an older version fails with `agent_spec_stale_write`; an existing
+  Production version would remain unchanged until the later release gates publish
+  an exact approved Draft.
+- Quick options are derived from enabled capabilities and available human surfaces;
+  the UI does not let an administrator author unsupported options. Placeholder tabs
+  preserve honest progress for the next approved tasks instead of claiming their
+  configuration is complete.
+- Added and locally applied migration `20260901173000_tenant_profiles.sql`. One new
+  database scenario passed for resumable profile/Agent state, immutable Draft
+  creation and stale-write rejection. One new Playwright scenario passed for tenant
+  creation, Agent versions 1–4, saved persona/language values and two-session conflict
+  handling. Only these new scenarios and affected-file static checks ran; no prior
+  passing suite or live provider validation was repeated.
+
+Task 38 is complete at this checkpoint. Next: Task 39, the canonical 12-step
+resumable onboarding wizard derived from domain facts. Task 36's infrastructure
+telemetry remains deferred to Task 47 as previously approved.

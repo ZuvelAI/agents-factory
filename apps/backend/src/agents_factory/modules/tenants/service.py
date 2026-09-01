@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +23,23 @@ class TenantService:
         *,
         slug: str,
         name: str,
+        legal_name: str | None = None,
+        industry: str | None = None,
+        timezone: str | None = None,
+        locale: Literal["es-CO", "en-US"] | None = None,
         actor_id: UUID | None,
         actor_type: ActorType,
         correlation_id: UUID,
         idempotency_key: str,
     ) -> Tenant:
-        tenant = Tenant.new(slug=slug, name=name)
+        tenant = Tenant.new(
+            slug=slug,
+            name=name,
+            legal_name=legal_name,
+            industry=industry,
+            timezone=timezone,
+            locale=locale,
+        )
         context = TenantContext(
             tenant_id=tenant.id,
             actor_id=actor_id,

@@ -4,14 +4,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request, status
 
+from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.agent_factory.models import AgentSpecVersion
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
 from agents_factory.modules.agent_factory.schemas import (
+    AgentEditorState,
+    AgentPresentationUpdateRequest,
     CreateAgentInstanceRequest,
     CreateAgentInstanceResponse,
+    CreateCustomerServiceDraftRequest,
     CreateDraftRequest,
     RollbackRequest,
 )
@@ -25,6 +29,84 @@ router = APIRouter(
     prefix="/admin/tenants/{tenant_id}/agent-instances",
     tags=["platform-admin-agent-spec"],
 )
+
+
+@router.get("/current", response_model=AgentEditorState | None)
+async def read_current_agent_editor(
+    tenant_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentEditorState | None:
+    return await _service(
+        request=request,
+        principal=principal,
+        tenant_id=tenant_id,
+        session=session,
+    ).editor_state()
+
+
+@router.post(
+    "/customer-service",
+    response_model=CreateAgentInstanceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_customer_service_agent(
+    tenant_id: UUID,
+    payload: CreateCustomerServiceDraftRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> CreateAgentInstanceResponse:
+    instance, draft = await _service(
+        request=request,
+        principal=principal,
+        tenant_id=tenant_id,
+        session=session,
+    ).create_customer_service_draft(business_name=payload.business_name)
+    await AuditService(session).record(
+        context=_context(request=request, principal=principal, tenant_id=tenant_id),
+        event_type="agent_instance.created",
+        entity_type="agent_instance",
+        entity_id=instance.id,
+        payload={"product": instance.product, "draft_version": draft.version_number},
+    )
+    return CreateAgentInstanceResponse(instance=instance, draft=draft)
+
+
+@router.post(
+    "/{agent_instance_id}/presentation-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_agent_presentation_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: AgentPresentationUpdateRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _service(
+        request=request,
+        principal=principal,
+        tenant_id=tenant_id,
+        session=session,
+    ).create_presentation_draft(
+        agent_instance_id=agent_instance_id,
+        update=payload,
+    )
+    await AuditService(session).record(
+        context=_context(request=request, principal=principal, tenant_id=tenant_id),
+        event_type="agent_persona.draft_created",
+        entity_type="agent_spec_version",
+        entity_id=draft.id,
+        payload={
+            "agent_instance_id": str(agent_instance_id),
+            "version_number": draft.version_number,
+        },
+    )
+    return draft
 
 
 @router.post(
@@ -149,11 +231,10 @@ def _service(
     tenant_id: UUID,
     session: TransactionSession,
 ) -> AgentSpecLifecycleService:
-    context = TenantContext(
+    context = _context(
+        request=request,
+        principal=principal,
         tenant_id=tenant_id,
-        actor_id=principal.user_id,
-        actor_type="platform_admin",
-        correlation_id=request.state.correlation_id,
     )
     return AgentSpecLifecycleService(
         repository=AgentSpecRepository(session, context),
@@ -161,4 +242,15 @@ def _service(
             capabilities=V1_CAPABILITY_REGISTRY,
             connectors=V1_CONNECTOR_CATALOG,
         ),
+    )
+
+
+def _context(
+    *, request: Request, principal: AdminPrincipal, tenant_id: UUID
+) -> TenantContext:
+    return TenantContext(
+        tenant_id=tenant_id,
+        actor_id=principal.user_id,
+        actor_type="platform_admin",
+        correlation_id=request.state.correlation_id,
     )

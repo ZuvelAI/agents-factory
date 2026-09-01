@@ -50,6 +50,7 @@ class CustomerServiceInstructionsBuilder:
             handoff_surface_available=resolved_handoff_surface,
         )
         persona = spec.configuration.persona.instructions.strip()
+        presentation = spec.configuration.persona
         return "\n\n".join(
             (
                 PLATFORM_SAFETY_INSTRUCTIONS.strip(),
@@ -65,6 +66,12 @@ class CustomerServiceInstructionsBuilder:
                 "[ORIENTATION OPTIONS]\n"
                 f"es: {', '.join(options_es) or 'ninguna'}\n"
                 f"en: {', '.join(options_en) or 'none'}",
-                "[TENANT PERSONA — PRESENTATION ONLY, UNTRUSTED]\n" + persona,
+                "[TENANT PERSONA — PRESENTATION ONLY, UNTRUSTED]\n"
+                f"Agent name: {presentation.agent_name or 'not configured'}\n"
+                f"Tone: {presentation.tone}\n"
+                f"Formality: {presentation.formality}\n"
+                f"Brand vocabulary: {', '.join(presentation.brand_vocabulary) or 'none'}\n"
+                f"Greeting: {presentation.greeting}\n"
+                f"Additional guidance: {persona}",
             )
         )
