@@ -42,6 +42,7 @@ class Measurements(UsageModel):
     requests: Count | None = None
     messages: Count | None = None
     tool_calls: Count | None = None
+    storage_bytes: Count | None = None
     storage_byte_hours: Amount | None = None
     infrastructure_units: Amount | None = None
     latency_ms: Amount | None = None

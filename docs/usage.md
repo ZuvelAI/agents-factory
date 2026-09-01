@@ -11,9 +11,10 @@ This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
 runtime metering, shared runtime capacity/rate reservations and durable commercial
 alerts, exact input-token admission, and outbound WhatsApp attempt recording are
 implemented. Physical request accounting is also wired for the native Google and
-WooCommerce connectors. Storage/infrastructure producers, complete WhatsApp cost
-reconciliation and uncertain-occurrence reconciliation are still required before
-accepting Task 36 or its dashboards.
+WooCommerce connectors, and durable private originals receive hourly storage
+allocation. Infrastructure allocation, complete WhatsApp cost reconciliation and
+uncertain-occurrence reconciliation are still required before accepting Task 36 or
+its dashboards.
 
 ## Recording and historical prices
 
@@ -231,6 +232,29 @@ when the connector boundary does not possess those verified identifiers. Costs s
 unknown unless the tenant wizard supplies a matching effective price card. No live
 Google/WooCommerce request or tariff is assumed here.
 
+## Private-original storage allocation
+
+The media and Knowledge ingestion paths persist the byte size and exact instant at
+which each durable original enters the private store. Media deletion keeps only
+non-content accounting facts (size and timestamps) after the object, digest and
+storage key are removed. This permits historical allocation without retaining the
+customer file or reconstructing its contents.
+
+The scheduler writes one immutable tenant record per completed UTC hour for product
+`private_originals`. It integrates bytes over the portion of that hour for which
+each known original was stored, and separately reports the bytes still active at the
+hour boundary. Price cards use `storage_byte_hours`; commercial storage quotas use
+the latest `storage_bytes` snapshot, so one measurement is never substituted for the
+other.
+
+Source keys are deterministic by hour. Repeated scheduler passes replay the same
+record, while a scheduler gap is recovered one missing hour at a time. Objects left
+untracked by a crash before their database receipt, legacy objects without a known
+size, temporary uploads and database/container infrastructure are not silently
+estimated. They remain outside this producer until a trustworthy source exists.
+Apply `20260901013000_usage_storage_allocations.sql` before starting the changed
+media, Knowledge or scheduler workers.
+
 ## Outbound WhatsApp producer
 
 The durable outbound worker now supplies `UsageRecorder` to the existing shared
@@ -270,10 +294,10 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with storage/infrastructure and remaining WhatsApp/reconciliation
-producers. The local scenarios now cover exact per-request token admission, native
-Google/WooCommerce request attribution, shared capacity/rate admission, persisted
-commercial alerts, outbound WhatsApp attribution, runtime attribution and loop
-termination. They do not substitute for live-provider validation, Redis failure-
-recovery/load verification or remaining producer coverage. Task 36 and the MS7
-views are not yet accepted.
+Continue Task 36 with infrastructure and remaining WhatsApp/reconciliation producers.
+The local scenarios now cover exact per-request token admission, native Google/
+WooCommerce request attribution, hourly private-original storage allocation, shared
+capacity/rate admission, persisted commercial alerts, outbound WhatsApp attribution,
+runtime attribution and loop termination. They do not substitute for live-provider
+validation, Redis failure-recovery/load verification or remaining producer coverage.
+Task 36 and the MS7 views are not yet accepted.

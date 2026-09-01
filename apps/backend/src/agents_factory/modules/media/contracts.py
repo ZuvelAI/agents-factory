@@ -70,6 +70,7 @@ class StoredMedia(MediaModel):
     storage_key: str | None = None
     media_type: str | None = None
     byte_size: int = 0
+    stored_at: datetime | None = None
     status: MediaState
     scan_status: Literal["PENDING", "CLEAN", "INFECTED", "UNAVAILABLE"] = "PENDING"
     observation: NormalizedMediaObservation | None = None

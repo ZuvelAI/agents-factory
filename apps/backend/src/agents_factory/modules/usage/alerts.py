@@ -58,7 +58,13 @@ async def persist_alerts(
           THEN sum((event->'measurements'->>'tool_calls')::numeric) FILTER(WHERE kind='tool') END AS tools,
           nullif(count(DISTINCT conversation_id),0) AS conversations,
           CASE WHEN count(*)>0 AND count(*) FILTER(WHERE cost_amount IS NULL OR currency!=:currency)=0
-          THEN sum(cost_amount) END AS cost
+          THEN sum(cost_amount) END AS cost,
+          (SELECT (latest.event->'measurements'->>'storage_bytes')::numeric
+             FROM public.usage_records latest
+            WHERE latest.tenant_id=:tenant AND latest.kind='storage'
+              AND latest.occurred_at>=:start AND latest.occurred_at<:end
+              AND latest.event->'measurements'->>'storage_bytes' IS NOT NULL
+            ORDER BY latest.occurred_at DESC,latest.id DESC LIMIT 1) AS storage_bytes
         FROM public.usage_records
         WHERE tenant_id=:tenant AND occurred_at>=:start AND occurred_at<:end
     """),
@@ -92,6 +98,7 @@ async def persist_alerts(
         model_tokens=integer("tokens"),
         messages=integer("messages"),
         tool_calls=integer("tools"),
+        storage_bytes=integer("storage_bytes"),
         conversations=integer("conversations"),
         concurrent_runs=concurrent_runs
         if window.start <= row["sampled_at"] < window.end

@@ -24,6 +24,7 @@ from scheduler.approval_jobs import configure_approval_jobs
 from scheduler.lifecycle_jobs import configure_lifecycle_jobs
 from scheduler.lifecycle_scan import LifecycleScanner
 from scheduler.retention_jobs import configure_retention_jobs
+from scheduler.usage_jobs import configure_usage_jobs, record_storage_usage
 
 
 async def startup(context: dict[Any, Any]) -> None:
@@ -59,6 +60,7 @@ async def startup(context: dict[Any, Any]) -> None:
     await configure_appointment_jobs(context, database=database)
     await configure_case_jobs(context, database=database)
     configure_lifecycle_jobs(context, database=database)
+    configure_usage_jobs(context, database=database)
 
 
 async def scan_lifecycles(context: dict[Any, Any]) -> dict[str, int]:
@@ -103,6 +105,11 @@ class WorkerSettings:
         cron(
             cast(WorkerCoroutine, dispatch_outbox),
             second=set(range(60)),
+            run_at_startup=True,
+        ),
+        cron(
+            cast(WorkerCoroutine, record_storage_usage),
+            second=30,
             run_at_startup=True,
         ),
     ]

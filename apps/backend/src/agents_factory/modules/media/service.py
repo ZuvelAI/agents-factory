@@ -133,7 +133,7 @@ class MediaService:
         async with self._session(context, write=True) as session:
             await session.execute(
                 text(
-                    "INSERT INTO public.media_evidence(id,tenant_id,whatsapp_account_id,provider_media_id,customer_ref,first_message_id,kind,status,content_digest,storage_key,media_type,byte_size,scan_status,observation,created_at,expires_at,deleted_at) VALUES (:id,:tenant_id,:whatsapp_account_id,:provider_media_id,:customer_ref,:first_message_id,:kind,:status,:content_digest,:storage_key,:media_type,:byte_size,:scan_status,:observation,:created_at,:expires_at,:deleted_at) ON CONFLICT(id) DO UPDATE SET status=excluded.status,content_digest=excluded.content_digest,storage_key=excluded.storage_key,media_type=excluded.media_type,byte_size=excluded.byte_size,scan_status=excluded.scan_status,observation=excluded.observation,deleted_at=excluded.deleted_at"
+                    "INSERT INTO public.media_evidence(id,tenant_id,whatsapp_account_id,provider_media_id,customer_ref,first_message_id,kind,status,content_digest,storage_key,media_type,byte_size,stored_at,scan_status,observation,created_at,expires_at,deleted_at) VALUES (:id,:tenant_id,:whatsapp_account_id,:provider_media_id,:customer_ref,:first_message_id,:kind,:status,:content_digest,:storage_key,:media_type,:byte_size,:stored_at,:scan_status,:observation,:created_at,:expires_at,:deleted_at) ON CONFLICT(id) DO UPDATE SET status=excluded.status,content_digest=excluded.content_digest,storage_key=excluded.storage_key,media_type=excluded.media_type,byte_size=excluded.byte_size,stored_at=excluded.stored_at,scan_status=excluded.scan_status,observation=excluded.observation,deleted_at=excluded.deleted_at"
                 ).bindparams(bindparam("observation", type_=JSONB(none_as_null=True))),
                 values,
             )
@@ -286,6 +286,7 @@ class MediaService:
                             "storage_key": key,
                             "media_type": media_type,
                             "byte_size": len(binary),
+                            "stored_at": self.now(),
                         }
                     )
                     # Persist the original before scanner/parser/provider work.
@@ -491,7 +492,7 @@ class MediaService:
                 tenant_id=context.tenant_id, media_id=evidence_id
             )
             record = record.model_copy(
-                update={"content_digest": None, "storage_key": None, "byte_size": 0}
+                update={"content_digest": None, "storage_key": None}
             )
             await self._save(context, record)
             async with self._session(context, write=True) as session:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -99,6 +100,7 @@ async def handle_ingestion(
             content=fetched.content,
             media_type=fetched.media_type,
         )
+        stored_at = datetime.now(UTC)
         extracted = _extractor(fetched).extract(fetched)
         normalized = KnowledgeNormalizer().normalize(
             source=source,
@@ -109,6 +111,7 @@ async def handle_ingestion(
             envelope=envelope,
             source=source,
             storage_path=storage_path,
+            stored_at=stored_at,
             fetched=fetched,
             normalized=normalized,
         )
@@ -224,6 +227,7 @@ async def _complete(
     envelope: JobEnvelope,
     source: SourceDescriptor,
     storage_path: str,
+    stored_at: datetime,
     fetched: FetchedSource,
     normalized: NormalizedKnowledge,
 ) -> None:
@@ -260,6 +264,7 @@ async def _complete(
             text(
                 "UPDATE public.knowledge_ingestions SET state = 'SUCCEEDED', "
                 "content_digest = :content_digest, storage_path = :storage_path, "
+                "byte_size = :byte_size, stored_at = :stored_at, "
                 "proposed_artifact_count = :artifact_count, error_code = NULL, "
                 "completed_at = now(), updated_at = now() "
                 "WHERE tenant_id = :tenant_id AND id = :ingestion_id "
@@ -268,6 +273,8 @@ async def _complete(
             {
                 "content_digest": fetched.content_digest,
                 "storage_path": storage_path,
+                "byte_size": len(fetched.content),
+                "stored_at": stored_at,
                 "artifact_count": inserted,
                 "tenant_id": source.tenant_id,
                 "ingestion_id": envelope.aggregate_id,

@@ -236,3 +236,29 @@ passed. No previously passing test or live provider call was repeated.
 The existing tenant transaction/RLS boundary keeps the usage row atomic with the
 integration operation. Next: storage/infrastructure allocation and the remaining
 WhatsApp/uncertain-occurrence reconciliation. Task 36 and MS7 remain open.
+
+## Task 36 — private-original storage allocation checkpoint
+
+- Added durable `stored_at` and byte-size measurement for WhatsApp media originals
+  and successful Knowledge originals. Media deletion now retains only those
+  non-content accounting facts after removing the physical object, digest and key.
+- Added an hourly tenant allocator that integrates exact known byte-hours and records
+  the active byte snapshot separately. Versioned price cards use byte-hours; the
+  commercial storage quota reads the latest bytes snapshot instead of summing it.
+- Added deterministic hourly source keys, idempotent replay and one-hour-at-a-time
+  recovery after scheduler downtime. Tenant traversal is bounded and one tenant
+  failure does not prevent the remaining tenants from being processed.
+- Kept unknown coverage honest: temporary uploads, pre-receipt crash orphans, legacy
+  rows without size and deployment/database infrastructure are not estimated.
+- Added migration `20260901013000_usage_storage_allocations.sql`; it was applied and
+  registered in the existing local Supabase migration history. No live provider,
+  customer data, tariff or customer-specific branch was introduced.
+
+One new database scenario passed: 100 bytes stored for one hour plus 40 bytes stored
+for half an hour yielded 120 byte-hours, a 140-byte current snapshot, the configured
+price and the 100% storage grace/overage alert. Replaying the completed hour created
+no duplicate. Targeted formatting, lint and type checks passed before this scenario;
+no earlier passing test was repeated.
+
+Next: trustworthy infrastructure allocation and the remaining WhatsApp/uncertain-
+occurrence reconciliation. Task 36 and MS7 remain open.
