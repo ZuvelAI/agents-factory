@@ -13,8 +13,9 @@ alerts, exact input-token admission, and outbound WhatsApp attempt recording are
 implemented. Physical request accounting is also wired for the native Google and
 WooCommerce connectors, and durable private originals receive hourly storage
 allocation. Meta callback cost evidence is reconciled separately from message quota.
-Infrastructure allocation and uncertain crash-window occurrence reconciliation are
-still required before accepting Task 36 or its dashboards.
+Abandoned WhatsApp sends are reconciled as explicit unknown occurrences without a
+blind resend. Infrastructure allocation is still required before accepting Task 36
+or its dashboards.
 
 ## Recording and historical prices
 
@@ -284,7 +285,11 @@ No live Meta tariff or recipient-market inference is invented. The market remain
 `null` because the callback does not provide it; a market-specific tariff therefore
 stays unknown until a trustworthy configured/provider mapping exists. A process loss
 after provider I/O but before the atomic completion stays `UNCERTAIN` and is never
-blindly resent; crash-window occurrence recovery remains pending.
+blindly resent. On durable-job recovery, the same attempt number creates one usage
+occurrence with unknown request/message measurements and a sanitized audit. Status,
+audit and occurrence commit together; another recovery is an idempotent final-state
+read. This records the evidence gap without claiming that Meta received or billed
+the request.
 
 ## Persistence and remaining work
 
@@ -305,7 +310,8 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with measured infrastructure and crash-window reconciliation.
+Continue Task 36 with measured infrastructure allocation once deployment telemetry
+exists.
 The local scenarios now cover exact per-request token admission, native Google/
 WooCommerce request attribution, hourly private-original storage allocation, shared
 capacity/rate admission, persisted commercial alerts, outbound WhatsApp attribution,

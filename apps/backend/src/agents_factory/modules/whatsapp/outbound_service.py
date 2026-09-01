@@ -363,6 +363,22 @@ class OutboundMessageService:
                     occurred_at=now,
                     error_code="send_outcome_unknown",
                 )
+                await AuditService(session).record(
+                    context=self._context,
+                    event_type="whatsapp.outbound.send_recovered_unknown",
+                    entity_type="outbound_message",
+                    entity_id=message_id,
+                    payload={
+                        "attempt_number": row["attempt_count"],
+                        "reason_code": "completion_not_recorded",
+                    },
+                )
+                if self._usage_recorder is not None:
+                    await self._usage_recorder.record_in_session(
+                        session=session,
+                        context=self._context,
+                        event=self._unrecorded_attempt_usage_event(row, now=now),
+                    )
                 return None, updated
             if status != "PREPARED":
                 raise RuntimeError("outbound message has an invalid send state")
@@ -479,6 +495,26 @@ class OutboundMessageService:
                 ),
                 None,
             )
+
+    def _unrecorded_attempt_usage_event(
+        self,
+        row: RowMapping,
+        *,
+        now: datetime,
+    ) -> UsageEvent:
+        attempted_at = row["last_attempt_at"]
+        occurred_at = attempted_at if isinstance(attempted_at, datetime) else now
+        return UsageEvent(
+            source_key=(f"whatsapp:outbound:{row['id']}:{row['attempt_count']}"),
+            occurred_at=occurred_at,
+            kind="whatsapp",
+            provider="meta",
+            product=f"whatsapp_cloud_api.{row['kind']}",
+            currency="USD",
+            run_id=self._context.correlation_id,
+            conversation_id=cast(UUID | None, row["conversation_id"]),
+            measurements=Measurements(),
+        )
 
     async def _complete(
         self,
@@ -766,7 +802,7 @@ async def _load_outbound_for_update(
                     "outbound.whatsapp_account_id, outbound.recipient_wa_id, "
                     "outbound.payload, outbound.status, outbound.status_history, "
                     "outbound.provider_message_id, outbound.provider_error_code, "
-                    "outbound.attempt_count, "
+                    "outbound.attempt_count, outbound.last_attempt_at, "
                     "account.phone_number_id, account.status AS account_status "
                     "FROM public.outbound_messages AS outbound "
                     "JOIN public.whatsapp_accounts AS account "

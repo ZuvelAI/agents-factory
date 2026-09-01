@@ -1,5 +1,7 @@
+import asyncio
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import text
 
 from apps.backend.tests.integration.test_outbound_idempotency import (
@@ -9,8 +11,17 @@ from apps.backend.tests.integration.test_outbound_idempotency import (
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
 from agents_factory.modules.usage.recorder import UsageRecorder
-from agents_factory.modules.whatsapp.contracts import ProviderMessageResult
+from agents_factory.modules.whatsapp.contracts import (
+    OutboundTextRequest,
+    ProviderMessageResult,
+)
 from agents_factory.modules.whatsapp.outbound_service import OutboundMessageService
+
+
+class CancelAfterDispatchProvider(RecordingProvider):
+    async def send_text(self, request: OutboundTextRequest) -> ProviderMessageResult:
+        self.text_requests.append(request)
+        raise asyncio.CancelledError
 
 
 async def test_outbound_result_and_usage_are_committed_once_together(session_factory):
@@ -70,3 +81,77 @@ async def test_outbound_result_and_usage_are_committed_once_together(session_fac
     assert row["event"]["measurements"]["messages"] == 1
     assert Decimal(row["event"]["measurements"]["latency_ms"]) >= 0
     assert row["quote"]["basis"] == "unknown"
+
+
+async def test_abandoned_provider_attempt_is_reconciled_without_resend(session_factory):
+    tenant_id, _, _, assistant_id = await _seed_text_reply(session_factory)
+    job_id = new_uuid7()
+    context = TenantContext(
+        tenant_id=tenant_id,
+        actor_id=job_id,
+        actor_type="system",
+        correlation_id=job_id,
+    )
+    interrupted_provider = CancelAfterDispatchProvider([])
+    recorder = UsageRecorder(session_factory)
+    interrupted = OutboundMessageService(
+        session_factory=session_factory,
+        context=context,
+        provider=interrupted_provider,
+        usage_recorder=recorder,
+    )
+    outbound_id = await interrupted.prepare_text(message_id=assistant_id)
+
+    with pytest.raises(asyncio.CancelledError):
+        await interrupted.send(outbound_id)
+
+    replay_provider = RecordingProvider([])
+    recovered = OutboundMessageService(
+        session_factory=session_factory,
+        context=context,
+        provider=replay_provider,
+        usage_recorder=recorder,
+    )
+    result = await recovered.send(outbound_id)
+    replay = await recovered.send(outbound_id)
+
+    async with session_factory.begin() as session:
+        row = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT outbound.status,outbound.provider_error_code,"
+                        "outbound.attempt_count,usage.event,usage.quote "
+                        "FROM public.outbound_messages outbound "
+                        "JOIN public.usage_records usage "
+                        "ON usage.tenant_id=outbound.tenant_id "
+                        "AND usage.source_key=:source_key "
+                        "WHERE outbound.tenant_id=:tenant AND outbound.id=:outbound"
+                    ),
+                    {
+                        "tenant": tenant_id,
+                        "outbound": outbound_id,
+                        "source_key": f"whatsapp:outbound:{outbound_id}:1",
+                    },
+                )
+            )
+            .mappings()
+            .one()
+        )
+        usage_count = await session.scalar(
+            text(
+                "SELECT count(*) FROM public.usage_records "
+                "WHERE tenant_id=:tenant AND kind='whatsapp'"
+            ),
+            {"tenant": tenant_id},
+        )
+
+    assert result.status == replay.status == row["status"] == "UNCERTAIN"
+    assert row["provider_error_code"] == "send_outcome_unknown"
+    assert row["attempt_count"] == 1
+    assert len(interrupted_provider.text_requests) == 1
+    assert replay_provider.text_requests == []
+    assert usage_count == 1
+    assert row["event"]["measurements"]["requests"] is None
+    assert row["event"]["measurements"]["messages"] is None
+    assert row["quote"]["amount"] is None

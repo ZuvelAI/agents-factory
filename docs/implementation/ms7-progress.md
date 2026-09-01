@@ -288,3 +288,30 @@ Infrastructure remains intentionally unreported: v1 uses shared workers/database
 has no measured host-resource attribution per tenant before deployment hardening.
 Next: crash-window occurrence reconciliation and, once deployment telemetry exists,
 measured infrastructure allocation. Task 36 and MS7 remain open.
+
+## Task 36 — WhatsApp crash-window reconciliation checkpoint
+
+- Completed the existing no-blind-resend recovery path for a durable outbound row
+  stranded in `SENDING`. Recovery changes it to `UNCERTAIN` and records the original
+  persisted attempt number as one immutable usage occurrence.
+- Kept evidence honest: request and message measurements are `null`, because a lost
+  completion cannot prove whether Meta received, accepted or billed the request.
+  The ledger therefore never converts the crash into free/zero usage.
+- Persisted the `UNCERTAIN` state, sanitized recovery audit and usage occurrence in
+  one tenant-scoped transaction. Further delivery attempts see the final state and
+  neither resend nor add another occurrence.
+- Preserved the shared wrapper/wizard architecture. No provider lookup contract,
+  credential, live API, schema, migration, customer fork or new retry policy was
+  introduced.
+
+One new database scenario passed: cancellation immediately after provider dispatch
+left the row in `SENDING`; durable recovery produced one unknown occurrence and
+`UNCERTAIN` state while making zero provider calls, and its replay stayed idempotent.
+Only the affected files received targeted format, lint and type checks; no previous
+test was rerun.
+
+The remaining Task 36 producer is measured infrastructure allocation. The current
+shared v1 deployment has no trustworthy tenant resource telemetry, so that producer
+stays explicitly unavailable until Task 47 deployment hardening supplies it. Task 36
+and MS7 remain open; recorded-data-only Control Plane work can continue without
+inventing infrastructure cost.
