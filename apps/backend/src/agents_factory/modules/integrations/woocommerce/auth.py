@@ -7,6 +7,7 @@ import re
 import socket
 from collections.abc import Awaitable, Callable
 from ipaddress import ip_address
+from time import monotonic
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -19,6 +20,7 @@ from agents_factory.modules.integrations.oauth import (
     ProviderFailure,
 )
 from agents_factory.modules.integrations.orders import OrderFailure
+from agents_factory.modules.integrations.usage import record_external_request
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 
 
@@ -129,6 +131,7 @@ class WooHTTP:
         )
         transport = self.transport or httpx.AsyncHTTPTransport(retries=0)
         response: httpx.Response | None = None
+        started = monotonic()
         try:
             response = await transport.handle_async_request(request)
             raw = bytearray()
@@ -161,6 +164,11 @@ class WooHTTP:
                 await response.aclose()
             if self.transport is None:
                 await transport.aclose()
+            await record_external_request(
+                provider="woocommerce",
+                occurrence_known=response is not None,
+                latency_ms=round((monotonic() - started) * 1000),
+            )
 
 
 class WooCredentialProvider:

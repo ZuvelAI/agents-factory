@@ -17,6 +17,7 @@ from agents_factory.modules.integrations.contracts import (
     ConnectorRequest,
     ConnectorResult,
 )
+from agents_factory.modules.integrations.usage import record_external_request
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 
 
@@ -100,6 +101,7 @@ class GoogleHTTP:
         )
         transport = self._transport or httpx.AsyncHTTPTransport(retries=0)
         response: httpx.Response | None = None
+        started = monotonic()
         try:
             response = await transport.handle_async_request(request)
             chunks = bytearray()
@@ -117,6 +119,11 @@ class GoogleHTTP:
                 await response.aclose()
             if self._transport is None:
                 await transport.aclose()
+            await record_external_request(
+                provider="google",
+                occurrence_known=response is not None,
+                latency_ms=round((monotonic() - started) * 1000),
+            )
 
     async def json(
         self,

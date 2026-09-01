@@ -36,9 +36,11 @@ from agents_factory.modules.integrations.oauth import (
     state_digest,
 )
 from agents_factory.modules.integrations.repository import IntegrationRepository
+from agents_factory.modules.integrations.usage import external_request_usage
 from agents_factory.modules.secrets.contracts import KeyEncryptionProvider
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.secrets.repository import SecretVault
+from agents_factory.modules.usage.recorder import UsageRecorder
 
 
 class IntegrationService:
@@ -51,11 +53,13 @@ class IntegrationService:
         key_provider: KeyEncryptionProvider,
         providers: ProviderRegistry,
         now: Callable[[], datetime] | None = None,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self._sessions = sessions
         self._key_provider = key_provider
         self._providers = providers
         self._now = now or (lambda: datetime.now(UTC))
+        self._usage_recorder = usage_recorder or UsageRecorder(sessions)
 
     @asynccontextmanager
     async def _transaction(
@@ -141,7 +145,22 @@ class IntegrationService:
                     repository, vault, connection, grant
                 )
                 credential = grant.credential
-            result = await build(credential).execute(request)
+            execution_id = new_uuid7()
+            provider = (
+                "google"
+                if connector_name
+                in {"google_calendar", "gmail", "google_drive", "google_sheets"}
+                else connector_name
+            )
+            with external_request_usage(
+                recorder=self._usage_recorder,
+                session=repository.session,
+                context=context,
+                provider=provider,
+                product=f"{connector_name}:{request.operation}",
+                execution_id=execution_id,
+            ):
+                result = await build(credential).execute(request)
             if result.error_code in {"authorization_revoked", "credentials_expired"}:
                 connection = replace(
                     connection,

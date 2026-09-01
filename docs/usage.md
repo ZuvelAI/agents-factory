@@ -10,9 +10,10 @@ subscription collection, a customer portal, extra model routing or live API acce
 This is a partial Task 36 checkpoint: persistence, pricing, aggregate reads,
 runtime metering, shared runtime capacity/rate reservations and durable commercial
 alerts, exact input-token admission, and outbound WhatsApp attempt recording are
-implemented. External connector/storage/infrastructure producers, complete WhatsApp
-cost reconciliation and uncertain-occurrence reconciliation are still required
-before accepting Task 36 or its dashboards.
+implemented. Physical request accounting is also wired for the native Google and
+WooCommerce connectors. Storage/infrastructure producers, complete WhatsApp cost
+reconciliation and uncertain-occurrence reconciliation are still required before
+accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
 
@@ -173,9 +174,9 @@ the production SDK path records individual responses, including partial failed r
 SDK function-tool attempts, including failed argument validation/handlers, reserve
 their counter before an await and record `kind=tool`, `provider=agents_factory`.
 These are local invocation counts, **not** measured external API costs. External
-connector producers must record their own provider-specific billable occurrences.
-Without a configured price these local invocation costs remain unknown. This
-checkpoint uses USD as the runtime quote currency, not a live provider rate.
+connector requests are recorded separately as described below. Without a configured
+price these local invocation costs remain unknown. This checkpoint uses USD as the
+runtime quote currency, not a live provider rate.
 
 Wired technical behavior:
 
@@ -206,6 +207,29 @@ run. A process crash or unavailable database can still leave an unknown/unrecord
 provider occurrence; durable reconciliation is not implemented by these hooks.
 No exactly-once billing guarantee is claimed. Live provider validation remains
 deferred, and no key or live rate was added.
+
+## Native external connector producer
+
+Google Workspace and WooCommerce transports record each physical provider request
+made inside the trusted connector execution boundary. A logical business operation
+may therefore produce multiple request records when it paginates or reconciles; it
+still produces only the single local SDK tool attempt described above. External
+records use `kind=tool` with `requests`, not `tool_calls`, so the agent tool quota is
+not double-counted.
+
+The price-card product is the stable connector and operation pair, such as
+`google_calendar:calendar.get_event` or `woocommerce:orders.get`. A received provider
+response proves one request occurrence. A transport failure without any response
+keeps `requests=null`, because arrival at the provider cannot be proven. Local
+validation failures before network I/O create no external request record.
+
+Each occurrence, integration status change and sanitized operation audit commit in
+the existing tenant transaction. The ledger stores provider/product, tenant, opaque
+source key and latency; it does not store URLs, credentials, headers, arguments,
+responses or customer content. Conversation/Action/Case attribution remains absent
+when the connector boundary does not possess those verified identifiers. Costs stay
+unknown unless the tenant wizard supplies a matching effective price card. No live
+Google/WooCommerce request or tariff is assumed here.
 
 ## Outbound WhatsApp producer
 
@@ -246,9 +270,10 @@ They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with external connector, storage/infrastructure and remaining
-WhatsApp/reconciliation producers. The local scenarios now cover exact per-request
-token admission, shared capacity/rate admission, persisted commercial alerts,
-outbound WhatsApp attribution, runtime attribution and loop termination. They do
-not substitute for live-provider validation, Redis failure-recovery/load verification
-or remaining producer coverage. Task 36 and the MS7 views are not yet accepted.
+Continue Task 36 with storage/infrastructure and remaining WhatsApp/reconciliation
+producers. The local scenarios now cover exact per-request token admission, native
+Google/WooCommerce request attribution, shared capacity/rate admission, persisted
+commercial alerts, outbound WhatsApp attribution, runtime attribution and loop
+termination. They do not substitute for live-provider validation, Redis failure-
+recovery/load verification or remaining producer coverage. Task 36 and the MS7
+views are not yet accepted.

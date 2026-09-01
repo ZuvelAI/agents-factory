@@ -206,3 +206,33 @@ The Supabase transaction/RLS guidance kept the write inside the existing tenant
 transaction; the current changelog has no applicable breaking change for this path.
 Next: external connector request producers, storage/infrastructure allocation and
 uncertain occurrence/callback cost reconciliation. Task 36 and MS7 remain open.
+
+## Task 36 — native external connector usage checkpoint
+
+- Added physical provider-request accounting to the existing Google Workspace and
+  WooCommerce transports. Pagination or reconciliation inside one business operation
+  records every actual request instead of assuming one HTTP call per connector use.
+- Kept the agent's local tool attempt separate from external API measurements.
+  Provider occurrences use `requests` and therefore do not double-count the runtime
+  `tool_calls` quota. A response proves one request; a transport failure without a
+  response remains unknown rather than falsely free or billed.
+- Bound the observer to the trusted connector execution context. Local validation
+  failures do not emit provider usage, and OAuth/health traffic outside a business
+  execution is not misattributed. The observer is reset after every execution.
+- Persisted provider usage in the same tenant-scoped transaction as integration
+  state and audit. Price cards can target stable products such as
+  `woocommerce:orders.get`; no URL, credential, header, argument, response or
+  customer content enters the ledger.
+- Preserved the shared wizard/framework model. This adds no connector, customer fork,
+  live tariff, provider credential, schema or migration.
+
+One new database scenario passed. A single logical WooCommerce operation performed
+two mock provider requests and produced exactly two priced request records, while
+`tool_calls` remained unset. The first invocation stopped before product execution
+because a sibling-folder fixture was not discoverable; only the same new scenario
+was made self-contained and rerun. Targeted formatting, lint and source type checks
+passed. No previously passing test or live provider call was repeated.
+
+The existing tenant transaction/RLS boundary keeps the usage row atomic with the
+integration operation. Next: storage/infrastructure allocation and the remaining
+WhatsApp/uncertain-occurrence reconciliation. Task 36 and MS7 remain open.
