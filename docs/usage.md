@@ -12,9 +12,9 @@ runtime metering, shared runtime capacity/rate reservations and durable commerci
 alerts, exact input-token admission, and outbound WhatsApp attempt recording are
 implemented. Physical request accounting is also wired for the native Google and
 WooCommerce connectors, and durable private originals receive hourly storage
-allocation. Infrastructure allocation, complete WhatsApp cost reconciliation and
-uncertain-occurrence reconciliation are still required before accepting Task 36 or
-its dashboards.
+allocation. Meta callback cost evidence is reconciled separately from message quota.
+Infrastructure allocation and uncertain crash-window occurrence reconciliation are
+still required before accepting Task 36 or its dashboards.
 
 ## Recording and historical prices
 
@@ -272,13 +272,19 @@ remain unknown rather than falsely free. Product attribution distinguishes Cloud
 API text from template sends; run and conversation IDs remain opaque references,
 and message bodies, recipient numbers and provider payloads never enter usage.
 
-No live Meta tariff, recipient-market inference or delivery-callback cost is invented.
-Without a matching configured price card, the outbound cost is explicitly unknown.
-Meta callback category/billable evidence already retained on the outbound record is
-not yet reconciled into immutable usage because a trustworthy recipient-market
-mapping and correction occurrence are still pending. A process loss after provider
-I/O but before the atomic completion stays `UNCERTAIN` and is never blindly resent;
-Task 36 reconciliation must recover or mark the corresponding missing occurrence.
+Meta callback category, billable flag and pricing model now create a separate,
+immutable cost occurrence. That occurrence reports `billable_messages` while setting
+commercial `messages=0`, so delivery-cost reconciliation never consumes the message
+quota twice. Non-billable evidence quotes zero from the provider; billable evidence
+uses a matching tenant-configured category price card. Identical callbacks replay the
+same occurrence. Conflicting later evidence is audited and never silently rewrites
+historical cost.
+
+No live Meta tariff or recipient-market inference is invented. The market remains
+`null` because the callback does not provide it; a market-specific tariff therefore
+stays unknown until a trustworthy configured/provider mapping exists. A process loss
+after provider I/O but before the atomic completion stays `UNCERTAIN` and is never
+blindly resent; crash-window occurrence recovery remains pending.
 
 ## Persistence and remaining work
 
@@ -289,15 +295,20 @@ admin API uses the existing verified PlatformAdmin boundary. Database maintenanc
 owners remain privileged; no new bypass role or security-definer function is added.
 These decisions follow the official [Supabase RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security).
 
+The v1 runtime/database/workers are shared and currently expose no trustworthy host
+resource meter by tenant. `infrastructure_units` therefore remains unreported rather
+than allocating CPU, memory or database cost arbitrarily. The deployment hardening
+work must supply a measured allocation source before this producer can be enabled.
+
 Usage records keep only structured measurements and opaque provenance references.
 They are not yet anonymized aggregates; the later retention/privacy closure must
 define minimization of these raw references rather than claiming indefinite
 anonymous retention. No real customer data has been collected in this checkpoint.
 
-Continue Task 36 with infrastructure and remaining WhatsApp/reconciliation producers.
+Continue Task 36 with measured infrastructure and crash-window reconciliation.
 The local scenarios now cover exact per-request token admission, native Google/
 WooCommerce request attribution, hourly private-original storage allocation, shared
 capacity/rate admission, persisted commercial alerts, outbound WhatsApp attribution,
-runtime attribution and loop termination. They do not substitute for live-provider
-validation, Redis failure-recovery/load verification or remaining producer coverage.
-Task 36 and the MS7 views are not yet accepted.
+callback cost reconciliation, runtime attribution and loop termination. They do not
+substitute for live-provider validation, Redis failure-recovery/load verification or
+remaining producer coverage. Task 36 and the MS7 views are not yet accepted.

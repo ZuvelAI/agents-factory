@@ -25,8 +25,12 @@ from agents_factory.modules.whatsapp.contracts import (
     ProviderMessageResult,
     WhatsAppDeliveryStatusEvent,
 )
-from agents_factory.modules.usage.models import Measurements, UsageEvent
-from agents_factory.modules.usage.recorder import UsageRecorder
+from agents_factory.modules.usage.models import (
+    Measurements,
+    UsageEvent,
+    WhatsAppCostMetadata,
+)
+from agents_factory.modules.usage.recorder import UsageConflict, UsageRecorder
 
 
 OutboundSendStatus = Literal[
@@ -579,8 +583,11 @@ async def _source_authorized(
 
 
 class OutboundStatusReconciler:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self, session: AsyncSession, *, usage_recorder: UsageRecorder | None = None
+    ) -> None:
         self._session = session
+        self._usage_recorder = usage_recorder
 
     async def reconcile(
         self,
@@ -594,8 +601,9 @@ class OutboundStatusReconciler:
             (
                 await self._session.execute(
                     text(
-                        "SELECT id, status, status_history, cost_attribution, "
-                        "provider_error_code FROM public.outbound_messages "
+                        "SELECT id,conversation_id,kind,created_at,accepted_at,status,"
+                        "status_history,cost_attribution,provider_error_code "
+                        "FROM public.outbound_messages "
                         "WHERE tenant_id = :tenant_id "
                         "AND whatsapp_account_id = :account_id "
                         "AND provider_message_id = :provider_message_id "
@@ -678,7 +686,65 @@ class OutboundStatusReconciler:
                 "error_code": event.error_code,
             },
         )
+        cost_event = _whatsapp_cost_event(row, event)
+        if self._usage_recorder is not None and cost_event is not None:
+            try:
+                await self._usage_recorder.record_in_session(
+                    session=self._session,
+                    context=context,
+                    event=cost_event,
+                )
+            except UsageConflict:
+                await AuditService(self._session).record(
+                    context=context,
+                    event_type="whatsapp.outbound.cost_reconciliation_conflict",
+                    entity_type="outbound_message",
+                    entity_id=cast(UUID, row["id"]),
+                    payload={"reason_code": "immutable_cost_evidence_changed"},
+                )
         return True
+
+
+def _whatsapp_cost_event(
+    row: RowMapping, event: WhatsAppDeliveryStatusEvent
+) -> UsageEvent | None:
+    if not event.cost_attribution:
+        return None
+    raw_category = event.cost_attribution.get("category")
+    category = raw_category.lower() if isinstance(raw_category, str) else None
+    if category not in {"utility", "authentication", "marketing", "service"}:
+        return None
+    raw_billable = event.cost_attribution.get("billable")
+    billable = raw_billable if isinstance(raw_billable, bool) else None
+    raw_model = event.cost_attribution.get("pricing_model")
+    pricing_model = raw_model if isinstance(raw_model, str) else None
+    try:
+        metadata = WhatsAppCostMetadata.model_validate(
+            {
+                "category": category,
+                "billable": billable,
+                "pricing_model": pricing_model,
+            }
+        )
+    except ValueError:
+        return None
+    kind = cast(str, row["kind"])
+    return UsageEvent(
+        source_key=f"whatsapp:cost:{row['id']}",
+        occurred_at=cast(datetime, row["accepted_at"] or row["created_at"]),
+        kind="whatsapp",
+        provider="meta",
+        product=f"whatsapp_cloud_api.{kind}.{category}",
+        currency="USD",
+        conversation_id=cast(UUID | None, row["conversation_id"]),
+        measurements=Measurements(
+            messages=0,
+            billable_messages=(
+                1 if billable is True else 0 if billable is False else None
+            ),
+        ),
+        whatsapp=metadata,
+    )
 
 
 async def _prepare_app_session(session: AsyncSession, tenant_id: UUID) -> None:

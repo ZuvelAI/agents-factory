@@ -262,3 +262,29 @@ no earlier passing test was repeated.
 
 Next: trustworthy infrastructure allocation and the remaining WhatsApp/uncertain-
 occurrence reconciliation. Task 36 and MS7 remain open.
+
+## Task 36 — WhatsApp callback cost reconciliation checkpoint
+
+- Added a distinct `billable_messages` meter for delivery-cost evidence. The original
+  outbound occurrence continues to own the commercial message count; a callback
+  cost occurrence sets `messages=0`, preventing quota and volume duplication.
+- Reconciled Meta category, billable flag and pricing model in the existing callback
+  transaction. Non-billable provider evidence quotes zero; billable evidence can use
+  a tenant-configured category price card. Identical callbacks are idempotent.
+- Kept immutable history explicit. Changed later evidence produces a sanitized audit
+  conflict instead of silently repricing the original cost occurrence.
+- Made webhook system actors durable by using the request correlation ID, allowing
+  the common backend-only usage recorder to retain its actor boundary.
+- Kept `recipient_market` unknown because Meta's callback does not supply it. No phone
+  prefix inference, live tariff, credential, schema, migration or customer fork was
+  added. Market-specific pricing stays unknown without a trustworthy mapping.
+
+One new database scenario passed: an accepted send plus two identical billable
+service callbacks produced one message unit, one cost occurrence and the configured
+USD 0.02 quote. Targeted formatting, lint and source type checks passed; no previous
+WhatsApp or usage test was rerun.
+
+Infrastructure remains intentionally unreported: v1 uses shared workers/database and
+has no measured host-resource attribution per tenant before deployment hardening.
+Next: crash-window occurrence reconciliation and, once deployment telemetry exists,
+measured infrastructure allocation. Task 36 and MS7 remain open.

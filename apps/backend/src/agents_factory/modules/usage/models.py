@@ -18,6 +18,7 @@ Meter = Literal[
     "output_tokens",
     "requests",
     "messages",
+    "billable_messages",
     "tool_calls",
     "storage_byte_hours",
     "infrastructure_units",
@@ -41,6 +42,7 @@ class Measurements(UsageModel):
     output_tokens: Count | None = None
     requests: Count | None = None
     messages: Count | None = None
+    billable_messages: Count | None = None
     tool_calls: Count | None = None
     storage_bytes: Count | None = None
     storage_byte_hours: Amount | None = None
@@ -68,8 +70,9 @@ class Measurements(UsageModel):
 
 class WhatsAppCostMetadata(UsageModel):
     category: Literal["utility", "authentication", "marketing", "service"]
-    recipient_market: Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
+    recipient_market: Annotated[str, Field(pattern=r"^[A-Z]{2}$")] | None = None
     billable: bool | None = None
+    pricing_model: Annotated[str, Field(min_length=1, max_length=100)] | None = None
 
 
 class UsageEvent(UsageModel):
