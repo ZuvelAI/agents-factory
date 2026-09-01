@@ -55,7 +55,7 @@ test("a platform admin reaches the shell, then server logout clears access", asy
 
   await expect(page).toHaveURL(/\/$/);
   await expect(
-    page.getByRole("heading", { name: "Platform foundation" }),
+    page.getByRole("heading", { name: "Operational dashboard" }),
   ).toBeVisible();
   const labels = [
     "Dashboard",

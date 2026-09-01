@@ -14,7 +14,9 @@ Quality Gate → Production, with resumable progress and explicit blockers.
 SDK/runtime details remain behind the platform boundary. Standard client onboarding
 must not require rebuilding the product or routine editing of code/YAML/SSH.
 
-Task 36 is in progress; MS7 and production readiness are not yet accepted.
+Task 36's measured infrastructure producer is deferred to Task 47 telemetry. Task 37
+is implemented on recorded-data-only evidence; MS7 and production readiness are not
+yet accepted.
 
 ## Task 36 — ledger, pricing and policy-decision checkpoint
 
@@ -315,3 +317,42 @@ shared v1 deployment has no trustworthy tenant resource telemetry, so that produ
 stays explicitly unavailable until Task 47 deployment hardening supplies it. Task 36
 and MS7 remain open; recorded-data-only Control Plane work can continue without
 inventing infrastructure cost.
+
+## Task 37 — responsive shell and operational dashboard checkpoint
+
+- Replaced the foundation placeholder with the canonical responsive navigation and
+  server-rendered operational dashboard. Desktop and mobile keep all twelve approved
+  sections, visible keyboard focus, a skip link, current-page state and mobile menu;
+  no client portal or customer-facing navigation was added.
+- Added shared form, status, table, loading, empty and sanitized error primitives.
+  Backend errors can display only the correlation/support reference already exposed
+  by Problem Details, never provider responses, credentials or stack traces.
+- Added `GET /admin/dashboard` behind the existing verified PlatformAdmin boundary.
+  It summarizes Production agents with active recently healthy WhatsApp channels,
+  open operational failures, dynamically overdue critical cases, connector/channel
+  health and 30-day recorded usage/cost.
+- Preserved FORCE RLS for tenant resources. The service enumerates at most 100 tenants
+  through the global admin tenant index, sets one transaction-local tenant context at
+  a time and reports explicit coverage if totals are truncated. It does not add a
+  cross-tenant bypass policy or schema migration.
+- Preserved evidence semantics: unknown/stale health, unpriced usage and partial
+  tenant coverage stay visible. Every status badge links to its filtered operational
+  destination. Business labels hide queue/Redis/model implementation jargon.
+- Added a local fake dashboard endpoint only to the browser harness. It verifies that
+  server requests carry the authenticated token and contains synthetic operational
+  values; no live provider, credential or customer data is used.
+
+Two new consolidated scenarios passed. The database scenario covered an undeployed
+agent, open operational failure, overdue critical case, unknown integration health,
+unknown usage cost and a degraded coordination service in one summary. Its first run
+failed only because colons in fixture JSON were parsed as SQL parameters; the fixture
+was changed to typed JSON and only that scenario was retried. The Playwright scenario
+covered desktop answers, filtered status links, stale/unknown data, mobile navigation
+and keyboard activation. Its first run was blocked before page load by Turbopack
+rejecting the local dependency symlink; the existing Playwright development server
+now uses Webpack and only that new scenario was retried. Both pass. Targeted Ruff,
+mypy, Prettier, ESLint and TypeScript checks passed; no prior test suite was rerun.
+
+Task 37 is complete at this checkpoint. Next: Task 38 tenant detail and Draft Agent
+configuration screens, still using the shared wizard-driven framework. Task 36's
+infrastructure telemetry dependency remains explicitly deferred to Task 47.
