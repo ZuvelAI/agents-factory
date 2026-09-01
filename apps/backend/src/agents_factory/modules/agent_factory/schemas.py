@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents_factory.modules.agent_factory.models import (
+    ActionPolicyOverride,
     AgentInstance,
     AgentSpecState,
     AgentSpecConfiguration,
@@ -82,3 +83,35 @@ class AgentEditorState(BaseModel):
     editable_version: AgentSpecVersion
     production_version: AgentEditorVersion | None
     quick_options: tuple[str, ...]
+
+
+class CapabilityDraftUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version_id: UUID
+    capability_names: tuple[str, ...] = Field(max_length=20)
+
+
+class PolicyDraftUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version_id: UUID
+    policies: tuple[ActionPolicyOverride, ...] = Field(max_length=100)
+
+
+class ConnectorBindingDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version_id: UUID
+    connection_id: UUID
+    connector_name: str = Field(min_length=1, max_length=100)
+    operations: tuple[str, ...] = Field(min_length=1, max_length=100)
+
+
+class HumanOperationsDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version_id: UUID
+    handoff_enabled: bool
+
+
+class ApprovalRoutesDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version_id: UUID
+    route_revision: int = Field(ge=1)

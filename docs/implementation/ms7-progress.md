@@ -417,3 +417,37 @@ telemetry remains deferred to Task 47 as previously approved.
 Task 39 is complete locally at this checkpoint. Next: Task 40, the business-facing
 configuration UX behind these steps. Task 36's measured infrastructure allocation
 remains deferred to Task 47.
+
+## Task 40 — capabilities, integrations and policy configuration checkpoint
+
+- Replaced the Capabilities and Integrations placeholders with shared platform
+  registries plus tenant-specific guided configuration. Administrators enable only
+  approved Capability Packs, map only catalog-declared connector operations and save
+  every change as a new immutable AgentSpec Draft with stale-write protection.
+- Added the action risk and identity matrices. Platform identity, confirmation and
+  approval minimums are locked; the API independently rejects a tenant override that
+  weakens them. Stronger per-action policy is included in canonical compilation and
+  the AgentSpec digest.
+- Added tenant-owned integration cards for OAuth, API-key and Meta onboarding,
+  permission summaries, operation mapping, health checks, reconnect and revoke.
+  Deployment setup requirements are distinct from v1.1/coming-later connectors;
+  Generic REST remains unavailable and cannot expose executable operations.
+- Added high-risk approval-route configuration with completeness shown per action.
+  Approval routes remain separate from Live Human Handoff and are read through the
+  existing tenant-isolated approval service.
+- Added response-surface discovery and configuration listing. Handoff can be enabled
+  only after the deployment registers a supported surface and the backend has
+  verified and persisted an enabled surface configuration; a client-supplied flag
+  cannot bypass this gate. With provider adapters still deferred, the UI remains
+  honestly disabled rather than presenting an unverified surface as usable.
+- Added one consolidated Playwright scenario covering the registries, immutable Draft
+  versions, stricter-only policy, missing/completed approval routes, planned connector
+  blocking, supported/unsupported mappings, reconnect, failed and restored health,
+  revoke, isolation of a healthy connector and rejection of handoff without a surface.
+  The final scenario passed. Ruff, mypy, Prettier, ESLint and TypeScript passed on the
+  affected files; no previous passing suite or live provider validation was rerun.
+
+Task 40 is complete at this checkpoint. Next: Task 41, Knowledge source ingestion,
+binding and conflict-review UX. Live provider credentials and production validation
+remain deferred as approved; Task 36 infrastructure telemetry remains deferred to
+Task 47.

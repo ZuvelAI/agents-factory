@@ -16,6 +16,7 @@ ConnectionStatus = Literal[
 ]
 HealthStatus = Literal["UNKNOWN", "HEALTHY", "REAUTH_REQUIRED", "ERROR"]
 AuthKind = Literal["OAUTH2", "API_KEY", "META_EMBEDDED"]
+CatalogAvailability = Literal["AVAILABLE", "SETUP_REQUIRED", "COMING_LATER"]
 V1_CONNECTION_NAMES = frozenset(
     {"google_calendar", "gmail", "google_drive", "google_sheets", "woocommerce"}
 )
@@ -58,6 +59,9 @@ class CatalogEntry(SafeModel):
     connector_name: str
     display_name: str
     available: bool
+    availability: CatalogAvailability
+    auth_kind: AuthKind | None
+    required_scopes: tuple[str, ...]
     supported_operations: tuple[str, ...]
     connections: tuple[ConnectionSummary, ...]
     note: str

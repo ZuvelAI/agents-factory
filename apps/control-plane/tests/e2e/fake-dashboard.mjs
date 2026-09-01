@@ -18,7 +18,132 @@ const tenants = [
   },
 ];
 const agents = new Map();
+const approvalRoutes = new Map();
+const handoffConfigurations = new Map();
+let calendarHealthAttempts = 0;
 let onboardingConfigurationChanged = false;
+
+const capabilityManifests = [
+  {
+    stable_name: "appointments",
+    version: "1.0.0",
+    intents: ["check_availability", "request_cancellation"],
+    workflow: ["verify_identity", "confirm", "execute"],
+    actions: [
+      capabilityAction(
+        "appointments.check_availability",
+        "Check available appointment slots.",
+        "LOW",
+        0,
+        false,
+        false,
+        ["calendar.check_availability"],
+      ),
+      capabilityAction(
+        "appointments.request_cancellation",
+        "Request cancellation through an approved backoffice route.",
+        "HIGH",
+        2,
+        true,
+        true,
+        ["calendar.get_event"],
+      ),
+    ],
+  },
+  {
+    stable_name: "orders",
+    version: "1.0.0",
+    intents: ["order_status", "request_cancellation"],
+    workflow: ["verify_owner", "read_order", "execute_once"],
+    actions: [
+      capabilityAction(
+        "orders.get_status",
+        "Read a verified customer's order status.",
+        "LOW",
+        1,
+        false,
+        false,
+        ["orders.get_status"],
+      ),
+      capabilityAction(
+        "orders.request_order_cancellation",
+        "Request order cancellation without promising its result.",
+        "HIGH",
+        2,
+        true,
+        true,
+        ["orders.request_order_cancellation", "orders.get_status"],
+      ),
+    ],
+  },
+  {
+    stable_name: "returns_claims",
+    version: "1.0.0",
+    intents: ["create_claim", "claim_status"],
+    workflow: ["collect_evidence", "backoffice_review"],
+    actions: [
+      capabilityAction(
+        "returns_claims.get_case_status",
+        "Read a verified customer's case status.",
+        "LOW",
+        1,
+        false,
+        false,
+        [],
+        "none",
+      ),
+    ],
+  },
+];
+
+const integrationConnections = [
+  {
+    id: "41000000-0000-4000-8000-000000000040",
+    connector_name: "google_calendar",
+    auth_kind: "OAUTH2",
+    status: "REAUTH_REQUIRED",
+    requested_scopes: ["calendar.events"],
+    granted_scopes: ["calendar.events"],
+    expires_at: null,
+    health: {
+      status: "REAUTH_REQUIRED",
+      checked_at: now,
+      error_code: "oauth_expired",
+    },
+  },
+  {
+    id: "42000000-0000-4000-8000-000000000040",
+    connector_name: "google_sheets",
+    auth_kind: "OAUTH2",
+    status: "CONNECTED",
+    requested_scopes: ["spreadsheets"],
+    granted_scopes: ["spreadsheets"],
+    expires_at: null,
+    health: { status: "HEALTHY", checked_at: now, error_code: null },
+  },
+];
+
+function capabilityAction(
+  name,
+  description,
+  risk,
+  requiredIdentityLevel,
+  requiresConfirmation,
+  requiresApproval,
+  operations,
+  requirementMode = "single_binding",
+) {
+  return {
+    name,
+    description,
+    risk,
+    required_identity_level: requiredIdentityLevel,
+    requires_confirmation: requiresConfirmation,
+    requires_approval: requiresApproval,
+    required_connector_operations: operations,
+    connector_requirement_mode: requirementMode,
+  };
+}
 
 const onboardingSteps = [
   ["company", "Company", "/settings"],
@@ -182,12 +307,135 @@ function version(number, businessName, configuration) {
         supported_locales: ["es-CO", "en-US"],
         default_locale: "es-CO",
       },
+      capabilities: [],
+      permitted_tools: [],
+      permitted_actions: [],
+      connector_bindings: [],
+      action_policies: [],
+      human_operations: {
+        version: "1.0.0",
+        handoff_enabled: false,
+        handoff_surface_available: false,
+        awaiting_human_policy: "SILENT",
+      },
+      policy: { name: "platform_default", version: "1.0.0" },
+      identity_policy: { name: "platform_default", version: "1.0.0" },
+      approval_routes: { name: "standard", version: "1.0.0" },
     },
     compiled_spec: null,
     compiled_digest: null,
     created_at: now,
     updated_at: now,
   };
+}
+
+const seededEditor = createEditor(tenants[0], tenants[0].name);
+seededEditor.editable_version.configuration.capabilities = [
+  { name: "appointments", version: "1.0.0" },
+  { name: "orders", version: "1.0.0" },
+];
+seededEditor.editable_version.configuration.permitted_tools =
+  capabilityManifests
+    .filter((manifest) => manifest.stable_name !== "returns_claims")
+    .flatMap((manifest) => manifest.actions.map((action) => action.name));
+seededEditor.editable_version.configuration.permitted_actions = [
+  ...seededEditor.editable_version.configuration.permitted_tools,
+];
+seededEditor.editable_version.configuration.connector_bindings = [
+  {
+    binding_id: integrationConnections[1].id,
+    connector: "google_sheets",
+    connector_version: "1.0.0",
+    operations: ["orders.get_status"],
+  },
+];
+seededEditor.quick_options = ["Check availability", "Track an order"];
+agents.set(tenants[0].id, seededEditor);
+
+function saveConfigurationDraft(editor, configuration) {
+  editor.editable_version = version(
+    editor.editable_version.version_number + 1,
+    configuration.persona.business_name,
+    configuration,
+  );
+  return editor.editable_version;
+}
+
+function connectorCatalog() {
+  const entries = [
+    {
+      connector_name: "google_calendar",
+      display_name: "Google Calendar",
+      available: true,
+      availability: "AVAILABLE",
+      auth_kind: "OAUTH2",
+      required_scopes: ["calendar.events"],
+      supported_operations: [
+        "calendar.check_availability",
+        "calendar.get_event",
+      ],
+      note: "Calendar access is granted by the tenant.",
+    },
+    {
+      connector_name: "google_sheets",
+      display_name: "Google Sheets",
+      available: true,
+      availability: "AVAILABLE",
+      auth_kind: "OAUTH2",
+      required_scopes: ["spreadsheets"],
+      supported_operations: ["orders.get_status", "sheets.read_rows"],
+      note: "Mapped sheets remain isolated from other provider failures.",
+    },
+    {
+      connector_name: "woocommerce",
+      display_name: "WooCommerce",
+      available: true,
+      availability: "AVAILABLE",
+      auth_kind: "API_KEY",
+      required_scopes: [],
+      supported_operations: [
+        "orders.get_status",
+        "orders.request_order_cancellation",
+      ],
+      note: "Connect a tenant-owned WooCommerce store.",
+    },
+    {
+      connector_name: "meta_whatsapp",
+      display_name: "Meta WhatsApp",
+      available: true,
+      availability: "AVAILABLE",
+      auth_kind: "META_EMBEDDED",
+      required_scopes: [],
+      supported_operations: [],
+      note: "Connect through Meta Embedded Signup.",
+    },
+    {
+      connector_name: "generic_rest_api",
+      display_name: "Generic REST API",
+      available: false,
+      availability: "COMING_LATER",
+      auth_kind: null,
+      required_scopes: [],
+      supported_operations: [],
+      note: "Deferred to v1.1 Custom Onboarding Foundation.",
+    },
+    {
+      connector_name: "hubspot",
+      display_name: "HubSpot",
+      available: false,
+      availability: "COMING_LATER",
+      auth_kind: null,
+      required_scopes: [],
+      supported_operations: [],
+      note: "Provider adapter is not included in v1.",
+    },
+  ];
+  return entries.map((entry) => ({
+    ...entry,
+    connections: integrationConnections.filter(
+      (connection) => connection.connector_name === entry.connector_name,
+    ),
+  }));
 }
 
 createServer(async (request, response) => {
@@ -255,6 +503,11 @@ createServer(async (request, response) => {
         latest_at: "2026-09-01T14:58:00Z",
       },
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/admin/capabilities") {
+    json(response, 200, capabilityManifests);
     return;
   }
 
@@ -342,6 +595,113 @@ createServer(async (request, response) => {
     return;
   }
 
+  const catalogMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/integrations\/catalog$/,
+  );
+  if (catalogMatch && request.method === "GET") {
+    json(response, 200, connectorCatalog());
+    return;
+  }
+
+  const connectionActionMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/integrations\/connections\/([^/]+)\/(health|refresh|revoke)$/,
+  );
+  if (connectionActionMatch && request.method === "POST") {
+    const connection = integrationConnections.find(
+      (item) => item.id === connectionActionMatch[2],
+    );
+    if (!connection) {
+      json(response, 404, { error: "not_found" });
+      return;
+    }
+    const action = connectionActionMatch[3];
+    if (action === "refresh") {
+      connection.status = "CONNECTED";
+      connection.health = {
+        status: "UNKNOWN",
+        checked_at: null,
+        error_code: null,
+      };
+    } else if (action === "revoke") {
+      connection.status = "REVOKED";
+      connection.health = {
+        status: "UNKNOWN",
+        checked_at: now,
+        error_code: null,
+      };
+    } else if (connection.connector_name === "google_calendar") {
+      calendarHealthAttempts += 1;
+      connection.health =
+        calendarHealthAttempts === 1
+          ? {
+              status: "ERROR",
+              checked_at: now,
+              error_code: "provider_unavailable",
+            }
+          : { status: "HEALTHY", checked_at: now, error_code: null };
+    }
+    json(response, 200, connection);
+    return;
+  }
+
+  const approvalRoutesMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/approvals\/routes$/,
+  );
+  if (approvalRoutesMatch && request.method === "GET") {
+    json(response, 200, approvalRoutes.get(approvalRoutesMatch[1]) ?? []);
+    return;
+  }
+  if (approvalRoutesMatch && request.method === "PUT") {
+    const body = await readJson(request);
+    const routes = approvalRoutes.get(approvalRoutesMatch[1]) ?? [];
+    const existing = routes.find(
+      (item) => item.configuration.action === body.configuration.action,
+    );
+    if ((existing?.revision ?? 0) !== body.expected_revision) {
+      problem(response, 409, "approval_route_stale", "Reload before saving.");
+      return;
+    }
+    const route = {
+      id: existing?.id ?? "43000000-0000-4000-8000-000000000040",
+      tenant_id: approvalRoutesMatch[1],
+      revision: (existing?.revision ?? 0) + 1,
+      configuration: {
+        expires_minutes: 1440,
+        otp_seconds: 600,
+        otp_max_attempts: 5,
+        otp_max_sends: 3,
+        otp_cooldown_seconds: 60,
+        ...body.configuration,
+      },
+      digest: "a".repeat(64),
+    };
+    if (existing) Object.assign(existing, route);
+    else routes.push(route);
+    approvalRoutes.set(approvalRoutesMatch[1], routes);
+    json(response, 200, route);
+    return;
+  }
+
+  const handoffConfigurationsMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/handoffs\/configurations$/,
+  );
+  if (handoffConfigurationsMatch && request.method === "GET") {
+    json(
+      response,
+      200,
+      handoffConfigurations.get(handoffConfigurationsMatch[1]) ?? [],
+    );
+    return;
+  }
+
+  const handoffSurfacesMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/handoffs\/surfaces$/,
+  );
+  if (handoffSurfacesMatch && request.method === "GET") {
+    json(response, 200, []);
+    return;
+  }
+
   const currentAgentMatch = url.pathname.match(
     /^\/admin\/tenants\/([^/]+)\/agent-instances\/current$/,
   );
@@ -413,6 +773,141 @@ createServer(async (request, response) => {
       configuration,
     );
     json(response, 201, editor.editable_version);
+    return;
+  }
+
+  const configurationDraftMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/agent-instances\/([^/]+)\/(capability|policy|connector-binding|human-operations|approval-route)-drafts$/,
+  );
+  if (configurationDraftMatch && request.method === "POST") {
+    const editor = agents.get(configurationDraftMatch[1]);
+    if (!editor || editor.instance.id !== configurationDraftMatch[2]) {
+      json(response, 404, { error: "not_found" });
+      return;
+    }
+    const body = await readJson(request);
+    if (body.expected_version_id !== editor.editable_version.id) {
+      problem(
+        response,
+        409,
+        "agent_spec_stale_write",
+        "The Agent Draft changed. Reload before saving.",
+      );
+      return;
+    }
+    const kind = configurationDraftMatch[3];
+    const configuration = structuredClone(
+      editor.editable_version.configuration,
+    );
+    if (kind === "capability") {
+      const manifests = body.capability_names.map((name) =>
+        capabilityManifests.find((manifest) => manifest.stable_name === name),
+      );
+      if (manifests.some((manifest) => !manifest)) {
+        problem(
+          response,
+          409,
+          "capability_unavailable",
+          "Capability unavailable.",
+        );
+        return;
+      }
+      configuration.capabilities = manifests.map((manifest) => ({
+        name: manifest.stable_name,
+        version: manifest.version,
+      }));
+      configuration.permitted_actions = manifests.flatMap((manifest) =>
+        manifest.actions.map((action) => action.name),
+      );
+      configuration.permitted_tools = [...configuration.permitted_actions];
+      configuration.action_policies = configuration.action_policies.filter(
+        (policy) => configuration.permitted_actions.includes(policy.action),
+      );
+    } else if (kind === "policy") {
+      for (const policy of body.policies) {
+        const definition = capabilityManifests
+          .flatMap((manifest) => manifest.actions)
+          .find((action) => action.name === policy.action);
+        if (
+          !definition ||
+          policy.identity_level < definition.required_identity_level ||
+          (definition.requires_confirmation && !policy.confirmation_required) ||
+          (definition.requires_approval && !policy.approval_required)
+        ) {
+          problem(
+            response,
+            409,
+            "policy_weakens_platform_minimum",
+            "Tenant policy cannot weaken a platform minimum.",
+          );
+          return;
+        }
+      }
+      configuration.action_policies = body.policies;
+      configuration.policy = {
+        name: "tenant_action_policy",
+        version: String(editor.editable_version.version_number + 1),
+      };
+      configuration.identity_policy = {
+        name: "tenant_identity_policy",
+        version: String(editor.editable_version.version_number + 1),
+      };
+    } else if (kind === "connector-binding") {
+      const connection = integrationConnections.find(
+        (item) => item.id === body.connection_id,
+      );
+      const catalog = connectorCatalog().find(
+        (item) => item.connector_name === body.connector_name,
+      );
+      if (
+        !connection ||
+        connection.status !== "CONNECTED" ||
+        !catalog?.available ||
+        !body.operations.every((operation) =>
+          catalog.supported_operations.includes(operation),
+        )
+      ) {
+        problem(
+          response,
+          409,
+          "connector_operation_unsupported",
+          "The connector operation is unsupported.",
+        );
+        return;
+      }
+      configuration.connector_bindings =
+        configuration.connector_bindings.filter(
+          (binding) => binding.binding_id !== body.connection_id,
+        );
+      configuration.connector_bindings.push({
+        binding_id: body.connection_id,
+        connector: body.connector_name,
+        connector_version: "1.0.0",
+        operations: body.operations,
+      });
+    } else if (kind === "human-operations") {
+      if (
+        body.handoff_enabled &&
+        (handoffConfigurations.get(configurationDraftMatch[1]) ?? []).every(
+          (item) => !item.configuration.enabled || !item.configuration.surface,
+        )
+      ) {
+        problem(response, 409, "human_surface_required", "Surface required.");
+        return;
+      }
+      configuration.human_operations = {
+        ...configuration.human_operations,
+        version: String(editor.editable_version.version_number + 1),
+        handoff_enabled: body.handoff_enabled,
+        handoff_surface_available: body.handoff_enabled,
+      };
+    } else {
+      configuration.approval_routes = {
+        name: "standard",
+        version: String(body.route_revision),
+      };
+    }
+    json(response, 201, saveConfigurationDraft(editor, configuration));
     return;
   }
 

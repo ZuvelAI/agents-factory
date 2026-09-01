@@ -7,8 +7,10 @@ from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.modules.handoffs.models import (
     HandoffConfiguration,
+    HandoffConfigurationRecord,
     HandoffReason,
     HandoffRecord,
+    HumanSurfaceOption,
     Model,
 )
 from agents_factory.modules.handoffs.service import HandoffService
@@ -39,6 +41,24 @@ def _context(
 ) -> TenantContext:
     return TenantContext(
         tenant_id, principal.user_id, "platform_admin", request.state.correlation_id
+    )
+
+
+@router.get("/configurations", response_model=tuple[HandoffConfigurationRecord, ...])
+async def configurations(
+    tenant_id: UUID, request: Request, principal: PlatformAdmin
+) -> tuple[HandoffConfigurationRecord, ...]:
+    return await _service(request).configurations(
+        context=_context(request, principal, tenant_id)
+    )
+
+
+@router.get("/surfaces", response_model=tuple[HumanSurfaceOption, ...])
+async def surfaces(
+    tenant_id: UUID, request: Request, principal: PlatformAdmin
+) -> tuple[HumanSurfaceOption, ...]:
+    return _service(request).surface_options(
+        context=_context(request, principal, tenant_id)
     )
 
 

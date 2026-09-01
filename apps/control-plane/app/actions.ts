@@ -152,6 +152,258 @@ export async function updateAgentPresentation(
   redirect(`/tenants/${tenantId}/agent?saved=${section}`);
 }
 
+export async function updateTenantCapabilities(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const instanceId = requiredValue(formData, "instanceId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/agent-instances/${encodeURIComponent(instanceId)}/capability-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_version_id: requiredValue(formData, "versionId"),
+          capability_names: formData
+            .getAll("capabilityNames")
+            .filter((value): value is string => typeof value === "string"),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/capabilities?error=${actionError(error, "agent_spec_stale_write")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/capabilities?saved=capabilities`);
+}
+
+export async function updateTenantPolicies(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const instanceId = requiredValue(formData, "instanceId");
+  const policies = formData
+    .getAll("policyActions")
+    .filter((value): value is string => typeof value === "string")
+    .map((action) => ({
+      action,
+      identity_level: Number(requiredValue(formData, `identity:${action}`)),
+      confirmation_required: formData.get(`confirmation:${action}`) === "true",
+      approval_required: formData.get(`approval:${action}`) === "true",
+    }));
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/agent-instances/${encodeURIComponent(instanceId)}/policy-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_version_id: requiredValue(formData, "versionId"),
+          policies,
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/capabilities?error=${actionError(error, "agent_spec_stale_write")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/capabilities?saved=policies`);
+}
+
+export async function bindIntegrationOperations(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const instanceId = requiredValue(formData, "instanceId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/agent-instances/${encodeURIComponent(instanceId)}/connector-binding-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_version_id: requiredValue(formData, "versionId"),
+          connection_id: requiredValue(formData, "connectionId"),
+          connector_name: requiredValue(formData, "connectorName"),
+          operations: formData
+            .getAll("operations")
+            .filter((value): value is string => typeof value === "string"),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/integrations?error=${actionError(error, "agent_spec_stale_write")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/integrations?saved=binding`);
+}
+
+export async function startIntegrationOAuth(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  let authorizationUrl: string;
+  try {
+    const start = await callAuthenticatedBackend<{ authorization_url: string }>(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/integrations/oauth/start`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connector_name: requiredValue(formData, "connectorName"),
+          scopes: formData
+            .getAll("scopes")
+            .filter((value): value is string => typeof value === "string"),
+        }),
+      },
+    );
+    authorizationUrl = start.authorization_url;
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/integrations?error=${actionError(error)}`);
+  }
+  redirect(authorizationUrl);
+}
+
+export async function connectWooCommerce(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/integrations/api-key`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connector_name: "woocommerce",
+          credential: JSON.stringify({
+            store_url: requiredValue(formData, "storeUrl"),
+            consumer_key: requiredValue(formData, "consumerKey"),
+            consumer_secret: requiredValue(formData, "consumerSecret"),
+            permission: requiredValue(formData, "permission"),
+          }),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/integrations?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}/integrations`);
+  redirect(`/tenants/${tenantId}/integrations?saved=connection`);
+}
+
+export async function checkIntegrationHealth(
+  formData: FormData,
+): Promise<void> {
+  await integrationConnectionAction(formData, "health");
+}
+
+export async function reconnectIntegration(formData: FormData): Promise<void> {
+  await integrationConnectionAction(formData, "refresh");
+}
+
+export async function revokeIntegration(formData: FormData): Promise<void> {
+  await integrationConnectionAction(formData, "revoke");
+}
+
+export async function configureApprovalRoute(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const instanceId = requiredValue(formData, "instanceId");
+  try {
+    const route = await callAuthenticatedBackend<{ revision: number }>(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/approvals/routes`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_revision: Number(requiredValue(formData, "routeRevision")),
+          configuration: {
+            ref: "standard",
+            capability: requiredValue(formData, "capability"),
+            action: requiredValue(formData, "action"),
+            authorized_emails: requiredValue(formData, "emails")
+              .split(/[\n,]/)
+              .map((value) => value.trim().toLowerCase())
+              .filter(Boolean),
+            strategy: "first_response",
+            enabled: true,
+          },
+        }),
+      },
+    );
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/agent-instances/${encodeURIComponent(instanceId)}/approval-route-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_version_id: requiredValue(formData, "versionId"),
+          route_revision: route.revision,
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/capabilities?error=${actionError(error, "agent_spec_stale_write")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/capabilities?saved=approval`);
+}
+
+export async function configureHandoff(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const instanceId = requiredValue(formData, "instanceId");
+  const enabled = formData.get("enabled") === "true";
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/handoffs/accounts/${encodeURIComponent(requiredValue(formData, "accountId"))}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_revision: Number(requiredValue(formData, "revision")),
+          configuration: {
+            enabled,
+            surface: enabled
+              ? {
+                  surface: "WHATSAPP_COEXISTENCE",
+                  adapter: requiredValue(formData, "surfaceAdapter"),
+                  binding_id: requiredValue(formData, "accountId"),
+                }
+              : null,
+            inactivity_hours: Number(
+              requiredValue(formData, "inactivityHours"),
+            ),
+            timezone: requiredValue(formData, "timezone"),
+            support_hours: null,
+          },
+        }),
+      },
+    );
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/agent-instances/${encodeURIComponent(instanceId)}/human-operations-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_version_id: requiredValue(formData, "versionId"),
+          handoff_enabled: enabled,
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/integrations?error=${actionError(error, "agent_spec_stale_write")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/integrations?saved=handoff`);
+}
+
 type SignupStart = {
   app_id: string;
   configuration_id: string;
@@ -245,6 +497,23 @@ function whatsappActionFailure(error: unknown): ActionResult<never> {
     ok: false,
     message: "The WhatsApp connection could not be completed.",
   };
+}
+
+async function integrationConnectionAction(
+  formData: FormData,
+  action: "health" | "refresh" | "revoke",
+): Promise<never> {
+  const tenantId = requiredValue(formData, "tenantId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/integrations/connections/${encodeURIComponent(requiredValue(formData, "connectionId"))}/${action}`,
+      { method: "POST" },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/integrations?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(`/tenants/${tenantId}/integrations?saved=${action}`);
 }
 
 function requiredValue(formData: FormData, name: string): string {

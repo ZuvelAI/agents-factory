@@ -152,6 +152,11 @@ class ApprovalService:
             )
             return route
 
+    async def list_routes(self, *, context: TenantContext) -> tuple[ApprovalRoute, ...]:
+        require_backend(context, admin_only=True)
+        async with self.transaction(context) as repo:
+            return await repo.routes()
+
     async def request(
         self, *, context: TenantContext, action_id: UUID
     ) -> ApprovalRequest:

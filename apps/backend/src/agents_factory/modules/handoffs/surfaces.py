@@ -6,6 +6,7 @@ from uuid import UUID
 from agents_factory.modules.handoffs.models import (
     HandoffError,
     HumanResponseSurface,
+    HumanSurfaceOption,
     SurfaceBinding,
     VerifiedHumanEvent,
 )
@@ -40,6 +41,12 @@ class HumanSurfaceRegistry:
         if adapter is None or adapter.surface != binding.surface:
             raise HandoffError("human_surface_not_supported")
         return adapter
+
+    def options(self) -> tuple[HumanSurfaceOption, ...]:
+        return tuple(
+            HumanSurfaceOption(surface=adapter.surface, adapter=name)
+            for name, adapter in sorted(self._adapters.items())
+        )
 
     async def verify(
         self, *, tenant_id: UUID, account: Mapping[str, object], binding: SurfaceBinding

@@ -8,15 +8,21 @@ from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.dependencies import TransactionSession
+from agents_factory.modules.agent_factory.configuration import AgentConfigurationService
 from agents_factory.modules.agent_factory.models import AgentSpecVersion
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
 from agents_factory.modules.agent_factory.schemas import (
     AgentEditorState,
     AgentPresentationUpdateRequest,
+    ApprovalRoutesDraftRequest,
+    CapabilityDraftUpdateRequest,
+    ConnectorBindingDraftRequest,
     CreateAgentInstanceRequest,
     CreateAgentInstanceResponse,
     CreateCustomerServiceDraftRequest,
     CreateDraftRequest,
+    HumanOperationsDraftRequest,
+    PolicyDraftUpdateRequest,
     RollbackRequest,
 )
 from agents_factory.modules.agent_factory.service import AgentSpecLifecycleService
@@ -105,6 +111,131 @@ async def create_agent_presentation_draft(
             "agent_instance_id": str(agent_instance_id),
             "version_number": draft.version_number,
         },
+    )
+    return draft
+
+
+@router.post(
+    "/{agent_instance_id}/capability-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_capability_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: CapabilityDraftUpdateRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _configuration_service(
+        request, principal, tenant_id, session
+    ).update_capabilities(agent_instance_id=agent_instance_id, request=payload)
+    await _audit_configuration(
+        session,
+        request,
+        principal,
+        tenant_id,
+        draft,
+        "agent_capabilities.draft_created",
+    )
+    return draft
+
+
+@router.post(
+    "/{agent_instance_id}/policy-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_policy_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: PolicyDraftUpdateRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _configuration_service(
+        request, principal, tenant_id, session
+    ).update_policies(agent_instance_id=agent_instance_id, request=payload)
+    await _audit_configuration(
+        session, request, principal, tenant_id, draft, "agent_policy.draft_created"
+    )
+    return draft
+
+
+@router.post(
+    "/{agent_instance_id}/connector-binding-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_connector_binding_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: ConnectorBindingDraftRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _configuration_service(
+        request, principal, tenant_id, session
+    ).bind_connector(agent_instance_id=agent_instance_id, request=payload)
+    await _audit_configuration(
+        session,
+        request,
+        principal,
+        tenant_id,
+        draft,
+        "agent_connector_binding.draft_created",
+    )
+    return draft
+
+
+@router.post(
+    "/{agent_instance_id}/human-operations-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_human_operations_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: HumanOperationsDraftRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _configuration_service(
+        request, principal, tenant_id, session
+    ).update_human_operations(agent_instance_id=agent_instance_id, request=payload)
+    await _audit_configuration(
+        session, request, principal, tenant_id, draft, "agent_handoff.draft_created"
+    )
+    return draft
+
+
+@router.post(
+    "/{agent_instance_id}/approval-route-drafts",
+    response_model=AgentSpecVersion,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_approval_route_draft(
+    tenant_id: UUID,
+    agent_instance_id: UUID,
+    payload: ApprovalRoutesDraftRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> AgentSpecVersion:
+    draft = await _configuration_service(
+        request, principal, tenant_id, session
+    ).update_approval_routes(agent_instance_id=agent_instance_id, request=payload)
+    await _audit_configuration(
+        session,
+        request,
+        principal,
+        tenant_id,
+        draft,
+        "agent_approval_routes.draft_created",
     )
     return draft
 
@@ -242,6 +373,35 @@ def _service(
             capabilities=V1_CAPABILITY_REGISTRY,
             connectors=V1_CONNECTOR_CATALOG,
         ),
+    )
+
+
+def _configuration_service(
+    request: Request,
+    principal: AdminPrincipal,
+    tenant_id: UUID,
+    session: TransactionSession,
+) -> AgentConfigurationService:
+    return AgentConfigurationService(
+        session,
+        _context(request=request, principal=principal, tenant_id=tenant_id),
+    )
+
+
+async def _audit_configuration(
+    session: TransactionSession,
+    request: Request,
+    principal: AdminPrincipal,
+    tenant_id: UUID,
+    draft: AgentSpecVersion,
+    event_type: str,
+) -> None:
+    await AuditService(session).record(
+        context=_context(request=request, principal=principal, tenant_id=tenant_id),
+        event_type=event_type,
+        entity_type="agent_spec_version",
+        entity_id=draft.id,
+        payload={"version_number": draft.version_number},
     )
 
 

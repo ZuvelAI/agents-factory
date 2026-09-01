@@ -97,6 +97,12 @@ class AgentSpecCompiler:
                         ),
                     )
                 ),
+                "action_policies": tuple(
+                    sorted(
+                        draft.configuration.action_policies,
+                        key=lambda policy: policy.action,
+                    )
+                ),
             }
         )
         spec = AgentSpec(

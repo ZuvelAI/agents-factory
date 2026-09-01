@@ -17,6 +17,7 @@ from agents_factory.database import Database
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.integrations.meta_bridge import MetaConnectionBridge
 from agents_factory.modules.integrations.models import (
+    CatalogAvailability,
     CatalogEntry,
     ConnectionSummary,
     IntegrationError,
@@ -100,21 +101,46 @@ async def integration_catalog(
     for name in sorted(names):
         manifest = manifests.get(name)
         is_meta = name == "meta_whatsapp"
+        provider = providers.get(name) if providers.contains(name) else None
         enabled = is_meta or (
-            providers.contains(name)
+            provider is not None
             and manifest is not None
             and manifest.availability == "AVAILABLE"
+        )
+        availability: CatalogAvailability = (
+            "AVAILABLE"
+            if enabled
+            else "SETUP_REQUIRED"
+            if manifest is not None and manifest.availability == "AVAILABLE"
+            else "COMING_LATER"
         )
         entries.append(
             CatalogEntry(
                 connector_name=name,
                 display_name=manifest.display_name if manifest else name,
                 available=enabled,
+                availability=availability,
+                auth_kind=(
+                    "META_EMBEDDED"
+                    if is_meta
+                    else "OAUTH2"
+                    if provider is not None and provider.oauth is not None
+                    else "API_KEY"
+                    if provider is not None
+                    else None
+                ),
+                required_scopes=(
+                    tuple(sorted(provider.oauth.allowed_scopes))
+                    if provider is not None and provider.oauth is not None
+                    else ()
+                ),
                 supported_operations=manifest.supported_operations if manifest else (),
                 connections=tuple(c for c in connections if c.connector_name == name),
                 note=(
                     "Connect or reconnect through Meta Embedded Signup."
                     if is_meta
+                    else "Deployment provider credentials are not configured yet."
+                    if availability == "SETUP_REQUIRED"
                     else manifest.availability_note
                     if manifest
                     else "Provider adapter not configured yet."

@@ -157,6 +157,15 @@ def admin_context(
     )
 
 
+@admin_router.get("/routes", response_model=tuple[ApprovalRoute, ...])
+async def list_routes(
+    tenant_id: UUID, request: Request, principal: PlatformAdmin
+) -> tuple[ApprovalRoute, ...]:
+    return await service_for(request).list_routes(
+        context=admin_context(request, principal, tenant_id)
+    )
+
+
 @admin_router.put("/routes")
 async def configure_route(
     tenant_id: UUID, command: ConfigureRoute, request: Request, principal: PlatformAdmin

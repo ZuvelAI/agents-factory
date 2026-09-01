@@ -1060,6 +1060,279 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
+.configuration-page {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.configuration-page > .page-heading {
+  margin-bottom: 0;
+}
+
+.configuration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.configuration-card,
+.identity-matrix,
+.matrix-form {
+  min-width: 0;
+  border: 1px solid #d7dee8;
+  border-radius: 0.8rem;
+  padding: 1.2rem;
+  background: white;
+  box-shadow: 0 0.35rem 1.3rem rgb(24 46 80 / 4%);
+}
+
+.configuration-card > header,
+.connection-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.configuration-card h3,
+.identity-matrix h3 {
+  margin: 0.35rem 0;
+  color: #132b4f;
+}
+
+.configuration-card p,
+.identity-matrix p {
+  color: #52647c;
+  line-height: 1.5;
+}
+
+.configuration-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: #314969;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.configuration-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.configuration-toggle-disabled {
+  border-radius: 0.55rem;
+  padding: 0.9rem;
+  background: #f4f6f8;
+  color: #718198;
+}
+
+.configuration-toggle-disabled small {
+  flex-basis: 100%;
+  margin-left: 1.6rem;
+  font-weight: 500;
+}
+
+.operation-list {
+  display: grid;
+  gap: 0;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operation-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e7ebf0;
+  padding: 0.75rem 0;
+}
+
+.operation-list li > span:first-child,
+.connection-heading > span:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.operation-list small,
+.connection-heading small {
+  color: #718198;
+  line-height: 1.4;
+}
+
+.operation-ready,
+.operation-unavailable {
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.operation-ready {
+  color: #176a37;
+}
+
+.operation-unavailable {
+  color: #8b1b2c;
+}
+
+.identity-matrix {
+  margin-top: 0.5rem;
+}
+
+.identity-matrix dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.identity-matrix dl div {
+  border-radius: 0.55rem;
+  padding: 0.8rem;
+  background: #f4f6f8;
+}
+
+.identity-matrix dt {
+  color: #52647c;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.identity-matrix dd {
+  margin: 0.35rem 0 0;
+  color: #132b4f;
+  font-weight: 750;
+}
+
+.matrix-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.configuration-matrix select {
+  min-height: 2.25rem;
+  border: 1px solid #8a99ad;
+  border-radius: 0.4rem;
+  padding: 0.35rem;
+  background: white;
+}
+
+.configuration-matrix input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.approval-route-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.approval-route-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.approval-route-card.route-missing {
+  border-color: #e2bf75;
+}
+
+.approval-route-card label,
+.credential-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: #314969;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.approval-route-card textarea,
+.credential-form input,
+.credential-form select,
+.handoff-card input {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid #8a99ad;
+  border-radius: 0.5rem;
+  padding: 0.65rem;
+  background: white;
+  color: #172033;
+}
+
+.connector-grid {
+  align-items: start;
+}
+
+.connector-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.connection-panel {
+  display: grid;
+  gap: 0.85rem;
+  border-top: 1px solid #d7dee8;
+  padding-top: 1rem;
+}
+
+.scope-summary {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.binding-form,
+.credential-form {
+  display: grid;
+  gap: 0.75rem;
+  border-radius: 0.6rem;
+  padding: 0.9rem;
+  background: #f4f6f8;
+}
+
+.binding-form fieldset {
+  display: grid;
+  gap: 0.55rem;
+  border: 0;
+  padding: 0;
+}
+
+.binding-form legend {
+  margin-bottom: 0.6rem;
+  font-weight: 750;
+}
+
+.binding-form label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #314969;
+  font-size: 0.84rem;
+}
+
+.handoff-card {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (max-width: 52rem) {
+  .configuration-grid,
+  .tenant-card-grid,
+  .agent-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-matrix dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .coming-step {
   border-left-color: #b36b00;
   background: #fff4dc;

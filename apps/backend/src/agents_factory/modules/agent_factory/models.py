@@ -88,6 +88,13 @@ class ConnectorBinding(FrozenModel):
         return self
 
 
+class ActionPolicyOverride(FrozenModel):
+    action: str = Field(pattern=_QUALIFIED_NAME.pattern)
+    identity_level: Literal[0, 1, 2, 3]
+    confirmation_required: bool
+    approval_required: bool
+
+
 class AgentModelConfiguration(FrozenModel):
     model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
     reasoning_effort: Literal["low"] = "low"
@@ -131,6 +138,7 @@ class AgentSpecConfiguration(FrozenModel):
     permitted_tools: tuple[str, ...] = ()
     permitted_actions: tuple[str, ...] = ()
     connector_bindings: tuple[ConnectorBinding, ...] = ()
+    action_policies: tuple[ActionPolicyOverride, ...] = ()
     policy: VersionReference
     identity_policy: VersionReference
     approval_routes: VersionReference
@@ -157,6 +165,9 @@ class AgentSpecConfiguration(FrozenModel):
         binding_ids = [item.binding_id for item in self.connector_bindings]
         if len(set(binding_ids)) != len(binding_ids):
             raise ValueError("connector binding IDs must be unique")
+        policy_actions = [item.action for item in self.action_policies]
+        if len(set(policy_actions)) != len(policy_actions):
+            raise ValueError("action policy overrides must be unique")
         return self
 
 

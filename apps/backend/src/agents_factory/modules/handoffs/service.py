@@ -17,9 +17,11 @@ from agents_factory.modules.conversations.models import AwaitingHumanPolicy
 from agents_factory.modules.conversations.service import ConversationService
 from agents_factory.modules.handoffs.models import (
     HandoffConfiguration,
+    HandoffConfigurationRecord,
     HandoffError,
     HandoffReason,
     HandoffRecord,
+    HumanSurfaceOption,
     SurfaceBinding,
 )
 from agents_factory.modules.handoffs.policy import escalation_reason, waiting_copy
@@ -108,6 +110,42 @@ class HandoffService:
                 payload={"revision": revision, "enabled": configuration.enabled},
             )
             return revision
+
+    async def configurations(
+        self, *, context: TenantContext
+    ) -> tuple[HandoffConfigurationRecord, ...]:
+        require_backend(context, admin=True)
+        async with self.transaction(context) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT whatsapp_account_id,revision,configuration "
+                            "FROM public.handoff_configurations "
+                            "WHERE tenant_id=:tenant ORDER BY whatsapp_account_id"
+                        ),
+                        {"tenant": context.tenant_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            return tuple(
+                HandoffConfigurationRecord(
+                    account_id=row["whatsapp_account_id"],
+                    revision=row["revision"],
+                    configuration=HandoffConfiguration.model_validate(
+                        row["configuration"]
+                    ),
+                )
+                for row in rows
+            )
+
+    def surface_options(
+        self, *, context: TenantContext
+    ) -> tuple[HumanSurfaceOption, ...]:
+        require_backend(context, admin=True)
+        return self.surfaces.options()
 
     async def request(
         self,

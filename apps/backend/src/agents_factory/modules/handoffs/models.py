@@ -35,6 +35,11 @@ class SurfaceBinding(Model):
     binding_id: str = Field(min_length=1, max_length=200)
 
 
+class HumanSurfaceOption(Model):
+    surface: HumanResponseSurface
+    adapter: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_-]+$")
+
+
 class SupportWindow(Model):
     weekday: int = Field(ge=0, le=6)
     start: time
@@ -65,6 +70,12 @@ class HandoffConfiguration(Model):
         if self.support_hours is not None and len(self.support_hours) > 28:
             raise ValueError("too many support intervals")
         return self
+
+
+class HandoffConfigurationRecord(Model):
+    account_id: UUID
+    revision: int = Field(ge=1)
+    configuration: HandoffConfiguration
 
 
 class HandoffReason(StrEnum):

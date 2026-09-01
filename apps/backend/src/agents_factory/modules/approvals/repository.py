@@ -55,6 +55,23 @@ class ApprovalRepository:
         )
         return ApprovalRoute.model_validate(dict(row)) if row is not None else None
 
+    async def routes(self) -> tuple[ApprovalRoute, ...]:
+        rows = (
+            (
+                await self.session.execute(
+                    text(
+                        "SELECT id,tenant_id,revision,configuration,digest "
+                        "FROM public.approval_routes WHERE tenant_id=:tenant "
+                        "ORDER BY capability,action,id"
+                    ),
+                    {"tenant": self.context.tenant_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return tuple(ApprovalRoute.model_validate(dict(row)) for row in rows)
+
     async def save_route(self, route: ApprovalRoute, *, new: bool) -> None:
         values = {
             "id": route.id,

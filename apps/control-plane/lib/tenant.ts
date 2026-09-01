@@ -30,6 +30,30 @@ export type AgentSpecVersion = {
       supported_locales: ("es-CO" | "en-US")[];
       default_locale: "es-CO" | "en-US";
     };
+    capabilities: { name: string; version: string }[];
+    permitted_tools: string[];
+    permitted_actions: string[];
+    connector_bindings: {
+      binding_id: string;
+      connector: string;
+      connector_version: string;
+      operations: string[];
+    }[];
+    action_policies: {
+      action: string;
+      identity_level: 0 | 1 | 2 | 3;
+      confirmation_required: boolean;
+      approval_required: boolean;
+    }[];
+    human_operations: {
+      version: string;
+      handoff_enabled: boolean;
+      handoff_surface_available: boolean;
+      awaiting_human_policy: "SILENT" | "ACKNOWLEDGE";
+    };
+    policy: { name: string; version: string };
+    identity_policy: { name: string; version: string };
+    approval_routes: { name: string; version: string };
   };
 };
 
