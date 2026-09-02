@@ -7,7 +7,7 @@ import tomllib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -49,6 +49,9 @@ UUID_PATTERN: Final = re.compile(
 class TenantIsolationRegistration:
     table_name: str
     owner_column: str = "tenant_id"
+    database_role: Literal["agents_factory_app", "agents_factory_admin"] = (
+        "agents_factory_app"
+    )
     insert_allowed: bool = True
     update_allowed: bool = True
     delete_allowed: bool = False
@@ -282,6 +285,17 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration(
+        "public.conversation_reviews",
+        database_role="agents_factory_admin",
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.eval_case_drafts",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -306,6 +320,8 @@ class SeededWorld:
     insert_parent_b: UUID
     whatsapp_account_a: UUID
     whatsapp_account_b: UUID
+    insert_conversation_a: UUID
+    insert_conversation_b: UUID
 
 
 @pytest.fixture(scope="session")
@@ -405,7 +421,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.knowledge_chunks, "
+                "TRUNCATE TABLE public.conversation_reviews, "
+                "public.eval_case_drafts, public.knowledge_chunks, "
                 "public.knowledge_ingestion_artifacts, "
                 "public.knowledge_ingestions, public.knowledge_version_members, "
                 "public.knowledge_versions, public.knowledge_documents, "
@@ -486,6 +503,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
     insert_parent_b = uuid4()
     whatsapp_account_a = row_a["public.whatsapp_accounts"]
     whatsapp_account_b = row_b["public.whatsapp_accounts"]
+    insert_conversation_a = uuid4()
+    insert_conversation_b = uuid4()
 
     async with database_engine.begin() as connection:
         await connection.execute(
@@ -496,9 +515,9 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             ),
             {"tenant_a": tenant_a, "tenant_b": tenant_b},
         )
-        for tenant_id, rows, label, insert_parent in (
-            (tenant_a, row_a, "a", insert_parent_a),
-            (tenant_b, row_b, "b", insert_parent_b),
+        for tenant_id, rows, label, insert_parent, insert_conversation in (
+            (tenant_a, row_a, "a", insert_parent_a, insert_conversation_a),
+            (tenant_b, row_b, "b", insert_parent_b, insert_conversation_b),
         ):
             completed_ingestion_id = uuid4()
             await connection.execute(
@@ -964,6 +983,47 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.conversations "
+                    "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
+                    "VALUES (:id, :tenant_id, :account_id, :customer_wa_id)"
+                ),
+                {
+                    "id": insert_conversation,
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "customer_wa_id": f"57310000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.conversation_reviews "
+                    "(id, tenant_id, conversation_id, reviewed_by_admin_id) "
+                    "VALUES (:id, :tenant_id, :conversation_id, :admin_id)"
+                ),
+                {
+                    "id": rows["public.conversation_reviews"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "admin_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.eval_case_drafts "
+                    "(id, tenant_id, conversation_id, case_id, schema_version, "
+                    "payload, created_by_admin_id) VALUES (:id, :tenant_id, "
+                    ":conversation_id, :case_id, 1, '{}'::jsonb, :admin_id)"
+                ),
+                {
+                    "id": rows["public.eval_case_drafts"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "case_id": f"task5-eval-{label}",
+                    "admin_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.actions "
                     "(id, tenant_id, conversation_id, customer_ref, capability, "
                     "action_type, risk, required_identity_level, "
@@ -1250,6 +1310,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
         insert_parent_b=insert_parent_b,
         whatsapp_account_a=whatsapp_account_a,
         whatsapp_account_b=whatsapp_account_b,
+        insert_conversation_a=insert_conversation_a,
+        insert_conversation_b=insert_conversation_b,
     )
     try:
         yield world
@@ -1257,8 +1319,12 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
         await _clear_foundation_data(database_engine)
 
 
-async def _prepare_app_session(session: AsyncSession, context: object) -> None:
-    await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+async def _prepare_app_session(
+    session: AsyncSession,
+    context: object,
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
+) -> None:
+    await session.execute(text(f"SET LOCAL ROLE {database_role}"))
     if context not in (MISSING_CONTEXT, RESET_CONTEXT):
         await session.execute(
             text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
@@ -1294,11 +1360,12 @@ async def _resolve_context_after_optional_reset(
     *,
     context: object,
     reset_tenant_id: UUID,
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> object:
     if context is not RESET_CONTEXT:
         return context
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, reset_tenant_id)
+        await _prepare_app_session(session, reset_tenant_id, database_role)
         await session.execute(text("SELECT 1"))
     return MISSING_CONTEXT
 
@@ -1310,15 +1377,17 @@ async def _denied_fingerprint(
     reset_tenant_id: UUID,
     statement: str,
     parameters: dict[str, object],
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> DenialFingerprint:
     effective_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=context,
         reset_tenant_id=reset_tenant_id,
+        database_role=database_role,
     )
     with pytest.raises(DBAPIError) as caught:
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, effective_context)
+            await _prepare_app_session(session, effective_context, database_role)
             await session.execute(text(statement), parameters)
     return _denial_fingerprint(caught.value)
 
@@ -1330,14 +1399,16 @@ async def _returning_ids(
     reset_tenant_id: UUID,
     statement: str,
     parameters: dict[str, object],
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> list[UUID]:
     effective_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=context,
         reset_tenant_id=reset_tenant_id,
+        database_role=database_role,
     )
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, effective_context)
+        await _prepare_app_session(session, effective_context, database_role)
         result = await session.execute(text(statement), parameters)
     return list(result.scalars())
 
@@ -1463,6 +1534,17 @@ def _insert_statement(table_name: str) -> str:
             "(id, tenant_id, conversation_id, from_state, to_state, version, "
             "actor_type, reason) VALUES (:id, :tenant_id, :conversation_id, "
             "'AI_ACTIVE', 'AWAITING_HUMAN', :version, 'system', 'task5_insert')"
+        ),
+        "public.conversation_reviews": (
+            "INSERT INTO public.conversation_reviews "
+            "(id, tenant_id, conversation_id, reviewed_by_admin_id) "
+            "VALUES (:id, :tenant_id, :parent_id, :correlation_id)"
+        ),
+        "public.eval_case_drafts": (
+            "INSERT INTO public.eval_case_drafts "
+            "(id, tenant_id, conversation_id, case_id, schema_version, payload, "
+            "created_by_admin_id) VALUES (:id, :tenant_id, :parent_id, :key, 1, "
+            "'{}'::jsonb, :correlation_id)"
         ),
         "public.outbound_messages": (
             "INSERT INTO public.outbound_messages "
@@ -1703,6 +1785,8 @@ def _matching_update(table_name: str) -> str | None:
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
+        "public.conversation_reviews": "updated_at = now()",
+        "public.eval_case_drafts": None,
         "public.outbound_messages": "updated_at = now()",
         "public.agent_instances": None,
         "public.agent_spec_versions": None,
@@ -1741,7 +1825,18 @@ def _insert_parent_id(
         "public.outbound_messages",
     }:
         return world.whatsapp_account_a if tenant == "a" else world.whatsapp_account_b
-    if table_name in {"public.messages", "public.conversation_state_events"}:
+    if table_name in {
+        "public.messages",
+        "public.conversation_state_events",
+        "public.conversation_reviews",
+        "public.eval_case_drafts",
+    }:
+        if table_name in {"public.conversation_reviews", "public.eval_case_drafts"}:
+            return (
+                world.insert_conversation_a
+                if tenant == "a"
+                else world.insert_conversation_b
+            )
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.conversations"]
     if table_name == "public.agent_spec_versions":
@@ -1801,12 +1896,13 @@ async def assert_tenant_isolated(
 
     assert registration.table_name == table_name
     assert registration.owner_column == owner_column
+    database_role = registration.database_role
     own_id = world.row_a[table_name]
     foreign_id = world.row_b[table_name]
     nonexistent_id = uuid4()
 
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, world.tenant_a)
+        await _prepare_app_session(session, world.tenant_a, database_role)
         own_visible = await session.scalar(
             text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
             {"row_id": own_id},
@@ -1823,7 +1919,7 @@ async def assert_tenant_isolated(
 
     for context in (MISSING_CONTEXT, "", uuid4()):
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, context)
+            await _prepare_app_session(session, context, database_role)
             visible_count = await session.scalar(
                 text(f"SELECT count(*) FROM {table_name}")
             )
@@ -1835,19 +1931,21 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=f"SELECT count(*) FROM {table_name}",
         parameters={},
+        database_role=database_role,
     )
     assert invalid_select.sqlstate == "22P02"
 
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, world.tenant_a)
+        await _prepare_app_session(session, world.tenant_a, database_role)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) >= 1
     reset_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=RESET_CONTEXT,
         reset_tenant_id=world.tenant_a,
+        database_role=database_role,
     )
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, reset_context)
+        await _prepare_app_session(session, reset_context, database_role)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) == 0
 
     matching_owner = uuid4() if table_name == "public.tenants" else world.tenant_a
@@ -1859,7 +1957,7 @@ async def assert_tenant_isolated(
     )
     if registration.insert_allowed:
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, matching_owner)
+            await _prepare_app_session(session, matching_owner, database_role)
             result = await session.execute(
                 text(f"{_insert_statement(table_name)} RETURNING id"),
                 matching_parameters,
@@ -1872,6 +1970,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=matching_parameters,
+            database_role=database_role,
         )
         assert matching_insert.sqlstate == "42501"
 
@@ -1893,6 +1992,7 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=foreign_parameters,
+        database_role=database_role,
     )
     absent_insert = await _denied_fingerprint(
         session_factory,
@@ -1900,6 +2000,7 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=nonexistent_parameters,
+        database_role=database_role,
     )
     assert foreign_insert == absent_insert
     assert foreign_insert.sqlstate == "42501"
@@ -1926,6 +2027,7 @@ async def assert_tenant_isolated(
                 ),
                 nonce=f"context-{uuid4().hex}",
             ),
+            database_role=database_role,
         )
         assert denial.sqlstate == expected_state
 
@@ -1937,6 +2039,8 @@ async def assert_tenant_isolated(
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
+        "public.conversation_reviews",
+        "public.eval_case_drafts",
         "public.actions",
         "public.action_events",
     }:
@@ -1962,6 +2066,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=foreign_parent_parameters,
+            database_role=database_role,
         )
         absent_parent_denial = await _denied_fingerprint(
             session_factory,
@@ -1969,6 +2074,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=absent_parent_parameters,
+            database_role=database_role,
         )
         assert foreign_parent_denial == absent_parent_denial
         assert foreign_parent_denial.sqlstate == "23503"
@@ -1986,6 +2092,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=update_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         ) == [own_id]
         for row_id in (foreign_id, nonexistent_id):
             assert (
@@ -1995,6 +2102,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=update_statement,
                     parameters={"row_id": row_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -2006,6 +2114,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=update_statement,
                     parameters={"row_id": own_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -2015,6 +2124,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=update_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         )
         assert invalid_update.sqlstate == "22P02"
     else:
@@ -2025,6 +2135,7 @@ async def assert_tenant_isolated(
                 reset_tenant_id=world.tenant_a,
                 statement=update_statement,
                 parameters={"owner": world.tenant_a, "row_id": row_id},
+                database_role=database_role,
             )
             for context in (
                 world.tenant_a,
@@ -2047,6 +2158,7 @@ async def assert_tenant_isolated(
             f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id"
         ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
+        database_role=database_role,
     )
     assert reassignment.sqlstate in registration.reassignment_denials
 
@@ -2060,6 +2172,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=delete_statement,
                     parameters={"row_id": row_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -2071,6 +2184,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=delete_statement,
                     parameters={"row_id": own_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -2080,6 +2194,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=delete_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         )
         assert invalid_delete.sqlstate == "22P02"
         assert await _returning_ids(
@@ -2088,6 +2203,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=delete_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         ) == [own_id]
     else:
         delete_denials = [
@@ -2097,6 +2213,7 @@ async def assert_tenant_isolated(
                 reset_tenant_id=world.tenant_a,
                 statement=delete_statement,
                 parameters={"row_id": row_id},
+                database_role=database_role,
             )
             for context in (
                 world.tenant_a,
