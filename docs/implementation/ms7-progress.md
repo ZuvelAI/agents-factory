@@ -451,3 +451,39 @@ Task 40 is complete at this checkpoint. Next: Task 41, Knowledge source ingestio
 binding and conflict-review UX. Live provider credentials and production validation
 remain deferred as approved; Task 36 infrastructure telemetry remains deferred to
 Task 47.
+
+## Task 41 — Knowledge review and version checkpoint
+
+- Replaced the Knowledge placeholders with the global tenant directory and the
+  tenant review workspace. The shared wizard now supports Website, PDF, DOCX,
+  Google Drive, XLSX and manual sources, assigns explicit authority and requests
+  synchronization without creating client-specific code paths.
+- Added a private upload boundary for PDF, DOCX and XLSX with exact media types, a
+  20 MB limit, tenant/source-scoped paths, non-public file permissions and a shared
+  backend/worker Compose volume. Audit records include source type and byte count,
+  never source contents.
+- Added one tenant-scoped workspace read model for sources and latest ingestion,
+  proposals, conflicts, connected-source diffs and immutable Knowledge versions.
+  The UI distinguishes source/AI proposals, provenance, admin-approved outcomes,
+  Test candidates and the active Production version.
+- Added approve, edit and reject actions. The backend prevents an edited proposal
+  from changing its source or assigned authority, and critical conflicts remain
+  visible until the linked human decision resolves them.
+- Added exact-Draft semantic-index preparation and deterministic Knowledge v0
+  readiness evidence for Test. It reuses the existing server-side checks for the
+  exact member digest, completed embeddings and absence of unresolved critical
+  conflicts; this v0 evidence never satisfies the Production gate.
+- Production remains visibly and technically fail-closed with the exact
+  `production_quality_gate_required` reason until Task 45. Re-synchronizing a
+  connected source leaves the immutable Production version active and creates a
+  prominent new Draft, diff and proposal queue.
+- One new consolidated Playwright scenario passed for all six source types, private
+  uploads, authority, provenance, edit/reject/approve, conflict resolution, diff,
+  Test promotion, exact Production rejection and a post-Test connected-source
+  change. Targeted Ruff, mypy, ESLint and TypeScript checks passed; no previous
+  passing suite or live-provider validation was rerun.
+
+Task 41 is complete at this checkpoint. Next: Task 42, the safe conversation Test
+Console and review/learning UX. Live provider credentials and production validation
+remain deferred as approved; Task 36 infrastructure telemetry remains deferred to
+Task 47.

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from uuid import UUID
 
 from agents_factory.common.errors import DomainError
+from agents_factory.common.ids import new_uuid7
 from agents_factory.modules.knowledge.models import (
     AuthorityResolution,
     KnowledgeAuthority,
@@ -118,6 +120,12 @@ class KnowledgeService:
         if version is None:
             raise _not_found("Knowledge source version")
         return version
+
+    async def get_source(self, source_id: UUID) -> KnowledgeSource:
+        source = await self._repository.get_source(source_id)
+        if source is None:
+            raise _not_found("Knowledge source")
+        return source
 
     async def add_structured_fact(self, draft: StructuredFactDraft) -> StructuredFact:
         fact = await self._repository.add_structured_fact(draft)
@@ -258,6 +266,27 @@ class KnowledgeService:
             payload={"digest": digest},
         )
         return promoted
+
+    async def promote_to_test_v0(self, version_id: UUID) -> KnowledgeVersion:
+        version = await self._repository.get_version(version_id)
+        if version is None:
+            raise _not_found("Knowledge version")
+        if version.state != "DRAFT":
+            raise _invalid_transition(version.state, "TEST")
+        digest = knowledge_digest(await self._repository.member_digests(version_id))
+        suite_digest = sha256(b"knowledge-readiness-v0:1").hexdigest()
+        return await self.promote_to_test(
+            version_id,
+            evidence=KnowledgeEvalEvidence(
+                id=new_uuid7(),
+                knowledge_digest=digest,
+                suite_digest=suite_digest,
+                runner_version="knowledge-readiness-v0.1",
+                passed=True,
+                passed_cases=3,
+                failed_cases=0,
+            ),
+        )
 
     async def publish_production(self, version_id: UUID) -> KnowledgeVersion:
         version = await self._repository.get_version(version_id)

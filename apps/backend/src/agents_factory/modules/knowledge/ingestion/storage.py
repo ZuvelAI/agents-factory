@@ -53,6 +53,26 @@ class LocalPrivateSourceStore:
             raise IngestionRejected("upload_metadata_invalid") from None
         return content, {"filename": path.name, "media_type": media_type}
 
+    async def put_upload(
+        self,
+        *,
+        tenant_id: UUID,
+        source_id: UUID,
+        upload_key: str,
+        content: bytes,
+        media_type: str,
+    ) -> None:
+        if not _UPLOAD_KEY.fullmatch(upload_key):
+            raise IngestionRejected("upload_key_invalid")
+        relative = Path(str(tenant_id), str(source_id), "uploads", upload_key)
+        path = self._resolve(relative)
+        await asyncio.to_thread(self._write_once, path, content)
+        await asyncio.to_thread(
+            self._write_once,
+            path.with_suffix(f"{path.suffix}.media-type"),
+            media_type.encode("utf-8"),
+        )
+
     def _resolve(self, relative: Path) -> Path:
         candidate = (self._root / relative).resolve()
         if not candidate.is_relative_to(self._root):

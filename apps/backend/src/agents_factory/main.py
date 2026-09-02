@@ -1,7 +1,9 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from fastapi import FastAPI, Request
@@ -47,6 +49,7 @@ from agents_factory.modules.integrations.router import (
     router as admin_integration_router,
 )
 from agents_factory.modules.knowledge.router import router as admin_knowledge_router
+from agents_factory.modules.knowledge.ingestion.storage import LocalPrivateSourceStore
 from agents_factory.modules.media.router import router as admin_media_router
 from agents_factory.modules.observability.dashboard import (
     router as admin_dashboard_router,
@@ -145,6 +148,13 @@ def create_app(
         application.state.handoff_service = handoff_service
         application.state.integration_providers = configured_google_providers(
             settings.google_oauth_clients
+        )
+        application.state.knowledge_source_store = LocalPrivateSourceStore(
+            Path(
+                os.environ.get(
+                    "KNOWLEDGE_STORAGE_ROOT", "/var/lib/agents-factory/knowledge"
+                )
+            )
         )
         if settings.woocommerce_stores:
             application.state.integration_providers.register(

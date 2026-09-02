@@ -22,6 +22,178 @@ const approvalRoutes = new Map();
 const handoffConfigurations = new Map();
 let calendarHealthAttempts = 0;
 let onboardingConfigurationChanged = false;
+let knowledgeEmbeddingsReady = false;
+let knowledgeSequence = 10;
+
+const knowledgeWorkspace = {
+  sources: [
+    {
+      source: knowledgeSource(
+        "50000000-0000-4000-8000-000000000001",
+        "Published business profile",
+        "WEBSITE",
+        "AUTHORITATIVE",
+        { url: "https://example.test/business" },
+      ),
+      latest_ingestion: knowledgeIngestion(
+        "51000000-0000-4000-8000-000000000001",
+        "50000000-0000-4000-8000-000000000001",
+        3,
+      ),
+    },
+  ],
+  proposals: [
+    knowledgeProposal(
+      "52000000-0000-4000-8000-000000000001",
+      "50000000-0000-4000-8000-000000000001",
+      "FACT",
+      {
+        source_id: "50000000-0000-4000-8000-000000000001",
+        authority: "AUTHORITATIVE",
+        key: "business.hours",
+        kind: "BUSINESS_HOURS",
+        value: { open: "09:00", close: "17:00" },
+        locator: { path: "/business", section: "hours" },
+        content_digest: "c".repeat(64),
+      },
+    ),
+    knowledgeProposal(
+      "52000000-0000-4000-8000-000000000002",
+      "50000000-0000-4000-8000-000000000001",
+      "DOCUMENT",
+      {
+        source_id: "50000000-0000-4000-8000-000000000001",
+        authority: "AUTHORITATIVE",
+        category: "POLICY",
+        title: "Outdated returns note",
+        text: "Returns are accepted for five days.",
+        locator: { path: "/business", section: "returns" },
+        content_digest: "d".repeat(64),
+      },
+    ),
+    knowledgeProposal(
+      "52000000-0000-4000-8000-000000000003",
+      "50000000-0000-4000-8000-000000000001",
+      "DOCUMENT",
+      {
+        source_id: "50000000-0000-4000-8000-000000000001",
+        authority: "AUTHORITATIVE",
+        category: "FAQ",
+        title: "Delivery coverage",
+        text: "Delivery is available in Bogota.",
+        locator: { path: "/business", section: "delivery" },
+        content_digest: "e".repeat(64),
+      },
+    ),
+  ],
+  conflicts: [
+    {
+      id: "53000000-0000-4000-8000-000000000001",
+      proposal_id: "52000000-0000-4000-8000-000000000001",
+      source_id: "50000000-0000-4000-8000-000000000001",
+      fact_key: "business.hours",
+      critical: true,
+      proposed_authority: "AUTHORITATIVE",
+      existing_authority: "AUTHORITATIVE",
+      state: "OPEN",
+      resolution: null,
+      details: { message: "Two authoritative values disagree." },
+      created_at: now,
+    },
+  ],
+  diffs: [
+    {
+      id: "54000000-0000-4000-8000-000000000001",
+      source_id: "50000000-0000-4000-8000-000000000001",
+      ingestion_id: "51000000-0000-4000-8000-000000000001",
+      draft_version_id: "55000000-0000-4000-8000-000000000002",
+      previous_digest: "a".repeat(64),
+      current_digest: "b".repeat(64),
+      state: "DETECTED",
+      summary: { message: "Business hours and policy content changed." },
+      created_at: now,
+    },
+  ],
+  versions: [
+    knowledgeVersion(2, "DRAFT", null, "b".repeat(64)),
+    knowledgeVersion(1, "PRODUCTION", "a".repeat(64), "a".repeat(64)),
+  ],
+  production_blocker_code: "production_quality_gate_required",
+  production_blocker:
+    "Production requires the full Task 45 Quality Gate for the exact Knowledge digest.",
+};
+
+function knowledgeSource(id, name, sourceType, authority, configuration) {
+  return {
+    id,
+    tenant_id: tenants[0].id,
+    name,
+    source_type: sourceType,
+    authority,
+    configuration,
+    created_at: now,
+  };
+}
+
+function knowledgeIngestion(id, sourceId, proposedArtifactCount = 0) {
+  return {
+    id,
+    tenant_id: tenants[0].id,
+    source_id: sourceId,
+    state: "SUCCEEDED",
+    content_digest: "b".repeat(64),
+    storage_path: `private/${sourceId}`,
+    proposed_artifact_count: proposedArtifactCount,
+    error_code: null,
+    created_at: now,
+    updated_at: now,
+    completed_at: now,
+  };
+}
+
+function knowledgeProposal(id, sourceId, artifactType, payload) {
+  return {
+    id,
+    tenant_id: tenants[0].id,
+    ingestion_artifact_id: id.replace("5200", "5210"),
+    ingestion_id: "51000000-0000-4000-8000-000000000001",
+    source_id: sourceId,
+    revision: 1,
+    artifact_type: artifactType,
+    state: "PROPOSED",
+    proposed_payload: payload,
+    decision_payload: null,
+    proposed_by: "NORMALIZER",
+    model_metadata: {},
+    content_digest: payload.content_digest,
+    decided_by_admin_id: null,
+  };
+}
+
+function knowledgeVersion(number, state, digest, candidateDigest) {
+  return {
+    version: {
+      id: `55000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+      tenant_id: tenants[0].id,
+      name: `Client Knowledge v${number}`,
+      version_number: number,
+      state,
+      digest,
+      based_on_version_id:
+        number === 1
+          ? null
+          : `55000000-0000-4000-8000-${String(number - 1).padStart(12, "0")}`,
+      created_at: now,
+      updated_at: now,
+    },
+    structured_fact_count: 1,
+    document_count: 2,
+    candidate_digest: candidateDigest,
+    v0_evaluation: state === "TEST" ? "PASSED" : "NOT_RUN",
+    v0_passed_cases: state === "TEST" ? 3 : 0,
+    v0_failed_cases: 0,
+  };
+}
 
 const capabilityManifests = [
   {
@@ -571,6 +743,199 @@ createServer(async (request, response) => {
       updated_at: now,
     });
     json(response, 200, tenant);
+    return;
+  }
+
+  const knowledgeWorkspaceMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/workspace$/,
+  );
+  if (knowledgeWorkspaceMatch && request.method === "GET") {
+    json(response, 200, knowledgeWorkspace);
+    return;
+  }
+
+  const knowledgeSourcesMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/sources$/,
+  );
+  if (knowledgeSourcesMatch && request.method === "POST") {
+    const body = await readJson(request);
+    knowledgeSequence += 1;
+    const source = knowledgeSource(
+      `50000000-0000-4000-8000-${String(knowledgeSequence).padStart(12, "0")}`,
+      body.name,
+      body.source_type,
+      body.authority,
+      body.configuration,
+    );
+    knowledgeWorkspace.sources.unshift({ source, latest_ingestion: null });
+    json(response, 201, source);
+    return;
+  }
+
+  const knowledgeUploadMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/sources\/([^/]+)\/uploads\/([^/]+)$/,
+  );
+  if (knowledgeUploadMatch && request.method === "PUT") {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    json(response, 201, {
+      upload_key: decodeURIComponent(knowledgeUploadMatch[3]),
+      size_bytes: Buffer.concat(chunks).length,
+    });
+    return;
+  }
+
+  const knowledgeIngestionMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/sources\/([^/]+)\/ingestions$/,
+  );
+  if (knowledgeIngestionMatch && request.method === "POST") {
+    const sourceEntry = knowledgeWorkspace.sources.find(
+      ({ source }) => source.id === knowledgeIngestionMatch[2],
+    );
+    if (!sourceEntry) {
+      json(response, 404, { error: "not_found" });
+      return;
+    }
+    knowledgeSequence += 1;
+    sourceEntry.latest_ingestion = knowledgeIngestion(
+      `51000000-0000-4000-8000-${String(knowledgeSequence).padStart(12, "0")}`,
+      sourceEntry.source.id,
+    );
+    const testVersion = knowledgeWorkspace.versions.find(
+      ({ version: item }) => item.state === "TEST",
+    );
+    if (testVersion && sourceEntry.source.source_type === "WEBSITE") {
+      const nextNumber =
+        Math.max(
+          ...knowledgeWorkspace.versions.map(({ version: item }) =>
+            Number(item.version_number),
+          ),
+        ) + 1;
+      const nextDraft = knowledgeVersion(
+        nextNumber,
+        "DRAFT",
+        null,
+        "f".repeat(64),
+      );
+      knowledgeWorkspace.versions.unshift(nextDraft);
+      const proposalId = `52000000-0000-4000-8000-${String(knowledgeSequence).padStart(12, "0")}`;
+      knowledgeWorkspace.proposals.unshift(
+        knowledgeProposal(proposalId, sourceEntry.source.id, "DOCUMENT", {
+          source_id: sourceEntry.source.id,
+          authority: sourceEntry.source.authority,
+          category: "DOCUMENTATION",
+          title: "Connected source update",
+          text: "A synchronized source changed after the Test promotion.",
+          locator: { path: "/business", section: "updated" },
+          content_digest: "f".repeat(64),
+        }),
+      );
+      knowledgeWorkspace.diffs.unshift({
+        id: proposalId.replace("5200", "5400"),
+        source_id: sourceEntry.source.id,
+        ingestion_id: sourceEntry.latest_ingestion.id,
+        draft_version_id: nextDraft.version.id,
+        previous_digest: "b".repeat(64),
+        current_digest: "f".repeat(64),
+        state: "DETECTED",
+        summary: {
+          message:
+            "The connected source changed; Production remains immutable.",
+        },
+        created_at: now,
+      });
+    }
+    json(response, 202, sourceEntry.latest_ingestion);
+    return;
+  }
+
+  const knowledgeProposalMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/proposals\/([^/]+)\/review$/,
+  );
+  if (knowledgeProposalMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const proposal = knowledgeWorkspace.proposals.find(
+      (item) => item.id === knowledgeProposalMatch[2],
+    );
+    if (!proposal || proposal.state !== "PROPOSED") {
+      problem(
+        response,
+        409,
+        "knowledge_proposal_stale",
+        "Reload before reviewing.",
+      );
+      return;
+    }
+    proposal.state =
+      body.decision === "EDIT"
+        ? "EDITED"
+        : body.decision === "APPROVE"
+          ? "APPROVED"
+          : "REJECTED";
+    proposal.decision_payload = body.edited_payload ?? null;
+    proposal.decided_by_admin_id = "10000000-0000-4000-8000-000000000001";
+    const conflict = knowledgeWorkspace.conflicts.find(
+      (item) => item.proposal_id === proposal.id,
+    );
+    if (conflict) {
+      conflict.state = "RESOLVED";
+      conflict.resolution = proposal.state;
+    }
+    json(response, 200, proposal);
+    return;
+  }
+
+  const knowledgeEmbeddingsMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/versions\/([^/]+)\/embeddings$/,
+  );
+  if (knowledgeEmbeddingsMatch && request.method === "POST") {
+    knowledgeEmbeddingsReady = true;
+    json(response, 202, {
+      job_id: "56000000-0000-4000-8000-000000000001",
+      knowledge_version_id: knowledgeEmbeddingsMatch[2],
+    });
+    return;
+  }
+
+  const knowledgeTestMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/versions\/([^/]+)\/test-v0$/,
+  );
+  if (knowledgeTestMatch && request.method === "POST") {
+    const overview = knowledgeWorkspace.versions.find(
+      ({ version: item }) => item.id === knowledgeTestMatch[2],
+    );
+    if (
+      !overview ||
+      !knowledgeEmbeddingsReady ||
+      knowledgeWorkspace.proposals.some((item) => item.state === "PROPOSED") ||
+      knowledgeWorkspace.conflicts.some((item) => item.state === "OPEN")
+    ) {
+      problem(
+        response,
+        409,
+        "knowledge_test_readiness_required",
+        "Complete reviews and semantic indexing first.",
+      );
+      return;
+    }
+    overview.version.state = "TEST";
+    overview.version.digest = overview.candidate_digest;
+    overview.v0_evaluation = "PASSED";
+    overview.v0_passed_cases = 3;
+    json(response, 200, overview.version);
+    return;
+  }
+
+  const knowledgeProductionMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/knowledge\/versions\/([^/]+)\/production$/,
+  );
+  if (knowledgeProductionMatch && request.method === "POST") {
+    problem(
+      response,
+      409,
+      "production_quality_gate_required",
+      "Production requires the full Task 45 Quality Gate for the exact Knowledge digest.",
+    );
     return;
   }
 

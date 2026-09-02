@@ -404,6 +404,217 @@ export async function configureHandoff(formData: FormData): Promise<void> {
   redirect(`/tenants/${tenantId}/integrations?saved=handoff`);
 }
 
+export async function createKnowledgeSource(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const sourceType = requiredValue(formData, "sourceType");
+  let configuration: Record<string, string>;
+  if (sourceType === "WEBSITE") {
+    configuration = { url: requiredValue(formData, "url") };
+  } else if (sourceType === "GOOGLE_DRIVE") {
+    configuration = { file_id: requiredValue(formData, "googleDriveFileId") };
+  } else if (sourceType === "MANUAL") {
+    configuration = {
+      title: requiredValue(formData, "name"),
+      content: requiredValue(formData, "manualContent"),
+    };
+  } else {
+    redirect(`/tenants/${tenantId}/knowledge?error=source-file`);
+  }
+
+  try {
+    const source = await callAuthenticatedBackend<{ id: string }>(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/knowledge/sources`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: requiredValue(formData, "name"),
+          source_type: sourceType,
+          authority: requiredValue(formData, "authority"),
+          configuration,
+        }),
+      },
+    );
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/knowledge/sources/${encodeURIComponent(source.id)}/ingestions`,
+      { method: "POST" },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/knowledge?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}/knowledge`);
+  redirect(`/tenants/${tenantId}/knowledge?saved=source`);
+}
+
+type KnowledgeUploadSourceInput = {
+  tenantId: string;
+  name: string;
+  sourceType: "PDF" | "DOCX" | "SPREADSHEET";
+  authority: "AUTHORITATIVE" | "SECONDARY" | "REFERENCE";
+};
+
+type KnowledgeUploadSource = {
+  sourceId: string;
+  uploadKey: string;
+  mediaType: string;
+};
+
+export async function createKnowledgeUploadSource(
+  input: KnowledgeUploadSourceInput,
+): Promise<ActionResult<KnowledgeUploadSource>> {
+  const definitions = {
+    PDF: { extension: ".pdf", mediaType: "application/pdf" },
+    DOCX: {
+      extension: ".docx",
+      mediaType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    },
+    SPREADSHEET: {
+      extension: ".xlsx",
+      mediaType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    },
+  } as const;
+  const definition = definitions[input.sourceType];
+  const uploadKey = `${randomUUID()}${definition.extension}`;
+  try {
+    const source = await callAuthenticatedBackend<{ id: string }>(
+      `/admin/tenants/${encodeURIComponent(input.tenantId)}/knowledge/sources`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: input.name.trim(),
+          source_type: input.sourceType,
+          authority: input.authority,
+          configuration: { upload_key: uploadKey },
+        }),
+      },
+    );
+    return {
+      ok: true,
+      data: {
+        sourceId: source.id,
+        uploadKey,
+        mediaType: definition.mediaType,
+      },
+    };
+  } catch {
+    return { ok: false, message: "The source record could not be created." };
+  }
+}
+
+export async function startKnowledgeSourceIngestion(input: {
+  tenantId: string;
+  sourceId: string;
+}): Promise<ActionResult> {
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(input.tenantId)}/knowledge/sources/${encodeURIComponent(input.sourceId)}/ingestions`,
+      { method: "POST" },
+    );
+    revalidatePath(`/tenants/${input.tenantId}/knowledge`);
+    return { ok: true, data: undefined };
+  } catch {
+    return {
+      ok: false,
+      message: "The source was uploaded but synchronization could not start.",
+    };
+  }
+}
+
+export async function syncKnowledgeSource(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/knowledge/sources/${encodeURIComponent(requiredValue(formData, "sourceId"))}/ingestions`,
+      { method: "POST" },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/knowledge?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}/knowledge`);
+  redirect(`/tenants/${tenantId}/knowledge?saved=sync`);
+}
+
+export async function reviewKnowledgeProposal(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const proposalId = requiredValue(formData, "proposalId");
+  const decision = requiredValue(formData, "decision");
+  let editedPayload: Record<string, unknown> | undefined;
+  try {
+    if (decision === "EDIT") {
+      editedPayload = {
+        source_id: requiredValue(formData, "sourceId"),
+        authority: requiredValue(formData, "authority"),
+        locator: JSON.parse(requiredValue(formData, "locator")),
+        content_digest: requiredValue(formData, "contentDigest"),
+      };
+      if (requiredValue(formData, "artifactType") === "FACT") {
+        Object.assign(editedPayload, {
+          key: requiredValue(formData, "factKey"),
+          kind: requiredValue(formData, "factKind"),
+          value: JSON.parse(requiredValue(formData, "factValue")),
+        });
+      } else {
+        Object.assign(editedPayload, {
+          category: requiredValue(formData, "documentCategory"),
+          title: requiredValue(formData, "documentTitle"),
+          text: requiredValue(formData, "documentText"),
+        });
+      }
+    }
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/knowledge/proposals/${encodeURIComponent(proposalId)}/review`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          revision: Number(requiredValue(formData, "revision")),
+          decision,
+          edited_payload: editedPayload,
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/knowledge?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}/knowledge`);
+  redirect(`/tenants/${tenantId}/knowledge?saved=review`);
+}
+
+export async function prepareKnowledgeEmbeddings(
+  formData: FormData,
+): Promise<void> {
+  await knowledgeVersionAction(formData, "embeddings", "embeddings");
+}
+
+export async function promoteKnowledgeToTest(
+  formData: FormData,
+): Promise<void> {
+  await knowledgeVersionAction(formData, "test-v0", "test");
+}
+
+async function knowledgeVersionAction(
+  formData: FormData,
+  action: "embeddings" | "test-v0",
+  saved: string,
+): Promise<never> {
+  const tenantId = requiredValue(formData, "tenantId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/knowledge/versions/${encodeURIComponent(requiredValue(formData, "versionId"))}/${action}`,
+      { method: "POST" },
+    );
+  } catch (error) {
+    redirect(`/tenants/${tenantId}/knowledge?error=${actionError(error)}`);
+  }
+  revalidatePath(`/tenants/${tenantId}/knowledge`);
+  redirect(`/tenants/${tenantId}/knowledge?saved=${saved}`);
+}
+
 type SignupStart = {
   app_id: string;
   configuration_id: string;
