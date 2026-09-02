@@ -691,6 +691,73 @@ export async function promoteKnowledgeToTest(
   await knowledgeVersionAction(formData, "test-v0", "test");
 }
 
+export async function resolveOperationalCase(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const caseId = requiredValue(formData, "caseId");
+  const tenantDestination = formData.get("destination") === "tenant";
+  const destination = tenantDestination
+    ? `/tenants/${tenantId}/cases`
+    : `/cases?tenant=${tenantId}`;
+  const separator = tenantDestination ? "?" : "&";
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/cases/${encodeURIComponent(caseId)}/resolve`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_revision: Number(requiredValue(formData, "revision")),
+          reason: requiredValue(formData, "reason"),
+          customer_result: requiredValue(formData, "customerResult"),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(`${destination}${separator}error=${actionError(error)}`);
+  }
+  revalidatePath("/cases");
+  revalidatePath(`/tenants/${tenantId}/cases`);
+  redirect(`${destination}${separator}saved=resolved`);
+}
+
+export async function mutateDeadLetter(formData: FormData): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const action = requiredValue(formData, "dlqAction");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/operations/dead-letters/${encodeURIComponent(requiredValue(formData, "deadLetterId"))}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          expected_status: "open",
+          confirmation: formData.get("confirmation") === "true",
+          reason: requiredValue(formData, "reason"),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(`/operations?tenant=${tenantId}&error=${actionError(error)}`);
+  }
+  revalidatePath("/operations");
+  redirect(`/operations?tenant=${tenantId}&saved=${action.toLowerCase()}`);
+}
+
+export async function checkOperationalIntegration(
+  formData: FormData,
+): Promise<void> {
+  await operationalIntegrationAction(formData, "health");
+}
+
+export async function reconnectOperationalIntegration(
+  formData: FormData,
+): Promise<void> {
+  await operationalIntegrationAction(formData, "refresh");
+}
+
 async function knowledgeVersionAction(
   formData: FormData,
   action: "embeddings" | "test-v0",
@@ -819,6 +886,23 @@ async function integrationConnectionAction(
   }
   revalidatePath(`/tenants/${tenantId}`);
   redirect(`/tenants/${tenantId}/integrations?saved=${action}`);
+}
+
+async function operationalIntegrationAction(
+  formData: FormData,
+  action: "health" | "refresh",
+): Promise<never> {
+  const tenantId = requiredValue(formData, "tenantId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/integrations/connections/${encodeURIComponent(requiredValue(formData, "connectionId"))}/${action}`,
+      { method: "POST" },
+    );
+  } catch (error) {
+    redirect(`/operations?tenant=${tenantId}&error=${actionError(error)}`);
+  }
+  revalidatePath("/operations");
+  redirect(`/operations?tenant=${tenantId}&saved=connector`);
 }
 
 function requiredValue(formData: FormData, name: string): string {

@@ -523,3 +523,42 @@ provider check or credential setup was repeated.
 Task 42 is complete at this checkpoint. Next: Task 43, the Cases, Usage & Costs,
 Operations, Evals and Settings operational workspaces. Quality Gate, Production and
 measured infrastructure allocation retain their approved later-task dependencies.
+
+## Task 43 — operational workspaces and MS7 acceptance checkpoint
+
+- Added every canonical admin destination: Cases, Usage & Costs, Operations, Evals
+  and Settings, with global tenant selectors and tenant-local views where applicable.
+  The shared Control Plane remains the reusable client configuration and deployment
+  framework; these views do not introduce client-specific code paths.
+- Cases expose tenant-filtered, paginated priority, lifecycle, due-target, reviewer,
+  approval and latest-event evidence. Supported resolutions require a reason and
+  customer-visible result and use the existing revision-protected case lifecycle.
+- Usage & Costs exposes recorded-data-only freshness and cost dimensions for tenant,
+  conversation, case and action. Revenue remains an explicit administrator input;
+  margin is calculated against recorded variable cost and is never presented as
+  sourced accounting revenue.
+- Operations exposes queue/worker backlog, connector health and dead-letter work.
+  Retry, discard and resolve require an explicit confirmation and reason, apply a
+  bounded state transition and create tenant-scoped audit evidence. A connector can
+  be checked and reconnected through the guided UI without routine SSH access.
+- Evals exposes reviewed Eval Runner v0 Drafts produced by Task 42. Incident,
+  Production deployment and Quality Gate controls return typed unavailable states
+  owned by Tasks 44, 47 and 45 respectively; the Quality Gate mutation also rejects
+  server-side with `quality_gate_task_45_required` rather than reporting fake success.
+- Settings links administrators to supported tenant configuration and clearly keeps
+  runtime/Production configuration unavailable until Task 47. No arbitrary shell,
+  raw YAML, client portal or human inbox was added.
+- The two new Task 43 Playwright scenarios passed. They cover overdue CRITICAL case
+  filtering and resolution, all cost dimensions and manual margin estimation,
+  degraded connector recovery, all three confirmed/audited DLQ actions, reviewed
+  Eval Draft visibility, typed later-task blockers and the no-shell Settings boundary.
+  Locator-only ambiguities were corrected by narrowing assertions to their cards;
+  no previous suite or live-provider validation was rerun.
+
+Task 43 and the MS7 implementation checkpoint are complete. The Milestone 7
+acceptance is satisfied for the recorded v1 scope: a platform administrator can use
+the canonical responsive navigation and 12-step wizard to configure, connect,
+review, test and operate a Standard tenant, while Quality Gate and Production remain
+visibly fail-closed pending MS8. Live provider credentials, Production validation
+and Task 36 measured infrastructure allocation remain deferred as previously
+approved.

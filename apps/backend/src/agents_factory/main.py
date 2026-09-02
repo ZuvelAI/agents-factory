@@ -57,6 +57,7 @@ from agents_factory.modules.media.router import router as admin_media_router
 from agents_factory.modules.observability.dashboard import (
     router as admin_dashboard_router,
 )
+from agents_factory.modules.operations.admin import router as admin_operations_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
 from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
@@ -207,6 +208,7 @@ def create_app(
     application.state.approval_service = approval_service
     application.include_router(admin_tenant_router)
     application.include_router(admin_dashboard_router)
+    application.include_router(admin_operations_router)
     application.include_router(admin_action_router)
     application.include_router(admin_approval_router)
     application.include_router(public_approval_router)

@@ -427,6 +427,126 @@ const integrationConnections = [
   },
 ];
 
+const operationalCaseId = "70000000-0000-4000-8000-000000000043";
+const operationalCase = {
+  id: operationalCaseId,
+  capability: "returns_claims",
+  issue_type: "damaged_product",
+  revision: 3,
+  status: "IN_PROGRESS",
+  priority: "CRITICAL",
+  target_status: "OVERDUE",
+  target_at: "2026-08-31T14:00:00Z",
+  reviewer_reference: "Platform admin ••••0043",
+  approval_status: "APPROVED",
+  latest_event: "STATE_CHANGED",
+  latest_reason: "Approval received for human review.",
+  updated_at: now,
+};
+const deadLetters = ["RETRY", "DISCARD", "RESOLVE"].map((action, index) => ({
+  id: `71000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  outbox_job_id: `72000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  topic: `orders.${action.toLowerCase()}_fixture`,
+  reason_code: "provider_timeout",
+  status: "open",
+  attempt_count: 5,
+  max_attempts: 5,
+  last_error_code: "provider_timeout",
+  created_at: now,
+  updated_at: now,
+}));
+const operationalAudits = [];
+
+function operationsWorkspace() {
+  const openDeadLetters = deadLetters.filter((item) => item.status === "open");
+  return {
+    generated_at: now,
+    state:
+      openDeadLetters.length > 0 ||
+      integrationConnections.some((item) =>
+        ["ERROR", "REAUTH_REQUIRED"].includes(item.health.status),
+      )
+        ? "DEGRADED"
+        : "IDLE",
+    topics: [
+      {
+        topic: "orders.worker",
+        pending: 2,
+        processing: 0,
+        failed: openDeadLetters.length > 0 ? 1 : 0,
+        dead_letter: openDeadLetters.length,
+        oldest_pending_at: "2026-09-01T14:40:00Z",
+        state: openDeadLetters.length > 0 ? "DEGRADED" : "ACTIVE",
+        state_basis: "RECORDED_QUEUE_STATE",
+      },
+    ],
+    integrations: integrationConnections
+      .filter((item) => item.status !== "REVOKED")
+      .map((item) => ({
+        id: item.id,
+        connector_name: item.connector_name,
+        connection_status: item.status,
+        health_status: item.health.status,
+        last_health_checked_at: item.health.checked_at,
+        last_error_code: item.health.error_code,
+      })),
+    dead_letters: deadLetters,
+    dead_letter_page: 1,
+    dead_letter_has_more: false,
+    recent_audit: operationalAudits,
+    incidents: unavailableFeature(
+      "incident_detection_task_44_required",
+      "Incident detection is installed by Task 44.",
+      44,
+    ),
+    quality_gate: unavailableFeature(
+      "quality_gate_task_45_required",
+      "The Production Quality Gate is installed by Task 45.",
+      45,
+    ),
+    deployments: unavailableFeature(
+      "deployment_controls_task_47_required",
+      "Deployment promotion and rollback are installed by Task 47.",
+      47,
+    ),
+  };
+}
+
+function unavailableFeature(code, reason, ownerTask) {
+  return { available: false, code, reason, owner_task: ownerTask };
+}
+
+function usageSummary(dimension) {
+  const groups = {
+    tenant: [tenants[0].id],
+    conversation: [reviewedConversationId],
+    case: [operationalCaseId],
+    action: ["73000000-0000-4000-8000-000000000043"],
+  };
+  const group = (groups[dimension] ?? groups.tenant)[0];
+  return {
+    dimension: groups[dimension] ? dimension : "tenant",
+    groups: [
+      {
+        group,
+        currency: "USD",
+        records: 12,
+        known_cost: "12.340000000000",
+        unknown_cost_records: 0,
+        input_tokens: "1200",
+        cached_input_tokens: "300",
+        output_tokens: "240",
+        reasoning_tokens: "20",
+        requests: "8",
+        average_latency_ms: "410.5",
+        complete_cost: true,
+      },
+    ],
+    has_more: false,
+    recorded_data_only: true,
+  };
+}
+
 function capabilityAction(
   name,
   description,
@@ -1210,6 +1330,168 @@ createServer(async (request, response) => {
       return;
     }
     json(response, 200, simulatedTestRun(testRunMatch[1], body));
+    return;
+  }
+
+  const caseWorkspaceMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/case-workspace$/,
+  );
+  if (caseWorkspaceMatch && request.method === "GET") {
+    const priority = url.searchParams.get("priority");
+    const overdue = url.searchParams.get("overdue") === "true";
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const included =
+      (!priority || operationalCase.priority === priority) &&
+      (!overdue ||
+        (operationalCase.target_status === "OVERDUE" &&
+          operationalCase.status !== "RESOLVED"));
+    json(response, 200, {
+      generated_at: now,
+      cases: included ? [operationalCase] : [],
+      page,
+      limit: 25,
+      total: included ? 1 : 0,
+      has_more: false,
+    });
+    return;
+  }
+
+  const resolveCaseMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/cases\/([^/]+)\/resolve$/,
+  );
+  if (resolveCaseMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (
+      resolveCaseMatch[2] !== operationalCase.id ||
+      operationalCase.status !== "IN_PROGRESS" ||
+      body.expected_revision !== operationalCase.revision
+    ) {
+      problem(
+        response,
+        409,
+        "case_changed_requires_review",
+        "Reload the case.",
+      );
+      return;
+    }
+    operationalCase.status = "RESOLVED";
+    operationalCase.target_status = "OVERDUE";
+    operationalCase.revision += 1;
+    operationalCase.latest_event = "STATE_CHANGED";
+    operationalCase.latest_reason = body.reason;
+    operationalCase.updated_at = now;
+    json(response, 200, {
+      ...operationalCase,
+      tenant_id: resolveCaseMatch[1],
+      customer_ref: "masked-by-operational-route",
+      binding_id: "74000000-0000-4000-8000-000000000043",
+      resource_id: "order-43",
+      deduplication_key: "a".repeat(64),
+      content_digest: "b".repeat(64),
+      intake: {},
+      policy: {
+        close_after_hours: 72,
+        target_minutes: { LOW: 2880, NORMAL: 1440, HIGH: 240, CRITICAL: 30 },
+        approaching_fraction: 0.8,
+        priority_by_issue: {},
+      },
+      approaching_at: "2026-08-31T13:30:00Z",
+      resolved_at: now,
+      close_at: "2026-09-04T15:00:00Z",
+      customer_result: body.customer_result,
+      result_recorded_by: "10000000-0000-4000-8000-000000000043",
+      created_at: "2026-08-31T13:00:00Z",
+    });
+    return;
+  }
+
+  const usageSummaryMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/usage\/summary$/,
+  );
+  if (usageSummaryMatch && request.method === "GET") {
+    json(
+      response,
+      200,
+      usageSummary(url.searchParams.get("dimension") ?? "tenant"),
+    );
+    return;
+  }
+
+  const usageFreshnessMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/usage\/freshness$/,
+  );
+  if (usageFreshnessMatch && request.method === "GET") {
+    json(response, 200, {
+      generated_at: now,
+      latest_recorded_at: "2026-09-01T14:58:00Z",
+      records: 128,
+      state: "fresh",
+    });
+    return;
+  }
+
+  const usageMarginMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/usage\/margin$/,
+  );
+  if (usageMarginMatch && request.method === "GET") {
+    const revenue = Number(url.searchParams.get("revenue_amount"));
+    const variableCost = 12.34;
+    json(response, 200, {
+      currency: url.searchParams.get("currency") ?? "USD",
+      revenue: revenue.toFixed(12),
+      variable_cost: variableCost.toFixed(12),
+      gross_profit: (revenue - variableCost).toFixed(12),
+      gross_margin_percent: (
+        ((revenue - variableCost) * 100) /
+        revenue
+      ).toFixed(12),
+      reason: null,
+    });
+    return;
+  }
+
+  const operationsWorkspaceMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/operations\/workspace$/,
+  );
+  if (operationsWorkspaceMatch && request.method === "GET") {
+    json(response, 200, operationsWorkspace());
+    return;
+  }
+
+  const deadLetterActionMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/operations\/dead-letters\/([^/]+)\/actions$/,
+  );
+  if (deadLetterActionMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const item = deadLetters.find(
+      (entry) => entry.id === deadLetterActionMatch[2],
+    );
+    if (!item || item.status !== "open" || body.confirmation !== true) {
+      problem(response, 409, "dead_letter_changed", "Reload the work item.");
+      return;
+    }
+    item.status = body.action === "DISCARD" ? "discarded" : "resolved";
+    item.updated_at = now;
+    operationalAudits.unshift({
+      event_type: `job.dead_letter.${body.action.toLowerCase()}`,
+      entity_id: item.id,
+      correlation_id: `75000000-0000-4000-8000-${String(operationalAudits.length + 1).padStart(12, "0")}`,
+      occurred_at: now,
+    });
+    json(response, 200, item);
+    return;
+  }
+
+  const qualityGateMutationMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/release-controls\/quality-gate$/,
+  );
+  if (qualityGateMutationMatch && request.method === "POST") {
+    problem(
+      response,
+      409,
+      "quality_gate_task_45_required",
+      "Task 45 must install the Production Quality Gate.",
+    );
     return;
   }
 

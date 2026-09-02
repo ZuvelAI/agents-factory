@@ -1820,6 +1820,299 @@ textarea:focus-visible {
   gap: 1rem;
 }
 
+.cases-page,
+.usage-page,
+.operations-page,
+.evals-page,
+.settings-page,
+.case-list,
+.usage-workspace,
+.operations-workspace,
+.operational-section,
+.evals-workspace,
+.dlq-list,
+.audit-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.operational-filters,
+.inline-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  border: 1px solid #d7dee8;
+  border-radius: 0.8rem;
+  padding: 1rem;
+  background: white;
+}
+
+.operational-filters label,
+.inline-filter label,
+.operational-action label,
+.dlq-actions label {
+  display: grid;
+  gap: 0.35rem;
+  color: #314969;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.operational-filters select,
+.inline-filter input,
+.operational-action textarea,
+.dlq-actions textarea {
+  min-height: 2.5rem;
+  border: 1px solid #8a99ad;
+  border-radius: 0.45rem;
+  padding: 0.55rem;
+  font: inherit;
+}
+
+.confirmation-field {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+}
+
+.confirmation-field input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.data-freshness {
+  margin: 0;
+  border-left: 0.25rem solid #173c72;
+  padding: 0.75rem 1rem;
+  background: #e8eff8;
+  color: #314969;
+  line-height: 1.5;
+}
+
+.case-card,
+.operational-card,
+.dlq-card,
+.margin-panel,
+.eval-summary-card {
+  min-width: 0;
+  border: 1px solid #d7dee8;
+  border-radius: 0.8rem;
+  padding: 1.1rem;
+  background: white;
+}
+
+.case-card > header,
+.dlq-card > header,
+.operational-section > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.case-card h2,
+.operational-card h2,
+.operational-card h3,
+.dlq-card h3,
+.eval-summary-card h3 {
+  margin: 0.3rem 0;
+  color: #132b4f;
+}
+
+.status-stack,
+.operational-card-actions,
+.dlq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.case-facts,
+.margin-results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.case-facts div,
+.margin-results div {
+  min-width: 0;
+  border-radius: 0.55rem;
+  padding: 0.75rem;
+  background: #f4f6f8;
+}
+
+.case-facts dt,
+.margin-results dt {
+  color: #52647c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.case-facts dd,
+.margin-results dd {
+  overflow-wrap: anywhere;
+  margin: 0.3rem 0 0;
+}
+
+.trace-reference code,
+.dlq-card code,
+.operational-card code,
+.eval-summary-card code {
+  overflow-wrap: anywhere;
+}
+
+.operational-action,
+.dlq-actions details {
+  border-top: 1px solid #e7ebf0;
+  padding-top: 0.75rem;
+}
+
+.operational-action summary,
+.dlq-actions summary {
+  cursor: pointer;
+  color: #173c72;
+  font-weight: 750;
+}
+
+.operational-action form,
+.dlq-actions form,
+.margin-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.operational-pagination {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.operational-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operational-card > small,
+.operational-card > p,
+.dlq-card > p,
+.eval-summary-card > p {
+  color: #52647c;
+  line-height: 1.5;
+}
+
+.review-critical,
+.review-overdue,
+.review-degraded,
+.review-error,
+.review-reauth_required,
+.review-unavailable,
+.review-open {
+  background: #fbe7e9;
+  color: #8b1b2c;
+}
+
+.review-high,
+.review-active,
+.review-pending,
+.review-unknown {
+  background: #fff1d6;
+  color: #805006;
+}
+
+.review-low,
+.review-normal,
+.review-healthy,
+.review-resolved,
+.review-discarded,
+.review-idle {
+  background: #e2f4e8;
+  color: #176a37;
+}
+
+.cost-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #d7dee8;
+  border-radius: 0.8rem;
+  background: white;
+}
+
+.cost-table {
+  width: 100%;
+  min-width: 54rem;
+  border-collapse: collapse;
+}
+
+.cost-table th,
+.cost-table td {
+  border-bottom: 1px solid #e7ebf0;
+  padding: 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cost-table th {
+  color: #52647c;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.margin-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 1fr);
+  align-items: start;
+}
+
+.margin-results {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-list li {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto minmax(15rem, 1fr);
+  gap: 0.75rem;
+  border-top: 1px solid #e7ebf0;
+  padding: 0.75rem 0;
+}
+
+.audit-list code {
+  overflow-wrap: anywhere;
+}
+
+.unavailable-card {
+  border-left: 0.3rem solid #a21b2d;
+  background: #fffafb;
+}
+
+.unavailable-card button:disabled {
+  cursor: not-allowed;
+}
+
+.evals-workspace {
+  grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 0.7fr);
+  align-items: start;
+}
+
+.eval-summary-card {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.operational-empty {
+  border-radius: 0.8rem;
+}
+
 @media (max-width: 52rem) {
   .configuration-grid,
   .tenant-card-grid,
@@ -1828,7 +2121,16 @@ textarea:focus-visible {
   .test-console-workspace,
   .conversation-workspace,
   .run-summary,
-  .inspector-grid {
+  .inspector-grid,
+  .operational-grid,
+  .case-facts,
+  .margin-results,
+  .margin-panel,
+  .evals-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-list li {
     grid-template-columns: 1fr;
   }
 

@@ -1,0 +1,243 @@
+import {
+  checkOperationalIntegration,
+  mutateDeadLetter,
+  reconnectOperationalIntegration,
+} from "../../app/actions";
+import { formatTime } from "../../lib/dashboard";
+import type {
+  OperationsWorkspace as OperationsWorkspaceData,
+  UnavailableFeature,
+} from "../../lib/operations";
+
+export function OperationsWorkspace({
+  tenantId,
+  workspace,
+}: {
+  tenantId: string;
+  workspace: OperationsWorkspaceData;
+}) {
+  return (
+    <div className="operations-workspace">
+      <p className="data-freshness">
+        Generated {formatTime(workspace.generated_at)} · state {workspace.state}
+        . Worker state is based on recorded queue facts, not an unavailable
+        heartbeat claim.
+      </p>
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Queue and workers</p>
+          <h2>Recorded workload by topic</h2>
+        </header>
+        <div className="operational-grid">
+          {workspace.topics.map((topic) => (
+            <article className="operational-card" key={topic.topic}>
+              <span
+                className={`review-state review-${topic.state.toLowerCase()}`}
+              >
+                {topic.state}
+              </span>
+              <h3>{humanize(topic.topic)}</h3>
+              <dl className="case-facts">
+                <div>
+                  <dt>Pending</dt>
+                  <dd>{topic.pending}</dd>
+                </div>
+                <div>
+                  <dt>Processing</dt>
+                  <dd>{topic.processing}</dd>
+                </div>
+                <div>
+                  <dt>Failed</dt>
+                  <dd>{topic.failed}</dd>
+                </div>
+                <div>
+                  <dt>Dead letter</dt>
+                  <dd>{topic.dead_letter}</dd>
+                </div>
+              </dl>
+              <small>
+                Oldest ready work: {formatTime(topic.oldest_pending_at)}
+              </small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Tenant connections</p>
+          <h2>Integration health</h2>
+        </header>
+        <div className="operational-grid integration-operations">
+          {workspace.integrations.map((connection) => (
+            <article className="operational-card" key={connection.id}>
+              <span
+                className={`review-state review-${connection.health_status.toLowerCase()}`}
+              >
+                {humanize(connection.health_status)}
+              </span>
+              <h3>{humanize(connection.connector_name)}</h3>
+              <p>{humanize(connection.connection_status)}</p>
+              <p>
+                Last check: {formatTime(connection.last_health_checked_at)}
+                {connection.last_error_code
+                  ? ` · ${humanize(connection.last_error_code)}`
+                  : null}
+              </p>
+              <div className="operational-card-actions">
+                <form action={checkOperationalIntegration}>
+                  <input type="hidden" name="tenantId" value={tenantId} />
+                  <input
+                    type="hidden"
+                    name="connectionId"
+                    value={connection.id}
+                  />
+                  <button type="submit">Check health</button>
+                </form>
+                <form action={reconnectOperationalIntegration}>
+                  <input type="hidden" name="tenantId" value={tenantId} />
+                  <input
+                    type="hidden"
+                    name="connectionId"
+                    value={connection.id}
+                  />
+                  <button className="secondary-button" type="submit">
+                    Reconnect
+                  </button>
+                </form>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Manual intervention</p>
+          <h2>Dead-letter work</h2>
+          <p>Payloads and credentials are intentionally not exposed here.</p>
+        </header>
+        <div className="dlq-list">
+          {workspace.dead_letters.map((item) => (
+            <article className="dlq-card" key={item.id}>
+              <header>
+                <div>
+                  <h3>{humanize(item.topic)}</h3>
+                  <p>{humanize(item.reason_code)}</p>
+                </div>
+                <span className={`review-state review-${item.status}`}>
+                  {item.status}
+                </span>
+              </header>
+              <p>
+                Attempts {item.attempt_count}/{item.max_attempts} · DLQ{" "}
+                <code>{item.id}</code>
+              </p>
+              {item.status === "open" ? (
+                <div className="dlq-actions">
+                  {(["RETRY", "DISCARD", "RESOLVE"] as const).map((action) => (
+                    <details key={action}>
+                      <summary>{humanize(action)}</summary>
+                      <form action={mutateDeadLetter}>
+                        <input type="hidden" name="tenantId" value={tenantId} />
+                        <input
+                          type="hidden"
+                          name="deadLetterId"
+                          value={item.id}
+                        />
+                        <input type="hidden" name="dlqAction" value={action} />
+                        <label>
+                          Operational reason
+                          <textarea
+                            name="reason"
+                            required
+                            maxLength={500}
+                            rows={2}
+                          />
+                        </label>
+                        <label className="confirmation-field">
+                          <input
+                            name="confirmation"
+                            required
+                            type="checkbox"
+                            value="true"
+                          />
+                          I reviewed this job and confirm {action.toLowerCase()}
+                          .
+                        </label>
+                        <button type="submit">
+                          Confirm {action.toLowerCase()}
+                        </button>
+                      </form>
+                    </details>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Audit trail</p>
+          <h2>Recent supported mutations</h2>
+        </header>
+        <ol className="audit-list">
+          {workspace.recent_audit.map((event) => (
+            <li key={`${event.correlation_id}-${event.event_type}`}>
+              <strong>{humanize(event.event_type)}</strong>
+              <span>{formatTime(event.occurred_at)}</span>
+              <code>{event.correlation_id}</code>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Later release dependencies</p>
+          <h2>Fail-closed controls</h2>
+        </header>
+        <div className="operational-grid unavailable-grid">
+          <UnavailableCard title="Incidents" feature={workspace.incidents} />
+          <UnavailableCard
+            title="Quality Gate"
+            feature={workspace.quality_gate}
+          />
+          <UnavailableCard
+            title="Deployments"
+            feature={workspace.deployments}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function UnavailableCard({
+  title,
+  feature,
+}: {
+  title: string;
+  feature: UnavailableFeature;
+}) {
+  return (
+    <article className="operational-card unavailable-card">
+      <span className="review-state review-unavailable">Unavailable</span>
+      <h3>{title}</h3>
+      <p>{feature.reason}</p>
+      <code>{feature.code}</code>
+      <button disabled type="button">
+        {title} action unavailable
+      </button>
+    </article>
+  );
+}
+
+function humanize(value: string): string {
+  return value
+    .toLowerCase()
+    .replaceAll(/[._]/g, " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}

@@ -1,12 +1,22 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import AwareDatetime, Field
+from sqlalchemy import text
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal, PlatformAdmin
-from agents_factory.modules.usage.aggregates import Dimension, UsageSummary, summarize
-from agents_factory.modules.usage.models import UsageConfiguration, UsageModel
+from agents_factory.modules.usage.aggregates import (
+    Dimension,
+    MarginEstimate,
+    UsageSummary,
+    estimate_margin,
+    summarize,
+)
+from agents_factory.modules.usage.models import Money, UsageConfiguration, UsageModel
 from agents_factory.modules.usage.recorder import UsageConflict, UsageRecorder
 from agents_factory.modules.usage.alerts import UsageAlertPage, list_alerts
 
@@ -24,6 +34,13 @@ class ConfigurationView(UsageModel):
 class ConfigureUsage(UsageModel):
     configuration: UsageConfiguration
     expected_revision: int = Field(ge=0)
+
+
+class UsageFreshness(UsageModel):
+    generated_at: datetime
+    latest_recorded_at: datetime | None
+    records: int = Field(ge=0)
+    state: Literal["fresh", "stale", "empty"]
 
 
 def _context(
@@ -106,3 +123,66 @@ async def alerts(
             return await list_alerts(session, before=before, limit=limit)
     except ValueError:
         raise HTTPException(status_code=422, detail="invalid_alert_query") from None
+
+
+@router.get("/freshness")
+async def freshness(
+    tenant_id: UUID, request: Request, principal: PlatformAdmin
+) -> UsageFreshness:
+    generated_at = datetime.now(UTC)
+    async with _service(request).transaction(
+        _context(request, principal, tenant_id)
+    ) as session:
+        row = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) AS records,max(recorded_at) AS latest "
+                        "FROM public.usage_records WHERE tenant_id=:tenant"
+                    ),
+                    {"tenant": tenant_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    latest = row["latest"]
+    return UsageFreshness(
+        generated_at=generated_at,
+        latest_recorded_at=latest,
+        records=row["records"],
+        state=(
+            "empty"
+            if latest is None
+            else "fresh"
+            if (generated_at - latest).total_seconds() <= 86_400
+            else "stale"
+        ),
+    )
+
+
+@router.get("/margin")
+async def margin(
+    tenant_id: UUID,
+    start: AwareDatetime,
+    end: AwareDatetime,
+    revenue_amount: Decimal,
+    currency: str,
+    request: Request,
+    principal: PlatformAdmin,
+) -> MarginEstimate:
+    try:
+        report = await summarize(
+            _service(request),
+            context=_context(request, principal, tenant_id),
+            start=start,
+            end=end,
+            dimension="tenant",
+        )
+        if report.has_more:
+            raise ValueError("incomplete_margin_report")
+        return estimate_margin(
+            Money(amount=revenue_amount, currency=currency), report.groups
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid_margin_report") from exc
