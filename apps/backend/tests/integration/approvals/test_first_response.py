@@ -18,9 +18,9 @@ from scheduler.approval_jobs import configure_approval_jobs
 
 
 async def test_first_response_is_atomic_and_execution_is_only_outboxed(
-    order_world,
-    caplog,  # noqa: F811
-):  # noqa: F811
+    order_world,  # noqa: F811
+    caplog,
+):
     world = order_world
     h = await ApprovalHarness.create(world)
     action, request = await h.request()
