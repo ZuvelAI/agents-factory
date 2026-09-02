@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from apps.backend.tests.approval_execution_support import approved
 from apps.backend.tests.approval_support import EMAILS
+from apps.backend.tests.handoff_support import HandoffHarness
 from apps.backend.tests.integration.capabilities.test_orders import order_world  # noqa: F401
 from agent_worker.approval_jobs import configure_approval_execution
 from agents_factory.common.queue import JobEnvelope, OutboxDispatcher
@@ -25,18 +26,15 @@ from agents_factory.modules.whatsapp.template_service import (
 async def test_result_delivery_and_human_hold(order_world):  # noqa: F811
     w = order_world
     h, action, service, _ = await approved(w)
+    handoff = await HandoffHarness.create(w.sessions, w.context, w.conversation)
+    handoff_record = await handoff.request()
+    await handoff.human_event(handoff_record)
     async with w.sessions.begin() as session:
         job_id = await session.scalar(
             text("SELECT id FROM public.outbox_jobs WHERE topic='approvals.execute'")
         )
         account = await session.scalar(
             text("SELECT whatsapp_account_id FROM public.conversations WHERE id=:id"),
-            {"id": w.conversation},
-        )
-        await session.execute(
-            text(
-                "UPDATE public.conversations SET control_state='HUMAN_ACTIVE',state_version=state_version+1 WHERE id=:id"
-            ),
             {"id": w.conversation},
         )
     await TemplateService(session_factory=w.sessions, context=w.context).sync(
@@ -83,12 +81,8 @@ async def test_result_delivery_and_human_hold(order_world):  # noqa: F811
                 "SELECT available_at>now() AND attempt_count=0 FROM public.outbox_jobs WHERE topic='approvals.result.held'"
             )
         )
-        await session.execute(
-            text(
-                "UPDATE public.conversations SET control_state='AI_ACTIVE',state_version=state_version+1 WHERE id=:id"
-            ),
-            {"id": w.conversation},
-        )
+    await handoff.human_event(handoff_record, kind="END", sequence=1)
+    async with w.sessions.begin() as session:
         # Advance the hold's eligibility without sleeping or rerunning other jobs.
         await session.execute(
             text(

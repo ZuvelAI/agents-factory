@@ -220,6 +220,7 @@ async def claims_world(order_world, tmp_path):  # noqa: F811
     storage_key, digest = await media.storage.put(
         tenant_id=tenant, media_id=evidence_id, content=original
     )
+    stored_at = datetime.now(UTC)
     async with base.sessions.begin() as session:
         await session.execute(
             text(
@@ -249,10 +250,11 @@ async def claims_world(order_world, tmp_path):  # noqa: F811
             storage_key=storage_key,
             media_type="video/mp4",
             byte_size=len(original),
+            stored_at=stored_at,
             status="HUMAN_REVIEW",
             scan_status="CLEAN",
-            created_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC) + timedelta(days=1),
+            created_at=stored_at,
+            expires_at=stored_at + timedelta(days=1),
         ),
     )
     google, ledger, cases = (

@@ -14,6 +14,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from apps.backend.tests.media_support import MediaProvider, Scanner
+from apps.backend.tests.handoff_support import activate_verified_handoff
 from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal, require_platform_admin
 from agents_factory.common.queue import JobEnvelope
@@ -279,14 +280,9 @@ async def test_quarantine_corruption_crash_and_human_control_ingest(media_world)
     world.scanner.result = "CLEAN"
     world.provider.files["5"] = world.provider.files["1"]
     event_id = uuid4()
+    await activate_verified_handoff(world.sessions, context, world.conversation)
     async with world.sessions.begin() as session:
         await set_tenant_context(session, context.tenant_id)
-        await session.execute(
-            text(
-                "UPDATE public.conversations SET control_state='HUMAN_ACTIVE' WHERE id=:id"
-            ),
-            {"id": world.conversation},
-        )
         await session.execute(
             text(
                 "INSERT INTO public.whatsapp_webhook_events(id,tenant_id,whatsapp_account_id,whatsapp_message_id,sender_wa_id,message_type,provider_timestamp,raw_payload,normalized_content) VALUES (:id,:tenant,:account,:provider,'573000000027','image',now(),'{}','{\"id\":\"5\"}')"
