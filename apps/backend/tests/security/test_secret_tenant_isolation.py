@@ -83,7 +83,8 @@ async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
     await connection.execute(
         text(
             "TRUNCATE TABLE public.secret_envelopes, public.audit_events, "
-            "public.tenants CASCADE"
+            "public.agent_spec_deployments, public.agent_spec_versions, "
+            "public.agent_instances, public.tenants CASCADE"
         )
     )
     for statement in (
