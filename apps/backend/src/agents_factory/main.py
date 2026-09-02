@@ -30,6 +30,9 @@ from agents_factory.modules.approvals.service import ApprovalService
 from agents_factory.modules.approvals.rate_limit import RedisApprovalRateLimiter
 from agents_factory.modules.cases.router import router as admin_case_router
 from agents_factory.modules.cases.service import CaseService
+from agents_factory.modules.conversations.admin import (
+    router as admin_conversation_router,
+)
 from agents_factory.modules.handoffs.router import router as admin_handoff_router
 from agents_factory.modules.handoffs.service import HandoffService
 from agents_factory.modules.handoffs.surfaces import HumanSurfaceRegistry
@@ -208,6 +211,7 @@ def create_app(
     application.include_router(admin_approval_router)
     application.include_router(public_approval_router)
     application.include_router(admin_case_router)
+    application.include_router(admin_conversation_router)
     application.include_router(admin_handoff_router)
     application.include_router(admin_usage_router)
     application.include_router(admin_agent_spec_router)

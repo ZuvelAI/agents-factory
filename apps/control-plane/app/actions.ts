@@ -11,6 +11,7 @@ import {
 } from "../lib/auth";
 import { BackendProblem, callAuthenticatedBackend } from "../lib/api";
 import type { Tenant } from "../lib/tenant";
+import type { TestMode, TestRunInspector } from "../lib/conversations";
 
 export async function login(formData: FormData): Promise<void> {
   const email = formData.get("email");
@@ -402,6 +403,99 @@ export async function configureHandoff(formData: FormData): Promise<void> {
   }
   revalidatePath(`/tenants/${tenantId}`);
   redirect(`/tenants/${tenantId}/integrations?saved=handoff`);
+}
+
+export async function runTestConsole(input: {
+  tenantId: string;
+  mode: TestMode;
+  message: string;
+}): Promise<
+  { ok: true; data: TestRunInspector } | { ok: false; message: string }
+> {
+  try {
+    const data = await callAuthenticatedBackend<TestRunInspector>(
+      `/admin/tenants/${encodeURIComponent(input.tenantId)}/test-console/runs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: input.mode,
+          message: input.message.trim(),
+        }),
+      },
+    );
+    return { ok: true, data };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof BackendProblem &&
+        error.code === "real_test_environment_required"
+          ? "A dedicated test tenant and provider accounts are required."
+          : "The test run could not be completed.",
+    };
+  }
+}
+
+export async function saveConversationReview(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const conversationId = requiredValue(formData, "conversationId");
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/conversations/${encodeURIComponent(conversationId)}/review`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_revision: Number(requiredValue(formData, "revision")),
+          categories: formData
+            .getAll("categories")
+            .filter((value): value is string => typeof value === "string"),
+          labels: formData
+            .getAll("labels")
+            .filter((value): value is string => typeof value === "string"),
+          note: optionalValue(formData, "note"),
+        }),
+      },
+    );
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/conversations?conversation=${conversationId}&error=${actionError(error, "conversation_review_stale")}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}/conversations`);
+  redirect(
+    `/tenants/${tenantId}/conversations?conversation=${conversationId}&saved=review`,
+  );
+}
+
+export async function exportConversationEvalDraft(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = requiredValue(formData, "tenantId");
+  const conversationId = requiredValue(formData, "conversationId");
+  let draftId: string;
+  try {
+    const draft = await callAuthenticatedBackend<{ id: string }>(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/conversations/${encodeURIComponent(conversationId)}/eval-drafts`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: requiredValue(formData, "reason") }),
+      },
+    );
+    draftId = draft.id;
+  } catch (error) {
+    redirect(
+      `/tenants/${tenantId}/conversations?conversation=${conversationId}&error=${actionError(error)}`,
+    );
+  }
+  revalidatePath(`/tenants/${tenantId}/conversations`);
+  redirect(
+    `/tenants/${tenantId}/conversations?conversation=${conversationId}&saved=eval&draft=${draftId}`,
+  );
 }
 
 export async function createKnowledgeSource(formData: FormData): Promise<void> {

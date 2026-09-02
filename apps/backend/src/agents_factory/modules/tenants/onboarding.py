@@ -232,7 +232,7 @@ STEP_DEFINITIONS = (
         ("Current AgentSpec in Test", "Exact knowledge digest"),
         ("No newer Draft exists after the tested version.",),
         "Review test candidate",
-        "/agent",
+        "/test-console",
         "MS7 test checkpoint",
         "docs/implementation/ms7-progress.md",
     ),

@@ -14,6 +14,7 @@ const tabs = [
   ["Integrations", "/integrations"],
   ["Knowledge", "/knowledge"],
   ["Conversations", "/conversations"],
+  ["Test Console", "/test-console"],
   ["Cases", "/cases"],
   ["Usage", "/usage"],
   ["Settings", "/settings"],

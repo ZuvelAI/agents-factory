@@ -24,6 +24,7 @@ let calendarHealthAttempts = 0;
 let onboardingConfigurationChanged = false;
 let knowledgeEmbeddingsReady = false;
 let knowledgeSequence = 10;
+const productionConnectorCalls = 0;
 
 const knowledgeWorkspace = {
   sources: [
@@ -195,6 +196,137 @@ function knowledgeVersion(number, state, digest, candidateDigest) {
   };
 }
 
+const reviewedConversationId = "60000000-0000-4000-8000-000000000001";
+const conversationCategories = [
+  "AI_RESOLVED",
+  "HUMAN_HANDOFF",
+  "TOOL_FAILURE",
+  "POLICY_VIOLATION",
+  "COMPLAINT",
+  "HIGH_COST",
+  "FLAGGED",
+];
+const conversationLabels = [
+  "CORRECT",
+  "INCORRECT",
+  "UNSAFE",
+  "KNOWLEDGE_PROBLEM",
+  "INTEGRATION_PROBLEM",
+  "MODEL_REASONING_PROBLEM",
+];
+const conversationReviewState = {
+  id: "61000000-0000-4000-8000-000000000001",
+  conversation_id: reviewedConversationId,
+  revision: 1,
+  categories: [...conversationCategories],
+  labels: ["INCORRECT"],
+  note: "Order cancellation response needs review.",
+  reviewed_by_admin_id: "10000000-0000-4000-8000-000000000001",
+  updated_at: now,
+};
+const evalCaseDrafts = [];
+const conversationMessages = [
+  {
+    id: "62000000-0000-4000-8000-000000000001",
+    direction: "inbound",
+    sender_type: "customer",
+    message_type: "text",
+    text: "Cancel order 1042 and email me at customer@example.test.",
+    occurred_at: now,
+    agent_spec_id: null,
+    agent_spec_version: null,
+    runtime_metadata: {},
+  },
+  {
+    id: "62000000-0000-4000-8000-000000000002",
+    direction: "outbound",
+    sender_type: "ai",
+    message_type: "text",
+    text: "Your cancellation request was submitted for review.",
+    occurred_at: now,
+    agent_spec_id: "30000000-0000-4000-8000-000000000039",
+    agent_spec_version: "7",
+    runtime_metadata: {
+      agent_spec_digest: "9".repeat(64),
+      model: "gpt-5.6-luna",
+      tool_calls: [
+        {
+          tool_name: "orders.request_order_cancellation",
+          arguments: { order_reference: "[anonymized]" },
+          output: { status: "review_required" },
+        },
+      ],
+      usage: { total_tokens: 84 },
+    },
+  },
+];
+
+function conversationWorkspace(category) {
+  const included =
+    !category || conversationReviewState.categories.includes(category);
+  return {
+    conversations: included
+      ? [
+          {
+            id: reviewedConversationId,
+            customer_reference: "Customer ••••4242",
+            control_state: "AI_ACTIVE",
+            message_count: conversationMessages.length,
+            opened_at: now,
+            latest_message_at: now,
+            review: conversationReviewState,
+          },
+        ]
+      : [],
+    eval_drafts: evalCaseDrafts,
+    categories: conversationCategories,
+    labels: conversationLabels,
+  };
+}
+
+function simulatedTestRun(tenantId, body) {
+  return {
+    id: "63000000-0000-4000-8000-000000000001",
+    tenant_id: tenantId,
+    mode: body.mode,
+    simulated: true,
+    response:
+      "Simulated response: the cancellation request was recorded without calling Production.",
+    agent_spec: { id: "agent-test", digest: "9".repeat(64), state: "DRAFT" },
+    knowledge: { id: "knowledge-test", digest: "b".repeat(64), state: "TEST" },
+    intent: "request_order_cancellation",
+    capability: "orders",
+    identity: { required_level: 2, status: "SIMULATED_VERIFIED" },
+    tools: [
+      {
+        name: "orders.request_order_cancellation",
+        status: "SIMULATED",
+        arguments: { fixture: "sandbox" },
+        result: { ok: true, external_effect: false },
+      },
+    ],
+    sources: [
+      { knowledge_version_id: "knowledge-test", authority: "TEST_FIXTURE" },
+    ],
+    action: {
+      name: "orders.request_order_cancellation",
+      status: "SIMULATED",
+      external_effect: false,
+    },
+    approval: { required: true, status: "SIMULATED" },
+    usage: {
+      model_tokens: 24,
+      messages: 2,
+      external_requests: 0,
+      tool_calls: 1,
+      cost: { amount: "0.000000", currency: "USD", kind: "SIMULATED" },
+    },
+    latency_ms: 1,
+    trace_id: "64000000-0000-4000-8000-000000000001",
+    created_at: now,
+  };
+}
+
 const capabilityManifests = [
   {
     stable_name: "appointments",
@@ -327,7 +459,7 @@ const onboardingSteps = [
   ["human-operations", "Human Operations", "/settings"],
   ["approval-routes", "Approval Routes", "/capabilities"],
   ["whatsapp", "WhatsApp", "/whatsapp"],
-  ["test", "Test", "/agent"],
+  ["test", "Test", "/test-console"],
   ["quality-gate", "Quality Gate", "/agent"],
   ["production", "Production", "/agent"],
 ];
@@ -618,6 +750,13 @@ createServer(async (request, response) => {
   ) {
     onboardingConfigurationChanged = true;
     json(response, 204, null);
+    return;
+  }
+  if (
+    request.method === "GET" &&
+    url.pathname === "/__test/production-call-count"
+  ) {
+    json(response, 200, { calls: productionConnectorCalls });
     return;
   }
   if (!request.headers.authorization?.startsWith("Bearer ")) {
@@ -936,6 +1075,141 @@ createServer(async (request, response) => {
       "production_quality_gate_required",
       "Production requires the full Task 45 Quality Gate for the exact Knowledge digest.",
     );
+    return;
+  }
+
+  const conversationWorkspaceMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/conversations\/review-workspace$/,
+  );
+  if (conversationWorkspaceMatch && request.method === "GET") {
+    json(
+      response,
+      200,
+      conversationWorkspace(url.searchParams.get("category")),
+    );
+    return;
+  }
+
+  const conversationDetailMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/conversations\/([^/]+)\/review-detail$/,
+  );
+  if (conversationDetailMatch && request.method === "GET") {
+    if (conversationDetailMatch[2] !== reviewedConversationId) {
+      json(response, 404, { error: "not_found" });
+      return;
+    }
+    json(response, 200, {
+      conversation: conversationWorkspace(null).conversations[0],
+      messages: conversationMessages,
+    });
+    return;
+  }
+
+  const conversationReviewMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/conversations\/([^/]+)\/review$/,
+  );
+  if (conversationReviewMatch && request.method === "PUT") {
+    const body = await readJson(request);
+    if (body.expected_revision !== conversationReviewState.revision) {
+      problem(
+        response,
+        409,
+        "conversation_review_stale",
+        "Reload before saving.",
+      );
+      return;
+    }
+    conversationReviewState.revision += 1;
+    conversationReviewState.categories = body.categories;
+    conversationReviewState.labels = body.labels;
+    conversationReviewState.note = body.note;
+    json(response, 200, conversationReviewState);
+    return;
+  }
+
+  const evalDraftMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/conversations\/([^/]+)\/eval-drafts$/,
+  );
+  if (evalDraftMatch && request.method === "POST") {
+    await readJson(request);
+    const id = `65000000-0000-4000-8000-${String(evalCaseDrafts.length + 1).padStart(12, "0")}`;
+    const toolName = "orders.request_order_cancellation";
+    const draft = {
+      id,
+      conversation_id: evalDraftMatch[2],
+      case_id: `review-${id.replaceAll("-", "").slice(0, 20)}`,
+      schema_version: 1,
+      payload: {
+        schema_version: 1,
+        case_id: `review-${id.replaceAll("-", "").slice(0, 20)}`,
+        input_turn: {
+          message: "Cancel order 1042 and email me at [email].",
+          active_capabilities: ["orders"],
+          permitted_tools: [toolName],
+          relevant_capabilities: ["orders"],
+        },
+        fixture_setup: {
+          fake_outputs: [conversationMessages[1].text],
+          tools: [
+            {
+              name: toolName,
+              capability: "orders",
+              description: "Sanitized conversation review fixture.",
+              input_schema: { type: "object", properties: {} },
+              active: true,
+            },
+          ],
+        },
+        expected: {
+          response_required: true,
+          selected_tools: [toolName],
+          persisted_result: true,
+          credentials_absent: true,
+        },
+        graders: [
+          "response_exists",
+          "selected_tools",
+          "persisted_result",
+          "credentials_absent",
+        ],
+        tags: ["conversation-review", "incorrect"],
+      },
+      status: "DRAFT",
+      created_at: now,
+    };
+    evalCaseDrafts.unshift(draft);
+    json(response, 201, draft);
+    return;
+  }
+
+  const testReadinessMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/test-console\/readiness$/,
+  );
+  if (testReadinessMatch && request.method === "GET") {
+    json(response, 200, {
+      sandbox_available: true,
+      real_test_available: false,
+      real_test_reason:
+        "A dedicated test tenant and provider accounts have not been configured.",
+    });
+    return;
+  }
+
+  const testRunMatch = url.pathname.match(
+    /^\/admin\/tenants\/([^/]+)\/test-console\/runs$/,
+  );
+  if (testRunMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (body.mode === "REAL_TEST_ENVIRONMENT") {
+      problem(
+        response,
+        409,
+        "real_test_environment_required",
+        "Dedicated test accounts are required.",
+      );
+      return;
+    }
+    json(response, 200, simulatedTestRun(testRunMatch[1], body));
     return;
   }
 

@@ -487,3 +487,39 @@ Task 41 is complete at this checkpoint. Next: Task 42, the safe conversation Tes
 Console and review/learning UX. Live provider credentials and production validation
 remain deferred as approved; Task 36 infrastructure telemetry remains deferred to
 Task 47.
+
+## Task 42 — safe Test Console and conversation review checkpoint
+
+- Added tenant and global entry points for the Test Console. Sandbox runs resolve the
+  latest Agent Draft and Knowledge Test candidate, classify the request and expose
+  the exact AgentSpec/Knowledge digests, intent, capability, identity, simulated
+  tools and sources, action, approval, usage/cost, latency and trace evidence.
+- Sandbox uses deterministic fake executors and reports zero external requests and
+  no external effect. A cancellation fixture records the simulated intent without
+  invoking a Production connector. `REAL_TEST_ENVIRONMENT` fails closed until a
+  dedicated test tenant and provider accounts are configured; live credentials and
+  provider validation remain deferred as approved.
+- Replaced the Conversations placeholders with tenant-scoped timelines, attributable
+  runtime traces and every approved review filter: AI resolved, human handoff, tool
+  failure, policy violation, complaint, high-cost and flagged conversations.
+- Added optimistic, human-owned review records for the approved outcome labels:
+  correct, incorrect, unsafe, knowledge problem, integration problem and model
+  reasoning problem. Customer numbers are masked in overview lists and no secret
+  values are exposed by the inspector.
+- Added minimized, anonymized, immutable Eval Runner v0 Draft exports with schema
+  version, exact source digests, selected capabilities/tools and credential-absence
+  evidence. These remain review drafts only; Task 45 still owns persistent learning-
+  loop registration, regression-suite membership and Production Quality Gate proof.
+- Added and locally applied migration
+  `20260902120000_conversation_review_console.sql`, including FORCE RLS,
+  least-privilege admin policies and immutable eval drafts.
+
+The two new consolidated Playwright scenarios passed: one verifies the complete
+Sandbox inspector, blocked Real Test mode and zero Production calls; the other
+verifies every filter/label plus a schema-valid anonymized export. Targeted Ruff,
+mypy, Prettier, ESLint and TypeScript checks passed. No previous test suite, live
+provider check or credential setup was repeated.
+
+Task 42 is complete at this checkpoint. Next: Task 43, the Cases, Usage & Costs,
+Operations, Evals and Settings operational workspaces. Quality Gate, Production and
+measured infrastructure allocation retain their approved later-task dependencies.
