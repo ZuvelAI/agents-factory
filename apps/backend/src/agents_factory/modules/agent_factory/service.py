@@ -134,9 +134,7 @@ class AgentSpecLifecycleService:
                     reference.name for reference in latest.configuration.capabilities
                 ),
                 language=language,
-                handoff_enabled=(
-                    latest.configuration.human_operations.handoff_enabled
-                ),
+                handoff_enabled=(latest.configuration.human_operations.handoff_enabled),
                 handoff_surface_available=(
                     latest.configuration.human_operations.handoff_surface_available
                 ),

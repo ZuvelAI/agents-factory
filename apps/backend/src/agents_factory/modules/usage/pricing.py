@@ -10,11 +10,7 @@ def quote_usage(
         return CostQuote(
             currency=event.currency, amount=event.provider_cost.amount, basis="provider"
         ), None
-    if (
-        event.kind == "whatsapp"
-        and event.whatsapp
-        and event.whatsapp.billable is False
-    ):
+    if event.kind == "whatsapp" and event.whatsapp and event.whatsapp.billable is False:
         return CostQuote(
             currency=event.currency, amount=Decimal(0), basis="provider"
         ), None
