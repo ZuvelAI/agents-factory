@@ -60,7 +60,7 @@ def external_request_usage(
     product: str,
     execution_id: UUID,
 ) -> Iterator[None]:
-    token = _scope.set(
+    reset_handle = _scope.set(
         _ExternalRequestScope(
             recorder=recorder,
             session=session,
@@ -73,7 +73,7 @@ def external_request_usage(
     try:
         yield
     finally:
-        _scope.reset(token)
+        _scope.reset(reset_handle)
 
 
 async def record_external_request(

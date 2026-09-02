@@ -1,5 +1,41 @@
 {
   "$defs": {
+    "ActionPolicyOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "pattern": "[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+",
+          "title": "Action",
+          "type": "string"
+        },
+        "identity_level": {
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "title": "Identity Level",
+          "type": "integer"
+        },
+        "confirmation_required": {
+          "title": "Confirmation Required",
+          "type": "boolean"
+        },
+        "approval_required": {
+          "title": "Approval Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "identity_level",
+        "confirmation_required",
+        "approval_required"
+      ],
+      "title": "ActionPolicyOverride",
+      "type": "object"
+    },
     "AgentModelConfiguration": {
       "additionalProperties": false,
       "properties": {
@@ -50,8 +86,14 @@
     "AgentSpecConfiguration": {
       "additionalProperties": false,
       "properties": {
-        "approval_routes": {
-          "$ref": "#/$defs/VersionReference"
+        "product_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Product Version",
+          "type": "string"
+        },
+        "persona": {
+          "$ref": "#/$defs/PersonaConfiguration"
         },
         "capabilities": {
           "default": [],
@@ -59,41 +101,6 @@
             "$ref": "#/$defs/VersionReference"
           },
           "title": "Capabilities",
-          "type": "array"
-        },
-        "code_digest": {
-          "title": "Code Digest",
-          "type": "string"
-        },
-        "connector_bindings": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ConnectorBinding"
-          },
-          "title": "Connector Bindings",
-          "type": "array"
-        },
-        "human_operations": {
-          "$ref": "#/$defs/HumanOperationsConfiguration"
-        },
-        "identity_policy": {
-          "$ref": "#/$defs/VersionReference"
-        },
-        "knowledge": {
-          "$ref": "#/$defs/VersionedDigestReference"
-        },
-        "language": {
-          "$ref": "#/$defs/LanguagePolicy"
-        },
-        "model": {
-          "$ref": "#/$defs/AgentModelConfiguration"
-        },
-        "permitted_actions": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Permitted Actions",
           "type": "array"
         },
         "permitted_tools": {
@@ -104,20 +111,57 @@
           "title": "Permitted Tools",
           "type": "array"
         },
-        "persona": {
-          "$ref": "#/$defs/PersonaConfiguration"
+        "permitted_actions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Permitted Actions",
+          "type": "array"
+        },
+        "connector_bindings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConnectorBinding"
+          },
+          "title": "Connector Bindings",
+          "type": "array"
+        },
+        "action_policies": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ActionPolicyOverride"
+          },
+          "title": "Action Policies",
+          "type": "array"
         },
         "policy": {
           "$ref": "#/$defs/VersionReference"
         },
-        "product_version": {
-          "maxLength": 100,
-          "minLength": 1,
-          "title": "Product Version",
-          "type": "string"
+        "identity_policy": {
+          "$ref": "#/$defs/VersionReference"
+        },
+        "approval_routes": {
+          "$ref": "#/$defs/VersionReference"
+        },
+        "knowledge": {
+          "$ref": "#/$defs/VersionedDigestReference"
+        },
+        "model": {
+          "$ref": "#/$defs/AgentModelConfiguration"
+        },
+        "language": {
+          "$ref": "#/$defs/LanguagePolicy"
+        },
+        "human_operations": {
+          "$ref": "#/$defs/HumanOperationsConfiguration"
         },
         "runtime_limits": {
           "$ref": "#/$defs/AgentRuntimeLimits"
+        },
+        "code_digest": {
+          "title": "Code Digest",
+          "type": "string"
         }
       },
       "required": [
@@ -173,13 +217,10 @@
     "HumanOperationsConfiguration": {
       "additionalProperties": false,
       "properties": {
-        "awaiting_human_policy": {
-          "default": "SILENT",
-          "enum": [
-            "SILENT",
-            "ACKNOWLEDGE"
-          ],
-          "title": "Awaiting Human Policy",
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
           "type": "string"
         },
         "handoff_enabled": {
@@ -192,10 +233,13 @@
           "title": "Handoff Surface Available",
           "type": "boolean"
         },
-        "version": {
-          "maxLength": 100,
-          "minLength": 1,
-          "title": "Version",
+        "awaiting_human_policy": {
+          "default": "SILENT",
+          "enum": [
+            "SILENT",
+            "ACKNOWLEDGE"
+          ],
+          "title": "Awaiting Human Policy",
           "type": "string"
         }
       },
@@ -208,31 +252,29 @@
     "LanguagePolicy": {
       "additionalProperties": false,
       "properties": {
-        "default_locale": {
-          "const": "es-CO",
-          "default": "es-CO",
-          "title": "Default Locale",
-          "type": "string"
-        },
         "supported_locales": {
           "default": [
             "es-CO",
             "en-US"
           ],
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "const": "es-CO",
-              "type": "string"
-            },
-            {
-              "const": "en-US",
-              "type": "string"
-            }
-          ],
+          "items": {
+            "enum": [
+              "es-CO",
+              "en-US"
+            ],
+            "type": "string"
+          },
           "title": "Supported Locales",
           "type": "array"
+        },
+        "default_locale": {
+          "default": "es-CO",
+          "enum": [
+            "es-CO",
+            "en-US"
+          ],
+          "title": "Default Locale",
+          "type": "string"
         }
       },
       "title": "LanguagePolicy",
@@ -241,6 +283,12 @@
     "PersonaConfiguration": {
       "additionalProperties": false,
       "properties": {
+        "version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
         "business_name": {
           "default": "Configured Business",
           "maxLength": 200,
@@ -254,10 +302,48 @@
           "title": "Instructions",
           "type": "string"
         },
-        "version": {
-          "maxLength": 100,
+        "agent_name": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Name"
+        },
+        "tone": {
+          "default": "Cercano y claro",
+          "maxLength": 120,
           "minLength": 1,
-          "title": "Version",
+          "title": "Tone",
+          "type": "string"
+        },
+        "formality": {
+          "default": "Neutral",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Formality",
+          "type": "string"
+        },
+        "brand_vocabulary": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Brand Vocabulary",
+          "type": "array"
+        },
+        "greeting": {
+          "default": "\u00a1Hola! \u00bfEn qu\u00e9 puedo ayudarte?",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Greeting",
           "type": "string"
         }
       },
@@ -294,10 +380,6 @@
     "VersionedDigestReference": {
       "additionalProperties": false,
       "properties": {
-        "digest": {
-          "title": "Digest",
-          "type": "string"
-        },
         "name": {
           "maxLength": 120,
           "minLength": 1,
@@ -308,6 +390,10 @@
           "maxLength": 100,
           "minLength": 1,
           "title": "Version",
+          "type": "string"
+        },
+        "digest": {
+          "title": "Digest",
           "type": "string"
         }
       },
@@ -322,20 +408,6 @@
   },
   "additionalProperties": false,
   "properties": {
-    "agent_instance_id": {
-      "format": "uuid",
-      "title": "Agent Instance Id",
-      "type": "string"
-    },
-    "configuration": {
-      "$ref": "#/$defs/AgentSpecConfiguration"
-    },
-    "product": {
-      "const": "Agent Customer Service",
-      "default": "Agent Customer Service",
-      "title": "Product",
-      "type": "string"
-    },
     "schema_version": {
       "const": "1.0",
       "default": "1.0",
@@ -347,6 +419,11 @@
       "title": "Tenant Id",
       "type": "string"
     },
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
     "version_id": {
       "format": "uuid",
       "title": "Version Id",
@@ -356,6 +433,15 @@
       "minimum": 1,
       "title": "Version Number",
       "type": "integer"
+    },
+    "product": {
+      "const": "Agent Customer Service",
+      "default": "Agent Customer Service",
+      "title": "Product",
+      "type": "string"
+    },
+    "configuration": {
+      "$ref": "#/$defs/AgentSpecConfiguration"
     }
   },
   "required": [

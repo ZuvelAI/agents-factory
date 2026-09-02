@@ -67,6 +67,7 @@ async def test_multibinding_manifest_and_queue_reconciliation_guards():
             connector_bindings=bindings,
             permitted_tools=(SUBMIT, STATUS),
             permitted_actions=(),
+            action_policies=(),
         )
     )
     service.validate_agent_spec(spec)

@@ -11,6 +11,7 @@ from agents_factory.common.context import TenantContext
 from agents_factory.common.security import AdminPrincipal
 from agents_factory.modules.integrations.meta_bridge import MetaConnectionBridge
 from agents_factory.modules.integrations.oauth import ProviderRegistry
+from agents_factory.modules.integrations.registry import V1_CONNECTOR_CATALOG
 from agents_factory.modules.integrations import router as catalog_router
 from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountService,
@@ -72,7 +73,13 @@ async def test_catalog_reuses_meta_accounts_without_enabling_unimplemented_adapt
         "google_drive",
         "google_sheets",
         "woocommerce",
-        "generic_rest_api",
     ):
         assert not entries[name].available
-        assert entries[name].supported_operations == ()
+        assert entries[name].availability == "SETUP_REQUIRED"
+        assert (
+            entries[name].supported_operations
+            == V1_CONNECTOR_CATALOG.get(name, "1.0.0").supported_operations
+        )
+    assert not entries["generic_rest_api"].available
+    assert entries["generic_rest_api"].availability == "COMING_LATER"
+    assert entries["generic_rest_api"].supported_operations == ()
