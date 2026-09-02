@@ -9,6 +9,8 @@ from apps.backend.tests.handoff_support import HandoffHarness
 from apps.backend.tests.integration.capabilities.test_orders import order_world  # noqa: F401
 from agent_worker.approval_jobs import configure_approval_execution
 from agents_factory.common.queue import JobEnvelope, OutboxDispatcher
+from agents_factory.modules.conversations.models import AwaitingHumanPolicy
+from agents_factory.modules.conversations.service import ConversationService
 from agents_factory.modules.whatsapp.contracts import (
     ProviderMessageResult,
     WhatsAppDeliveryStatusEvent,
@@ -82,6 +84,32 @@ async def test_result_delivery_and_human_hold(order_world):  # noqa: F811
             )
         )
     await handoff.human_event(handoff_record, kind="END", sequence=1)
+    inbound_event_id = uuid4()
+    async with w.sessions.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_webhook_events "
+                "(id,tenant_id,whatsapp_account_id,whatsapp_message_id,"
+                "sender_wa_id,message_type,provider_timestamp,raw_payload,"
+                "normalized_content) VALUES "
+                "(:id,:tenant,:account,:provider,'573000000026','text',now(),"
+                "'{}','{\"text\":\"Continuar\"}')"
+            ),
+            {
+                "id": inbound_event_id,
+                "tenant": w.context.tenant_id,
+                "account": account,
+                "provider": str(inbound_event_id),
+            },
+        )
+    async with w.sessions.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        reopened = await ConversationService(
+            session=session,
+            context=w.context,
+            awaiting_human_policy=AwaitingHumanPolicy.SILENT,
+        ).ingest(inbound_event_id)
+        assert reopened.control_state.value == "AI_ACTIVE"
     async with w.sessions.begin() as session:
         # Advance the hold's eligibility without sleeping or rerunning other jobs.
         await session.execute(
