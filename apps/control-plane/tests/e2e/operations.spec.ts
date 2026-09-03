@@ -7,6 +7,10 @@ test("operates degraded work without SSH and shows release evidence controls", a
   page,
   request,
 }) => {
+  const reset = await request.post(
+    "http://127.0.0.1:8000/__test/integrations/reset",
+  );
+  expect(reset.status()).toBe(204);
   await signIn(page);
   await page.goto("/operations");
   await expect(page.getByRole("heading", { name: "Operations" })).toBeVisible();

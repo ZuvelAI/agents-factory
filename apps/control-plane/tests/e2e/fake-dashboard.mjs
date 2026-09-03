@@ -908,6 +908,32 @@ createServer(async (request, response) => {
     return;
   }
   if (
+    request.method === "POST" &&
+    url.pathname === "/__test/integrations/reset"
+  ) {
+    const calendar = integrationConnections.find(
+      (item) => item.connector_name === "google_calendar",
+    );
+    const sheets = integrationConnections.find(
+      (item) => item.connector_name === "google_sheets",
+    );
+    Object.assign(calendar, {
+      status: "REAUTH_REQUIRED",
+      health: {
+        status: "REAUTH_REQUIRED",
+        checked_at: now,
+        error_code: "oauth_expired",
+      },
+    });
+    Object.assign(sheets, {
+      status: "CONNECTED",
+      health: { status: "HEALTHY", checked_at: now, error_code: null },
+    });
+    calendarHealthAttempts = 0;
+    json(response, 204, null);
+    return;
+  }
+  if (
     request.method === "GET" &&
     url.pathname === "/__test/production-call-count"
   ) {

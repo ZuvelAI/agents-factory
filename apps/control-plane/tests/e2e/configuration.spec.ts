@@ -125,25 +125,33 @@ test("configures safe capabilities, connectors and approval routes", async ({
     page.getByText("Integration configuration saved."),
   ).toBeVisible();
 
-  const editorResponse = await request.get(
-    `http://127.0.0.1:8000/admin/tenants/${tenantId}/agent-instances/current`,
-    { headers: backendHeaders },
-  );
-  const editor = await editorResponse.json();
-  const rejectedMapping = await request.post(
-    `http://127.0.0.1:8000/admin/tenants/${tenantId}/agent-instances/${editor.instance.id}/connector-binding-drafts`,
-    {
-      headers: backendHeaders,
-      data: {
-        expected_version_id: editor.editable_version.id,
-        connection_id: "42000000-0000-4000-8000-000000000040",
-        connector_name: "google_sheets",
-        operations: ["orders.delete_order"],
+  let rejectedMappingStatus = 0;
+  let rejectedMappingBody: { code?: string } = {};
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const editor = await (
+      await request.get(
+        `http://127.0.0.1:8000/admin/tenants/${tenantId}/agent-instances/current`,
+        { headers: backendHeaders },
+      )
+    ).json();
+    const rejectedMapping = await request.post(
+      `http://127.0.0.1:8000/admin/tenants/${tenantId}/agent-instances/${editor.instance.id}/connector-binding-drafts`,
+      {
+        headers: backendHeaders,
+        data: {
+          expected_version_id: editor.editable_version.id,
+          connection_id: "42000000-0000-4000-8000-000000000040",
+          connector_name: "google_sheets",
+          operations: ["orders.delete_order"],
+        },
       },
-    },
-  );
-  expect(rejectedMapping.status()).toBe(409);
-  await expect(rejectedMapping.json()).resolves.toMatchObject({
+    );
+    rejectedMappingStatus = rejectedMapping.status();
+    rejectedMappingBody = await rejectedMapping.json();
+    if (rejectedMappingBody.code !== "agent_spec_stale_write") break;
+  }
+  expect(rejectedMappingStatus).toBe(409);
+  expect(rejectedMappingBody).toMatchObject({
     code: "connector_operation_unsupported",
   });
   const currentEditor = await (
