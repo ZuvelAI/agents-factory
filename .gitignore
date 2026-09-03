@@ -38,6 +38,7 @@ uploads/
 dist/
 build/
 out/
+artifacts/
 eval-results/
 /evals/results/*
 !/evals/results/.gitignore
