@@ -55,6 +55,7 @@ APPROVED_ACTIONS = [
 ALLOWED_RUNS = [
   'uv sync --locked',
   'pnpm install --frozen-lockfile',
+  'pnpm --filter @agents-factory/control-plane exec playwright install --with-deps chromium',
   'make format-check',
   'make lint',
   'make typecheck',

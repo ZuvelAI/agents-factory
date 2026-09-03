@@ -37,6 +37,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: uv sync --locked
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agents-factory/control-plane exec playwright install --with-deps chromium
       - run: make format-check
       - run: make lint
       - run: make typecheck
