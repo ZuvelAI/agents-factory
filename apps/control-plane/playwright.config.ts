@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const authPort = 54321;
+const authPort = 55421;
 const appPort = 3100;
 
 export default defineConfig({
@@ -19,6 +19,7 @@ export default defineConfig({
       command: "node tests/e2e/fake-supabase.mjs",
       port: authPort,
       reuseExistingServer: false,
+      env: { FAKE_SUPABASE_PORT: String(authPort) },
     },
     {
       command: "node tests/e2e/fake-dashboard.mjs",
