@@ -252,6 +252,15 @@ begin
 end
 $function$;
 
+select assertion
+from task5_tenant_isolation_registry as registration
+cross join lateral pg_temp.assert_tenant_isolated(
+  registration.table_name,
+  registration.owner_column,
+  registration.database_role
+) as result(assertion)
+order by registration.table_name, assertion;
+
 select ok(
   not has_table_privilege(
     'agents_factory_app',
@@ -265,15 +274,6 @@ select ok(
   ),
   'review and eval draft tables remain inaccessible to the runtime role'
 );
-
-select assertion
-from task5_tenant_isolation_registry as registration
-cross join lateral pg_temp.assert_tenant_isolated(
-  registration.table_name,
-  registration.owner_column,
-  registration.database_role
-) as result(assertion)
-order by registration.table_name, assertion;
 
 create view public.task5_pgtap_tenant_projection
 with (security_invoker = true)
