@@ -1823,7 +1823,7 @@ def _insert_statement(table_name: str) -> str:
         "public.incidents": (
             "INSERT INTO public.incidents (id,tenant_id,fingerprint,incident_type,"
             "severity,title,correlation_id,first_detected_at,last_detected_at,evidence_until) "
-            "VALUES (:id,:tenant_id,:digest,'task5','WARNING','Task 5 insert',"
+            "VALUES (:id,:tenant_id,:incident_fingerprint,'task5','WARNING','Task 5 insert',"
             ":correlation_id,now(),now(),now()+interval '1 day')"
         ),
         "public.incident_signals": (
@@ -1904,6 +1904,7 @@ def _insert_parameters(
         "digest": "a" * 64,
         "action_ref": f"task5-action-{nonce}",
         "binding_id": uuid4(),
+        "incident_fingerprint": uuid4().hex * 2,
         "embedding": "[" + ",".join(("0",) * 1536) + "]",
     }
 
