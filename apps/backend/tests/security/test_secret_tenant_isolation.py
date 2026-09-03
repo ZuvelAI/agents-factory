@@ -66,6 +66,11 @@ async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
         "ALTER TABLE public.agent_spec_deployments "
         "DISABLE TRIGGER agent_spec_deployments_append_only",
         "ALTER TABLE public.action_events DISABLE TRIGGER action_events_append_only",
+        "ALTER TABLE public.approval_decisions "
+        "DISABLE TRIGGER approval_decisions_append_only",
+        "ALTER TABLE public.case_events DISABLE TRIGGER case_events_append_only",
+        "ALTER TABLE public.case_operations "
+        "DISABLE TRIGGER case_operations_append_only",
         "ALTER TABLE public.knowledge_source_versions "
         "DISABLE TRIGGER knowledge_source_versions_append_only",
         "ALTER TABLE public.structured_facts "
@@ -101,6 +106,10 @@ async def _truncate_secret_test_data(connection: AsyncConnection) -> None:
         "ALTER TABLE public.knowledge_source_versions "
         "ENABLE TRIGGER knowledge_source_versions_append_only",
         "ALTER TABLE public.action_events ENABLE TRIGGER action_events_append_only",
+        "ALTER TABLE public.case_operations ENABLE TRIGGER case_operations_append_only",
+        "ALTER TABLE public.case_events ENABLE TRIGGER case_events_append_only",
+        "ALTER TABLE public.approval_decisions "
+        "ENABLE TRIGGER approval_decisions_append_only",
         "ALTER TABLE public.agent_spec_deployments "
         "ENABLE TRIGGER agent_spec_deployments_append_only",
         "ALTER TABLE public.audit_events ENABLE TRIGGER audit_events_reject_truncate",
