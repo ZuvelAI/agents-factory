@@ -76,7 +76,16 @@ insert into task5_tenant_isolation_registry (
 )
 values
   ('public.conversation_reviews', 'tenant_id', 'agents_factory_admin'),
-  ('public.eval_case_drafts', 'tenant_id', 'agents_factory_admin');
+  ('public.eval_case_drafts', 'tenant_id', 'agents_factory_admin'),
+  ('public.observability_events', 'tenant_id', 'agents_factory_admin'),
+  ('public.incidents', 'tenant_id', 'agents_factory_admin'),
+  ('public.incident_signals', 'tenant_id', 'agents_factory_admin'),
+  ('public.eval_runs', 'tenant_id', 'agents_factory_admin'),
+  ('public.eval_case_results', 'tenant_id', 'agents_factory_admin'),
+  ('public.quality_gate_decisions', 'tenant_id', 'agents_factory_admin'),
+  ('public.privacy_jobs', 'tenant_id', 'agents_factory_admin'),
+  ('public.deployment_records', 'tenant_id', 'agents_factory_admin'),
+  ('public.secret_rotation_runs', 'tenant_id', 'agents_factory_admin');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)

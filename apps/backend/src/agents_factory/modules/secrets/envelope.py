@@ -58,7 +58,7 @@ def canonical_secret_aad(
 class EnvironmentMasterKeyProvider:
     """AES-GCM key wrapper backed only by the server process environment."""
 
-    __slots__ = ("_master_key",)
+    __slots__ = ("_key_version", "_master_key")
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         source = os.environ if environment is None else environment
@@ -78,6 +78,14 @@ class EnvironmentMasterKeyProvider:
         except (binascii.Error, UnicodeEncodeError, ValueError):
             raise ConfigurationError(invalid_variables=("APP_MASTER_KEY",)) from None
         self._master_key = decoded
+        try:
+            self._key_version = int(source.get("APP_MASTER_KEY_VERSION", "1"))
+            if self._key_version < 1:
+                raise ValueError
+        except ValueError:
+            raise ConfigurationError(
+                invalid_variables=("APP_MASTER_KEY_VERSION",)
+            ) from None
 
     @property
     def key_id(self) -> str:
@@ -85,7 +93,7 @@ class EnvironmentMasterKeyProvider:
 
     @property
     def key_version(self) -> int:
-        return 1
+        return self._key_version
 
     def wrap_data_key(self, data_key: bytes, *, nonce: bytes, aad: bytes) -> bytes:
         if len(data_key) != DATA_KEY_BYTES or len(nonce) != NONCE_BYTES:

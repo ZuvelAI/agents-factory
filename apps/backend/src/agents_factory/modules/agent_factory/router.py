@@ -29,6 +29,7 @@ from agents_factory.modules.agent_factory.service import AgentSpecLifecycleServi
 from agents_factory.modules.capabilities.registry import V1_CAPABILITY_REGISTRY
 from agents_factory.modules.capabilities.service import CapabilityService
 from agents_factory.modules.integrations.registry import V1_CONNECTOR_CATALOG
+from agents_factory.modules.evals.quality_gate import PersistedProductionQualityGate
 
 
 router = APIRouter(
@@ -369,6 +370,7 @@ def _service(
     )
     return AgentSpecLifecycleService(
         repository=AgentSpecRepository(session, context),
+        quality_gate=PersistedProductionQualityGate(session, tenant_id),
         manifest_validator=CapabilityService(
             capabilities=V1_CAPABILITY_REGISTRY,
             connectors=V1_CONNECTOR_CATALOG,

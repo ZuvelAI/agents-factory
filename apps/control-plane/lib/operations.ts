@@ -25,11 +25,22 @@ export type CaseWorkspace = {
   has_more: boolean;
 };
 
-export type UnavailableFeature = {
-  available: false;
-  code: string;
-  reason: string;
-  owner_task: number;
+export type QualityGateOverview = {
+  available: true;
+  exact_version_required: true;
+  latest: null | {
+    id: string;
+    eval_run_id: string;
+    passed: boolean;
+    agent_spec_digest: string;
+    knowledge_digest: string;
+    code_digest: string;
+    hard_blockers: string[];
+    passed_cases: number;
+    failed_cases: number;
+    runner_version: string;
+    decided_at: string;
+  };
 };
 
 export type OperationsWorkspace = {
@@ -73,9 +84,52 @@ export type OperationsWorkspace = {
     correlation_id: string;
     occurred_at: string;
   }[];
-  incidents: UnavailableFeature;
-  quality_gate: UnavailableFeature;
-  deployments: UnavailableFeature;
+  health: {
+    generated_at: string;
+    state: "HEALTHY" | "DEGRADED" | "DOWN" | "UNKNOWN";
+    components: {
+      component: string;
+      state: "HEALTHY" | "DEGRADED" | "DOWN" | "UNKNOWN";
+      observed_at: string | null;
+      reason_code: string | null;
+    }[];
+  };
+  incidents: {
+    id: string;
+    incident_type: string;
+    severity: "WARNING" | "ERROR" | "CRITICAL";
+    status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
+    title: string;
+    correlation_id: string;
+    occurrence_count: number;
+    first_detected_at: string;
+    last_detected_at: string;
+    evidence_until: string;
+  }[];
+  quality_gate: QualityGateOverview;
+  deployments: {
+    available: true;
+    promotion_mode: "GITHUB_ENVIRONMENT_APPROVAL";
+    latest: {
+      id: string;
+      environment: "STAGING" | "PRODUCTION";
+      release_version: string;
+      backend_image_digest: string;
+      control_plane_image_digest: string;
+      migration_version: string;
+      status:
+        | "PENDING"
+        | "MIGRATING"
+        | "PROMOTING"
+        | "HEALTHY"
+        | "FAILED"
+        | "ROLLED_BACK";
+      quality_gate_decision_id: string;
+      correlation_id: string;
+      started_at: string;
+      completed_at: string | null;
+    }[];
+  };
 };
 
 export type UsageDimension = "tenant" | "conversation" | "case" | "action";

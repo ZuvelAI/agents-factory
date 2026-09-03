@@ -18,6 +18,11 @@ from agents_factory.database import set_tenant_context
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.cases.models import CaseRecord, CaseTransition
 from agents_factory.modules.cases.service import CaseService
+from agents_factory.modules.observability.health import HealthService
+from agents_factory.modules.observability.incidents import IncidentService
+from agents_factory.modules.observability.models import HealthSnapshot, IncidentRecord
+from agents_factory.modules.evals.models import QualityGateOverview
+from agents_factory.modules.evals.quality_gate import quality_gate_overview
 
 
 CasePriority = Literal["LOW", "NORMAL", "HIGH", "CRITICAL"]
@@ -76,6 +81,30 @@ class OperationalAudit(OperationalModel):
     occurred_at: datetime
 
 
+class DeploymentRecord(OperationalModel):
+    id: UUID
+    environment: Literal["STAGING", "PRODUCTION"]
+    release_version: str
+    backend_image_digest: str
+    control_plane_image_digest: str
+    migration_version: str
+    status: Literal[
+        "PENDING", "MIGRATING", "PROMOTING", "HEALTHY", "FAILED", "ROLLED_BACK"
+    ]
+    quality_gate_decision_id: UUID
+    correlation_id: UUID
+    started_at: datetime
+    completed_at: datetime | None
+
+
+class DeploymentOverview(OperationalModel):
+    available: Literal[True] = True
+    promotion_mode: Literal["GITHUB_ENVIRONMENT_APPROVAL"] = (
+        "GITHUB_ENVIRONMENT_APPROVAL"
+    )
+    latest: tuple[DeploymentRecord, ...]
+
+
 class OperationsWorkspace(OperationalModel):
     generated_at: datetime
     state: OperationalState
@@ -85,9 +114,10 @@ class OperationsWorkspace(OperationalModel):
     dead_letter_page: int = Field(ge=1)
     dead_letter_has_more: bool
     recent_audit: tuple[OperationalAudit, ...]
-    incidents: UnavailableFeature
-    quality_gate: UnavailableFeature
-    deployments: UnavailableFeature
+    health: HealthSnapshot
+    incidents: tuple[IncidentRecord, ...]
+    quality_gate: QualityGateOverview
+    deployments: DeploymentOverview
 
 
 class CaseSummary(OperationalModel):
@@ -234,22 +264,6 @@ async def resolve_case(
     )
 
 
-@router.post("/release-controls/quality-gate")
-async def unavailable_quality_gate(
-    tenant_id: UUID,
-    _principal: PlatformAdmin,
-    session: TransactionSession,
-) -> None:
-    await set_tenant_context(session, tenant_id)
-    exists = await session.scalar(
-        text("SELECT EXISTS(SELECT 1 FROM public.tenants WHERE id=:tenant)"),
-        {"tenant": tenant_id},
-    )
-    if not exists:
-        raise _operations_error("tenant_not_found", status=404)
-    raise _operations_error("quality_gate_task_45_required")
-
-
 class OperationsAdminService:
     def __init__(self, session: AsyncSession, context: TenantContext) -> None:
         self._session = session
@@ -281,6 +295,16 @@ class OperationsAdminService:
         integrations = await self._integrations()
         dead_letters, has_more = await self._dead_letters(page=page, limit=limit)
         audits = await self._audits()
+        health = await HealthService(self._session).snapshot(
+            tenant_id=self._context.tenant_id
+        )
+        incidents = await IncidentService(self._session).list_open(
+            tenant_id=self._context.tenant_id
+        )
+        quality_gate = await quality_gate_overview(
+            self._session, tenant_id=self._context.tenant_id
+        )
+        deployments = await self._deployments()
         return OperationsWorkspace(
             generated_at=datetime.now(UTC),
             state=(
@@ -300,21 +324,10 @@ class OperationsAdminService:
             dead_letter_page=page,
             dead_letter_has_more=has_more,
             recent_audit=audits,
-            incidents=_unavailable(
-                "incident_detection_task_44_required",
-                "Incident detection is installed by Task 44.",
-                44,
-            ),
-            quality_gate=_unavailable(
-                "quality_gate_task_45_required",
-                "The Production Quality Gate is installed by Task 45.",
-                45,
-            ),
-            deployments=_unavailable(
-                "deployment_controls_task_47_required",
-                "Deployment promotion and rollback are installed by Task 47.",
-                47,
-            ),
+            health=health,
+            incidents=incidents,
+            quality_gate=quality_gate,
+            deployments=deployments,
         )
 
     async def cases(
@@ -522,6 +535,27 @@ class OperationsAdminService:
             .all()
         )
         return tuple(OperationalAudit.model_validate(dict(row)) for row in rows)
+
+    async def _deployments(self) -> DeploymentOverview:
+        rows = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT DISTINCT ON (environment) id,environment,release_version,"
+                        "backend_image_digest,control_plane_image_digest,migration_version,"
+                        "status,quality_gate_decision_id,correlation_id,started_at,completed_at "
+                        "FROM public.deployment_records WHERE tenant_id=:tenant ORDER BY "
+                        "environment,started_at DESC,id DESC"
+                    ),
+                    {"tenant": self._context.tenant_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return DeploymentOverview(
+            latest=tuple(DeploymentRecord.model_validate(dict(row)) for row in rows)
+        )
 
 
 _DEAD_LETTER_COLUMNS = (

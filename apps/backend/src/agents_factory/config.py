@@ -28,6 +28,7 @@ REQUIRED_ENVIRONMENT_VARIABLES = (
     "META_WEBHOOK_VERIFY_TOKEN",
 )
 _CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
+    "APP_MASTER_KEY_VERSION",
     "META_APP_ID",
     "META_CONFIGURATION_ID",
     "META_REDIRECT_URI",
@@ -55,6 +56,7 @@ class Settings(BaseSettings):
     supabase_jwt_issuer: NonEmptyString
     supabase_jwt_audience: NonEmptyString
     app_master_key: NonEmptySecret
+    app_master_key_version: int = Field(default=1, ge=1)
     meta_app_secret: NonEmptySecret
     meta_webhook_verify_token: NonEmptySecret
     meta_app_id: NonEmptyString | None = None

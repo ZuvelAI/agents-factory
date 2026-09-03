@@ -58,6 +58,10 @@ def configuration(*, persona_version: str = "1") -> AgentSpecConfiguration:
 
 
 class ExactGate:
+    def __init__(self, session: AsyncSession, *, admin_id: UUID) -> None:
+        self._session = session
+        self._admin_id = admin_id
+
     async def evaluate(
         self,
         *,
@@ -65,8 +69,46 @@ class ExactGate:
         knowledge_digest: str,
         code_digest: str,
     ) -> QualityGateEvidence:
+        run_id = uuid4()
+        decision_id = uuid4()
+        await self._session.execute(
+            text(
+                "INSERT INTO public.eval_runs "
+                "(id, tenant_id, suite_digest, runner_version, seed, status, "
+                "agent_spec_digest, knowledge_digest, code_digest, passed_cases, "
+                "failed_cases, completed_at, created_by_admin_id) VALUES "
+                "(:id, :tenant, :suite, 'integration-test', 0, 'PASSED', "
+                ":agent, :knowledge, :code, 1, 0, now(), :admin)"
+            ),
+            {
+                "id": run_id,
+                "tenant": TENANT_ID,
+                "suite": "e" * 64,
+                "agent": agent_spec_digest,
+                "knowledge": knowledge_digest,
+                "code": code_digest,
+                "admin": self._admin_id,
+            },
+        )
+        await self._session.execute(
+            text(
+                "INSERT INTO public.quality_gate_decisions "
+                "(id, tenant_id, eval_run_id, agent_spec_digest, "
+                "knowledge_digest, code_digest, passed, decided_by_admin_id) "
+                "VALUES (:id, :tenant, :run, :agent, :knowledge, :code, true, :admin)"
+            ),
+            {
+                "id": decision_id,
+                "tenant": TENANT_ID,
+                "run": run_id,
+                "agent": agent_spec_digest,
+                "knowledge": knowledge_digest,
+                "code": code_digest,
+                "admin": self._admin_id,
+            },
+        )
         return QualityGateEvidence(
-            decision_id=uuid4(),
+            decision_id=decision_id,
             passed=True,
             agent_spec_digest=agent_spec_digest,
             knowledge_digest=knowledge_digest,
@@ -132,7 +174,7 @@ async def test_version_lifecycle_is_immutable_fail_closed_and_rollback_audited(
 
         exact_lifecycle = AgentSpecLifecycleService(
             repository=repository,
-            quality_gate=ExactGate(),
+            quality_gate=ExactGate(session, admin_id=operation_context.actor_id),
         )
         first = await exact_lifecycle.publish_production(first.id)
         assert first.state == "PRODUCTION"

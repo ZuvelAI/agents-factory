@@ -57,17 +57,29 @@ def test_onboarding_status_is_derived_resumable_and_fail_closed() -> None:
         and step.documentation
         for step in empty.steps
     )
-    assert empty.steps[10].status == "UNAVAILABLE"
-    assert empty.steps[11].status == "UNAVAILABLE"
+    assert empty.steps[10].status == "BLOCKED"
+    assert empty.steps[11].status == "BLOCKED"
 
     ready = engine.evaluate(_standard_facts())
     assert ready == engine.evaluate(_standard_facts())
     assert [step.status for step in ready.steps[:10]] == ["COMPLETE"] * 10
     assert ready.complete_steps == 10
     assert ready.current_step_slug == "quality-gate"
-    assert ready.steps[10].blockers[0].code == (
-        "production_quality_gate_task_45_required"
+    assert ready.steps[10].status == "READY"
+    assert ready.steps[10].blockers[0].code == "production_quality_gate_required"
+    assert ready.steps[11].status == "BLOCKED"
+
+    approved = engine.evaluate(
+        replace(_standard_facts(), agent_state="QUALITY_GATE", quality_gate_passed=True)
     )
+    assert approved.steps[10].status == "COMPLETE"
+    assert approved.steps[11].status == "READY"
+
+    published = engine.evaluate(
+        replace(_standard_facts(), agent_state="PRODUCTION", quality_gate_passed=True)
+    )
+    assert published.steps[10].status == "COMPLETE"
+    assert published.steps[11].status == "COMPLETE"
 
     changed = engine.evaluate(
         replace(
@@ -78,6 +90,6 @@ def test_onboarding_status_is_derived_resumable_and_fail_closed() -> None:
     )
     assert changed.steps[9].status == "STALE"
     assert changed.steps[9].blockers[0].code == "tested_candidate_stale"
-    assert changed.steps[10].status == "UNAVAILABLE"
+    assert changed.steps[10].status == "BLOCKED"
     assert changed.steps[10].blockers[0].code == "test_required"
     assert changed.current_step_slug == "test"

@@ -15,6 +15,7 @@ x-python-application: &python-application
     SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:-}
     SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-}
     APP_MASTER_KEY: ${APP_MASTER_KEY:-}
+    APP_MASTER_KEY_VERSION: ${APP_MASTER_KEY_VERSION:-1}
     META_APP_SECRET: ${META_APP_SECRET:-}
     META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
     META_APP_ID: ${META_APP_ID:-}
@@ -47,6 +48,9 @@ services:
 
   backend:
     <<: *python-application
+    build:
+      context: .
+      dockerfile: infrastructure/docker/backend.Dockerfile
     volumes:
       - ./:/workspace:ro
       - knowledge-source-data:/var/lib/agents-factory/knowledge
@@ -66,6 +70,9 @@ services:
 
   control-plane:
     image: node:24.19.0-bookworm-slim
+    build:
+      context: .
+      dockerfile: infrastructure/docker/control-plane.Dockerfile
     working_dir: /workspace
     volumes:
       - ./:/workspace:ro

@@ -296,6 +296,53 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration(
+        "public.observability_events",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.incidents", database_role="agents_factory_admin", delete_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.incident_signals",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.eval_runs", database_role="agents_factory_admin", delete_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.eval_case_results",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.quality_gate_decisions",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.privacy_jobs",
+        database_role="agents_factory_admin",
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.deployment_records",
+        database_role="agents_factory_admin",
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.secret_rotation_runs",
+        database_role="agents_factory_admin",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -421,8 +468,11 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.conversation_reviews, "
-                "public.eval_case_drafts, public.knowledge_chunks, "
+                "TRUNCATE TABLE public.deployment_records, public.secret_rotation_runs, "
+                "public.privacy_jobs, public.quality_gate_decisions, "
+                "public.eval_case_results, public.eval_runs, public.incident_signals, "
+                "public.incidents, public.observability_events, "
+                "public.conversation_reviews, public.eval_case_drafts, public.knowledge_chunks, "
                 "public.knowledge_ingestion_artifacts, "
                 "public.knowledge_ingestions, public.knowledge_version_members, "
                 "public.knowledge_versions, public.knowledge_documents, "
@@ -520,6 +570,7 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             (tenant_b, row_b, "b", insert_parent_b, insert_conversation_b),
         ):
             completed_ingestion_id = uuid4()
+            ms8_admin_id = uuid4()
             await connection.execute(
                 text(
                     "INSERT INTO public.agent_instances "
@@ -573,6 +624,38 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.eval_runs "
+                    "(id, tenant_id, suite_digest, runner_version, seed, status, "
+                    "agent_spec_digest, knowledge_digest, code_digest, passed_cases, "
+                    "completed_at, created_by_admin_id) VALUES "
+                    "(:id, :tenant_id, :digest, '1.0', 1, 'PASSED', :digest, "
+                    ":digest, :digest, 1, now(), :admin_id)"
+                ),
+                {
+                    "id": rows["public.eval_runs"],
+                    "tenant_id": tenant_id,
+                    "digest": "a" * 64,
+                    "admin_id": ms8_admin_id,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.quality_gate_decisions "
+                    "(id, tenant_id, eval_run_id, agent_spec_digest, "
+                    "knowledge_digest, code_digest, passed, decided_by_admin_id) "
+                    "VALUES (:id, :tenant_id, :eval_run_id, :digest, :digest, "
+                    ":digest, true, :admin_id)"
+                ),
+                {
+                    "id": rows["public.quality_gate_decisions"],
+                    "tenant_id": tenant_id,
+                    "eval_run_id": rows["public.eval_runs"],
+                    "digest": "a" * 64,
+                    "admin_id": ms8_admin_id,
+                },
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.agent_spec_deployments "
                     "(id, tenant_id, agent_instance_id, version_id, action, "
                     "agent_spec_digest, knowledge_digest, code_digest, "
@@ -586,7 +669,7 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "instance_id": rows["public.agent_instances"],
                     "version_id": rows["public.agent_spec_versions"],
                     "digest": "a" * 64,
-                    "decision_id": uuid4(),
+                    "decision_id": rows["public.quality_gate_decisions"],
                 },
             )
             await connection.execute(
@@ -1301,6 +1384,32 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 handoff_values,
             )
 
+            ms8_values = {
+                "tenant": tenant_id,
+                "observability": rows["public.observability_events"],
+                "incident": rows["public.incidents"],
+                "signal": rows["public.incident_signals"],
+                "eval_run": rows["public.eval_runs"],
+                "eval_result": rows["public.eval_case_results"],
+                "decision": rows["public.quality_gate_decisions"],
+                "privacy": rows["public.privacy_jobs"],
+                "deployment": rows["public.deployment_records"],
+                "rotation": rows["public.secret_rotation_runs"],
+                "admin": ms8_admin_id,
+                "correlation": uuid4(),
+                "digest": "a" * 64,
+            }
+            for sql in (
+                "INSERT INTO public.observability_events(id,tenant_id,event_kind,severity,name,correlation_id) VALUES (:observability,:tenant,'TRACE','INFO','task5.trace',:correlation)",
+                "INSERT INTO public.incidents(id,tenant_id,fingerprint,incident_type,severity,title,correlation_id,first_detected_at,last_detected_at,evidence_until) VALUES (:incident,:tenant,:digest,'task5','WARNING','Task 5 incident',:correlation,now(),now(),now()+interval '1 day')",
+                "INSERT INTO public.incident_signals(id,tenant_id,incident_id,observability_event_id,signal_type,summary,observed_at) VALUES (:signal,:tenant,:incident,:observability,'task5','Task 5 signal',now())",
+                "INSERT INTO public.eval_case_results(id,tenant_id,eval_run_id,case_id,passed,grader_results,sanitized_observation,latency_ms) VALUES (:eval_result,:tenant,:eval_run,'task5.case',true,'[]','{}',0)",
+                "INSERT INTO public.privacy_jobs(id,tenant_id,operation,subject_type,subject_ref,status,idempotency_key,requested_by_admin_id) VALUES (:privacy,:tenant,'EXPORT','TENANT','task5','REQUESTED','task5-privacy-seed',:admin)",
+                "INSERT INTO public.deployment_records(id,tenant_id,environment,release_version,backend_image_digest,control_plane_image_digest,migration_version,status,quality_gate_decision_id,correlation_id,created_by_admin_id) VALUES (:deployment,:tenant,'STAGING','task5-seed','sha256:backend','sha256:control','20260903170000','HEALTHY',:decision,:correlation,:admin)",
+                "INSERT INTO public.secret_rotation_runs(id,tenant_id,old_key_version,new_key_version,status,completed_at) VALUES (:rotation,:tenant,1,2,'COMPLETED',now())",
+            ):
+                await connection.execute(text(sql), ms8_values)
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -1706,6 +1815,55 @@ def _insert_statement(table_name: str) -> str:
             ":parent_id, :version, NULL, 'REQUESTED', 'action.requested', "
             "'{}'::jsonb, now())"
         ),
+        "public.observability_events": (
+            "INSERT INTO public.observability_events "
+            "(id,tenant_id,event_kind,severity,name,correlation_id) VALUES "
+            "(:id,:tenant_id,'TRACE','INFO','task5.insert',:correlation_id)"
+        ),
+        "public.incidents": (
+            "INSERT INTO public.incidents (id,tenant_id,fingerprint,incident_type,"
+            "severity,title,correlation_id,first_detected_at,last_detected_at,evidence_until) "
+            "VALUES (:id,:tenant_id,:incident_fingerprint,'task5','WARNING','Task 5 insert',"
+            ":correlation_id,now(),now(),now()+interval '1 day')"
+        ),
+        "public.incident_signals": (
+            "INSERT INTO public.incident_signals (id,tenant_id,incident_id,signal_type,"
+            "summary,observed_at) VALUES (:id,:tenant_id,:parent_id,'task5',"
+            "'Task 5 insert',now())"
+        ),
+        "public.eval_runs": (
+            "INSERT INTO public.eval_runs (id,tenant_id,suite_digest,runner_version,seed,"
+            "status,agent_spec_digest,knowledge_digest,code_digest,passed_cases,completed_at,"
+            "created_by_admin_id) VALUES (:id,:tenant_id,:digest,'1.0',1,'PASSED',"
+            ":digest,:digest,:digest,1,now(),:correlation_id)"
+        ),
+        "public.eval_case_results": (
+            "INSERT INTO public.eval_case_results (id,tenant_id,eval_run_id,case_id,passed,"
+            "grader_results,sanitized_observation,latency_ms) VALUES "
+            "(:id,:tenant_id,:parent_id,:key,true,'[]','{}',0)"
+        ),
+        "public.quality_gate_decisions": (
+            "INSERT INTO public.quality_gate_decisions (id,tenant_id,eval_run_id,"
+            "agent_spec_digest,knowledge_digest,code_digest,passed,decided_by_admin_id) "
+            "VALUES (:id,:tenant_id,:parent_id,:digest,:digest,:digest,true,:correlation_id)"
+        ),
+        "public.privacy_jobs": (
+            "INSERT INTO public.privacy_jobs (id,tenant_id,operation,subject_type,subject_ref,"
+            "status,idempotency_key,requested_by_admin_id) VALUES (:id,:tenant_id,'EXPORT',"
+            "'TENANT',:key,'REQUESTED',:idempotency_key,:correlation_id)"
+        ),
+        "public.deployment_records": (
+            "INSERT INTO public.deployment_records (id,tenant_id,environment,release_version,"
+            "backend_image_digest,control_plane_image_digest,migration_version,status,"
+            "quality_gate_decision_id,correlation_id,created_by_admin_id) VALUES "
+            "(:id,:tenant_id,'STAGING',:key,'sha256:backend','sha256:control',"
+            "'20260903170000','HEALTHY',:parent_id,:correlation_id,:correlation_id)"
+        ),
+        "public.secret_rotation_runs": (
+            "INSERT INTO public.secret_rotation_runs (id,tenant_id,old_key_version,"
+            "new_key_version,status,completed_at) VALUES (:id,:tenant_id,1,2,"
+            "'COMPLETED',now())"
+        ),
     }
     return statements[table_name]
 
@@ -1746,6 +1904,7 @@ def _insert_parameters(
         "digest": "a" * 64,
         "action_ref": f"task5-action-{nonce}",
         "binding_id": uuid4(),
+        "incident_fingerprint": uuid4().hex * 2,
         "embedding": "[" + ",".join(("0",) * 1536) + "]",
     }
 
@@ -1809,6 +1968,15 @@ def _matching_update(table_name: str) -> str | None:
         "public.identity_evidence": "consumed_at = now()",
         "public.actions": "state = 'IDENTITY_VERIFIED'",
         "public.action_events": None,
+        "public.observability_events": None,
+        "public.incidents": "updated_at = now()",
+        "public.incident_signals": None,
+        "public.eval_runs": "total_latency_ms = 0",
+        "public.eval_case_results": None,
+        "public.quality_gate_decisions": None,
+        "public.privacy_jobs": "updated_at = now()",
+        "public.deployment_records": "updated_at = now()",
+        "public.secret_rotation_runs": None,
     }[table_name]
 
 
@@ -1881,6 +2049,15 @@ def _insert_parent_id(
     if table_name == "public.action_events":
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.actions"]
+    if table_name == "public.incident_signals":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.incidents"]
+    if table_name in {"public.eval_case_results", "public.quality_gate_decisions"}:
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.eval_runs"]
+    if table_name == "public.deployment_records":
+        rows = world.row_a if tenant == "a" else world.row_b
+        return rows["public.quality_gate_decisions"]
     return world.insert_parent_a if tenant == "a" else world.insert_parent_b
 
 
@@ -2043,6 +2220,10 @@ async def assert_tenant_isolated(
         "public.eval_case_drafts",
         "public.actions",
         "public.action_events",
+        "public.incident_signals",
+        "public.eval_case_results",
+        "public.quality_gate_decisions",
+        "public.deployment_records",
     }:
         foreign_parent_parameters = _insert_parameters(
             table_name,

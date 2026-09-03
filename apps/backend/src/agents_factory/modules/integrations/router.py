@@ -243,7 +243,10 @@ def _service(request: Request) -> IntegrationService:
     return IntegrationService(
         sessions=database.session_factory,
         key_provider=EnvironmentMasterKeyProvider(
-            environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+            environment={
+                "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
+                "APP_MASTER_KEY_VERSION": str(settings.app_master_key_version),
+            }
         ),
         providers=request.app.state.integration_providers,
     )

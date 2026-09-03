@@ -12,7 +12,11 @@ test("inspects a safe simulated run and blocks unconfigured real tests", async (
   await expect(
     page.getByRole("heading", { name: "Test Console" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Open safe console" }).click();
+  await page
+    .locator(`a[href="/tenants/${tenantId}/test-console"]`, {
+      hasText: "Open safe console",
+    })
+    .click();
 
   await expect(page.getByLabel("Real test environment")).toBeDisabled();
   await expect(

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import type { EvalCaseDraft } from "../../lib/conversations";
-import type { UnavailableFeature } from "../../lib/operations";
+import type { QualityGateOverview } from "../../lib/operations";
 
 export function EvalDrafts({
   tenantId,
@@ -10,7 +10,7 @@ export function EvalDrafts({
 }: {
   tenantId: string;
   drafts: EvalCaseDraft[];
-  qualityGate: UnavailableFeature;
+  qualityGate: QualityGateOverview;
 }) {
   return (
     <div className="evals-workspace">
@@ -19,8 +19,8 @@ export function EvalDrafts({
           <p className="eyebrow">Review-only candidates</p>
           <h2>Eval Runner v0 Drafts</h2>
           <p>
-            Sanitized Drafts are not release evidence until Task 45 registers
-            them in the persistent learning loop.
+            Sanitized Drafts become release evidence only after review and
+            registration in a versioned tenant suite.
           </p>
         </header>
         {drafts.map((draft) => (
@@ -42,14 +42,25 @@ export function EvalDrafts({
           <p className="empty-state">No reviewed regression Drafts yet.</p>
         ) : null}
       </section>
-      <section className="operational-card unavailable-card">
-        <span className="review-state review-unavailable">Unavailable</span>
+      <section className="operational-card">
+        <span
+          className={`review-state review-${qualityGate.latest?.passed ? "healthy" : "unavailable"}`}
+        >
+          {qualityGate.latest?.passed ? "Passed" : "Blocked"}
+        </span>
         <h2>Production Quality Gate</h2>
-        <p>{qualityGate.reason}</p>
-        <code>{qualityGate.code}</code>
-        <button disabled type="button">
-          Promote Drafts unavailable
-        </button>
+        {qualityGate.latest ? (
+          <>
+            <p>
+              {qualityGate.latest.passed_cases} passed ·{" "}
+              {qualityGate.latest.failed_cases} failed. Evidence is valid only
+              for the displayed exact digests.
+            </p>
+            <code>{qualityGate.latest.id}</code>
+          </>
+        ) : (
+          <p>No Quality Gate run has been recorded for this tenant.</p>
+        )}
       </section>
     </div>
   );
