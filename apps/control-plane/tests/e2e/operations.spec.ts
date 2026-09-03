@@ -95,7 +95,9 @@ test("operates degraded work without SSH and shows release evidence controls", a
   expect(draftResponse.status()).toBe(201);
   await page.goto(`/evals?tenant=${tenantId}`);
   await expect(page.getByRole("heading", { name: "Evals" })).toBeVisible();
-  await expect(page.getByText("schema v1", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("schema v1", { exact: false }).first(),
+  ).toBeVisible();
   await expect(
     page.getByText("No Quality Gate run has been recorded for this tenant."),
   ).toBeVisible();
