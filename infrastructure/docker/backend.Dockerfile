@@ -12,7 +12,7 @@ COPY apps/backend/src apps/backend/src
 COPY workers workers
 COPY evals evals
 
-FROM python:3.12.11-slim-trixie@sha256:47ae396f09c1303b8653019811a8498470603d7ffefc29cb07c88f1f8cb3d19f
+FROM python:3.12-slim-trixie@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
 ARG SOURCE_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/ZuvelAI/agents-factory" \
     org.opencontainers.image.revision="$SOURCE_REVISION" \

@@ -18,7 +18,10 @@ LABEL org.opencontainers.image.source="https://github.com/ZuvelAI/agents-factory
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
-RUN groupadd --system agents && useradd --system --gid agents --home /nonexistent agents
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && groupadd --system agents \
+    && useradd --system --gid agents --home /nonexistent agents
 WORKDIR /app
 COPY --from=build --chown=agents:agents /workspace/apps/control-plane/.next/standalone ./
 COPY --from=build --chown=agents:agents /workspace/apps/control-plane/.next/static ./apps/control-plane/.next/static

@@ -26,7 +26,46 @@ test -n "$expected"
 test "$(sha256_file "$tool_dir/$asset")" = "$expected"
 tar -xzf "$tool_dir/$asset" -C "$tool_dir" grype
 
-"$tool_dir/grype" dir:. --only-fixed --fail-on critical --output json >"$output_dir/dependencies.json"
-"$tool_dir/grype" docker:agents-factory-backend:test --only-fixed --fail-on critical --output json >"$output_dir/backend.json"
-"$tool_dir/grype" docker:agents-factory-control-plane:test --only-fixed --fail-on critical --output json >"$output_dir/control-plane.json"
+scan_source() {
+  label=$1
+  source=$2
+  report=$3
+
+  if "$tool_dir/grype" "$source" --only-fixed --fail-on critical --output json >"$report"; then
+    return 0
+  fi
+
+  python3 - "$label" "$report" <<'PY'
+import json
+import sys
+
+label, report = sys.argv[1:]
+with open(report, encoding="utf-8") as handle:
+    findings = json.load(handle).get("matches", [])
+
+for finding in findings:
+    vulnerability = finding.get("vulnerability", {})
+    if vulnerability.get("severity") != "Critical":
+        continue
+    artifact = finding.get("artifact", {})
+    fixed = ",".join(vulnerability.get("fix", {}).get("versions", [])) or "unknown"
+    print(
+        f"{label}: {vulnerability.get('id')} "
+        f"{artifact.get('name')} {artifact.get('version')} -> {fixed}",
+        file=sys.stderr,
+    )
+PY
+  return 1
+}
+
+failed=0
+scan_source dependencies dir:. "$output_dir/dependencies.json" || failed=1
+scan_source backend docker:agents-factory-backend:test "$output_dir/backend.json" || failed=1
+scan_source control-plane docker:agents-factory-control-plane:test "$output_dir/control-plane.json" || failed=1
+
+if [ "$failed" -ne 0 ]; then
+  printf '%s\n' 'scan_vulnerabilities: fixable critical findings detected' >&2
+  exit 2
+fi
+
 printf '%s\n' 'scan_vulnerabilities: no fixable critical dependency or image findings'
