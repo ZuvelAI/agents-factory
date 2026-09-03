@@ -24,6 +24,7 @@ from scheduler.approval_jobs import configure_approval_jobs
 from scheduler.lifecycle_jobs import configure_lifecycle_jobs
 from scheduler.lifecycle_scan import LifecycleScanner
 from scheduler.retention_jobs import configure_retention_jobs
+from scheduler.privacy_jobs import configure_privacy_jobs
 from scheduler.usage_jobs import configure_usage_jobs, record_storage_usage
 
 
@@ -32,6 +33,7 @@ async def startup(context: dict[Any, Any]) -> None:
     database = cast(Database, context["database"])
     redis = cast(ArqRedis, context["redis"])
     retention_enabled = configure_retention_jobs(context, database=database)
+    configure_privacy_jobs(context, database=database)
     context["lifecycle_scanner"] = LifecycleScanner(
         database.session_factory, retention_enabled=retention_enabled
     )
@@ -53,6 +55,7 @@ async def startup(context: dict[Any, Any]) -> None:
             "actions.expire": "scheduler",
             "handoffs.inactivity": "scheduler",
             **({"retention.cleanup": "scheduler"} if retention_enabled else {}),
+            "privacy.process": "scheduler",
         },
         retry_delay_seconds=1.0,
     )

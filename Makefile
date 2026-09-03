@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke
+.PHONY: help format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke docs
 
 help:
 	@printf '%s\n' 'Available targets: format-check lint typecheck test-unit test-integration test-security test-secrets test-tenant-isolation test-e2e eval build smoke'
@@ -44,7 +44,10 @@ eval:
 		--seed 20260827
 
 build:
-	@printf '%s\n' 'build: no Dockerfiles are owned by Task 1.'
+	@infrastructure/scripts/test_images.sh
 
 smoke:
 	@infrastructure/scripts/smoke_compose.sh
+
+docs:
+	@infrastructure/scripts/verify_docs.sh

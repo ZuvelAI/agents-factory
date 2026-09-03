@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const tenantId = "019c2000-0000-7000-8000-000000000101";
 const backendHeaders = { Authorization: "Bearer test-platform-admin" };
 
-test("operates degraded work without SSH and keeps later controls unavailable", async ({
+test("operates degraded work without SSH and shows release evidence controls", async ({
   page,
   request,
 }) => {
@@ -69,21 +69,17 @@ test("operates degraded work without SSH and keeps later controls unavailable", 
   await expect(page.getByText("Job dead letter discard")).toBeVisible();
   await expect(page.getByText("Job dead letter resolve")).toBeVisible();
 
-  for (const task of ["Task 44", "Task 45", "Task 47"]) {
-    await expect(page.getByText(task, { exact: false }).first()).toBeVisible();
-  }
+  await expect(page.getByText("Tenant health")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Quality Gate action unavailable" }),
-  ).toBeDisabled();
-
-  const rejectedGate = await request.post(
-    `http://127.0.0.1:8000/admin/tenants/${tenantId}/release-controls/quality-gate`,
-    { headers: backendHeaders },
-  );
-  expect(rejectedGate.status()).toBe(409);
-  await expect(rejectedGate.json()).resolves.toMatchObject({
-    code: "quality_gate_task_45_required",
-  });
+    page.getByText("Google Calendar requires reconnection"),
+  ).toBeVisible();
+  await expect(page.getByText("Production Quality Gate")).toBeVisible();
+  await expect(
+    page.getByText("No persisted exact-version decision exists yet."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No deployment has been recorded for this tenant."),
+  ).toBeVisible();
 
   const draftResponse = await request.post(
     `http://127.0.0.1:8000/admin/tenants/${tenantId}/conversations/60000000-0000-4000-8000-000000000001/eval-drafts`,
@@ -96,7 +92,9 @@ test("operates degraded work without SSH and keeps later controls unavailable", 
   await page.goto(`/evals?tenant=${tenantId}`);
   await expect(page.getByRole("heading", { name: "Evals" })).toBeVisible();
   await expect(page.getByText("schema v1", { exact: false })).toBeVisible();
-  await expect(page.getByText("quality_gate_task_45_required")).toBeVisible();
+  await expect(
+    page.getByText("No Quality Gate run has been recorded for this tenant."),
+  ).toBeVisible();
 
   await page.goto("/settings");
   await expect(

@@ -1,0 +1,59 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact Staging-tested git SHA
+        required: true
+        type: string
+      migration_version:
+        description: Exact compatible migration version
+        required: true
+        type: string
+      rollback_tag:
+        description: Last known-good compatible release SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag }}
+      - name: Promote exact Staging-tested images
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MIGRATION_VERSION: ${{ inputs.migration_version }}
+        run: |
+          install -m 600 /dev/null /tmp/agents-factory-deploy-key
+          printf '%s' "$DEPLOY_KEY" > /tmp/agents-factory-deploy-key
+          infrastructure/scripts/deploy.sh PRODUCTION "$RELEASE_TAG" "$MIGRATION_VERSION" /tmp/agents-factory-deploy-key
+      - name: Production smoke
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: infrastructure/scripts/smoke.sh "$PRODUCTION_URL"
+      - name: Roll back automatically when smoke fails
+        if: failure()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+        run: |
+          install -m 600 /dev/null /tmp/agents-factory-deploy-key
+          printf '%s' "$DEPLOY_KEY" > /tmp/agents-factory-deploy-key
+          infrastructure/scripts/rollback.sh PRODUCTION "$ROLLBACK_TAG" /tmp/agents-factory-deploy-key

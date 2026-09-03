@@ -1,0 +1,50 @@
+name: Deploy Staging
+
+on:
+  workflow_run:
+    workflows: [CI baseline]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment: staging
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Build immutable release images
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build --build-arg "SOURCE_REVISION=$RELEASE_TAG" -f infrastructure/docker/backend.Dockerfile -t "ghcr.io/zuvelai/agents-factory-backend:$RELEASE_TAG" .
+          docker build --build-arg "SOURCE_REVISION=$RELEASE_TAG" -f infrastructure/docker/control-plane.Dockerfile -t "ghcr.io/zuvelai/agents-factory-control-plane:$RELEASE_TAG" .
+          docker push "ghcr.io/zuvelai/agents-factory-backend:$RELEASE_TAG"
+          docker push "ghcr.io/zuvelai/agents-factory-control-plane:$RELEASE_TAG"
+      - name: Deploy through least-privilege host entrypoint
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_sha }}
+          MIGRATION_VERSION: "20260903170000"
+        run: |
+          install -m 600 /dev/null /tmp/agents-factory-deploy-key
+          printf '%s' "$DEPLOY_KEY" > /tmp/agents-factory-deploy-key
+          infrastructure/scripts/deploy.sh STAGING "$RELEASE_TAG" "$MIGRATION_VERSION" /tmp/agents-factory-deploy-key
+      - name: Staging smoke
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: infrastructure/scripts/smoke.sh "$STAGING_URL"

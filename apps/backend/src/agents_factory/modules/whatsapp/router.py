@@ -262,7 +262,10 @@ def _service_dependencies(
         state_session_factory=async_sessionmaker(bind, expire_on_commit=False),
     )
     key_provider = EnvironmentMasterKeyProvider(
-        environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+        environment={
+            "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
+            "APP_MASTER_KEY_VERSION": str(settings.app_master_key_version),
+        }
     )
     vault = SecretVault.for_session(session, key_provider=key_provider)
     return repository, vault, provider
@@ -282,7 +285,10 @@ def _disconnect_coordinator(
     return WhatsAppDisconnectCoordinator(
         session_factory=async_sessionmaker(bind, expire_on_commit=False),
         key_provider=EnvironmentMasterKeyProvider(
-            environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+            environment={
+                "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
+                "APP_MASTER_KEY_VERSION": str(settings.app_master_key_version),
+            }
         ),
         provider=provider,
     )

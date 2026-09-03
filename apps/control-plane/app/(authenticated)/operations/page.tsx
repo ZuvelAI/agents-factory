@@ -24,8 +24,8 @@ export default async function OperationsPage({
         <p className="eyebrow">Guided operations without routine SSH</p>
         <h1>Operations</h1>
         <p>
-          Inspect recorded queue and connector health, handle dead-letter work
-          with confirmation, and see later release dependencies fail closed.
+          Inspect correlated health and incidents, handle dead-letter work with
+          confirmation, and keep unreleased controls fail closed.
         </p>
       </header>
       {query.saved ? (

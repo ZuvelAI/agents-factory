@@ -46,6 +46,7 @@ from agents_factory.modules.knowledge.workspace import (
     KnowledgeWorkspace,
     KnowledgeWorkspaceService,
 )
+from agents_factory.modules.evals.quality_gate import PersistedKnowledgeQualityGate
 
 
 router = APIRouter(
@@ -371,7 +372,10 @@ def _service(
     session: TransactionSession,
 ) -> KnowledgeService:
     context = _context(request, principal, tenant_id)
-    return KnowledgeService(KnowledgeRepository(session, context))
+    return KnowledgeService(
+        KnowledgeRepository(session, context),
+        production_gate=PersistedKnowledgeQualityGate(session, tenant_id),
+    )
 
 
 def _context(

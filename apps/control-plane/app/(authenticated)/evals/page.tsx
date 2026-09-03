@@ -32,8 +32,8 @@ export default async function EvalsPage({
         <p className="eyebrow">Regression review boundary</p>
         <h1>Evals</h1>
         <p>
-          Inspect anonymized Draft candidates now; persistent suites and release
-          evidence remain owned by Task 45.
+          Inspect anonymized Draft candidates and the latest exact-version
+          Production Quality Gate decision.
         </p>
       </header>
       <form className="operational-filters" method="GET">

@@ -92,6 +92,7 @@ class OnboardingFacts:
     whatsapp_connected: bool = False
     whatsapp_healthy: bool = False
     has_tested_version: bool = False
+    quality_gate_passed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,10 +241,10 @@ STEP_DEFINITIONS = (
         "quality-gate",
         "Quality Gate",
         ("Production Quality Gate evidence must match the exact candidate digests.",),
-        ("Persisted Task 45 decision", "Exact Agent/Knowledge/Code digests"),
-        ("Task 45 must provide passing, non-stale evidence.",),
-        "View Quality Gate dependency",
-        "/agent",
+        ("Persisted gate decision", "Exact Agent/Knowledge/Code digests"),
+        ("A passing, non-stale decision exists for the exact candidate.",),
+        "Review Quality Gate evidence",
+        "/evals",
         "Production Quality Gate plan",
         "docs/superpowers/plans/2026-08-12-agents-factory-v1.md",
     ),
@@ -252,8 +253,8 @@ STEP_DEFINITIONS = (
         "Production",
         ("Publish only the exact candidate approved by the Production Quality Gate.",),
         ("Passing Quality Gate", "Explicit Production publication"),
-        ("Production remains fail-closed until Task 45 and deployment hardening.",),
-        "View Production dependency",
+        ("Production remains fail-closed until exact evidence and approval exist.",),
+        "Review Production candidate",
         "/agent",
         "Deployment plan",
         "docs/superpowers/plans/2026-08-12-agents-factory-v1.md",
@@ -442,33 +443,30 @@ class OnboardingStatusEngine:
             )
         states.append(test_state)
 
-        quality_blockers = [
-            OnboardingMessage(
-                code="production_quality_gate_task_45_required",
-                message="Task 45 must persist exact-digest Production Quality Gate evidence.",
-            )
-        ]
         if test_state[0] != "COMPLETE":
-            quality_blockers.insert(
-                0,
-                OnboardingMessage(
-                    code="test_required",
-                    message="Complete the current Test candidate first.",
-                ),
+            quality_state = self._blocked(
+                "test_required", "Complete the current Test candidate first."
             )
-        states.append(("UNAVAILABLE", tuple(quality_blockers), ()))
-        states.append(
-            (
-                "UNAVAILABLE",
-                (
-                    OnboardingMessage(
-                        code="quality_gate_required",
-                        message="Production requires the unavailable Task 45 Quality Gate.",
-                    ),
-                ),
-                (),
+        else:
+            quality_state = self._fact_state(
+                facts.quality_gate_passed,
+                "production_quality_gate_required",
+                "Run a passing Production Quality Gate for the exact Agent, Knowledge and code digests.",
             )
-        )
+        states.append(quality_state)
+
+        if quality_state[0] != "COMPLETE":
+            production_state = self._blocked(
+                "quality_gate_required",
+                "Production requires a passing exact-version Quality Gate.",
+            )
+        else:
+            production_state = self._fact_state(
+                facts.agent_state == "PRODUCTION",
+                "production_publication_required",
+                "Publish the approved exact candidate to Production.",
+            )
+        states.append(production_state)
 
         steps = tuple(
             self._step(facts.tenant_id, number, definition, *states[number - 1])
@@ -698,6 +696,22 @@ class OnboardingService:
                 {"tenant": tenant.id, "instance": instance.id},
             )
         )
+        quality_gate_passed = bool(
+            version.compiled_digest
+            and await self._session.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM public.quality_gate_decisions "
+                    "WHERE tenant_id=:tenant AND passed AND agent_spec_digest=:agent "
+                    "AND knowledge_digest=:knowledge AND code_digest=:code)"
+                ),
+                {
+                    "tenant": tenant.id,
+                    "agent": version.compiled_digest,
+                    "knowledge": configuration.knowledge.digest,
+                    "code": configuration.code_digest,
+                },
+            )
+        )
         return OnboardingFacts(
             tenant_id=tenant.id,
             company_complete=bool(company_complete),
@@ -725,6 +739,7 @@ class OnboardingService:
             whatsapp_connected=bool(whatsapp_connected),
             whatsapp_healthy=bool(whatsapp_healthy),
             has_tested_version=has_tested,
+            quality_gate_passed=quality_gate_passed,
         )
 
 

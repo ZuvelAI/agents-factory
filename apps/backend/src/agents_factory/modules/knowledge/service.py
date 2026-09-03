@@ -298,7 +298,16 @@ class KnowledgeService:
             knowledge_digest=version.digest,
             gate=self._production_gate,
         )
-        raise _invalid_transition(version.state, "PRODUCTION")
+        published = await self._repository.publish_production(version_id=version.id)
+        if published is None:
+            raise _invalid_transition(version.state, "PRODUCTION")
+        await self._repository.audit(
+            event_type="knowledge.version.published",
+            entity_type="knowledge_version",
+            entity_id=version.id,
+            payload={"digest": version.digest},
+        )
+        return published
 
     async def request_embeddings(self, version_id: UUID) -> UUID:
         version = await self._repository.get_version(version_id)

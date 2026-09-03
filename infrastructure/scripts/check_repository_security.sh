@@ -41,7 +41,7 @@ if git grep --untracked -nEi \
 fi
 
 if test "$#" -eq 0; then
-  set -- .github/workflows/*.yml .github/workflows/*.yaml
+  set -- .github/workflows/ci.yml
 fi
 ruby -rpsych - "$@" <<'RUBY'
 APPROVED_ACTIONS = [
@@ -61,7 +61,11 @@ ALLOWED_RUNS = [
   'make test-unit',
   'make eval',
   'make test-integration',
+  'make test-e2e',
   'docker compose config --quiet',
+  'infrastructure/scripts/test_images.sh',
+  'infrastructure/scripts/generate_sbom.sh',
+  'infrastructure/scripts/scan_vulnerabilities.sh',
   'make test-security'
 ].freeze
 

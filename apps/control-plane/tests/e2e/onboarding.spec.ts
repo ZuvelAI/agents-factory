@@ -63,14 +63,14 @@ test("canonical onboarding resumes and invalidates downstream steps", async ({
   await expect(
     page.getByRole("heading", { name: "Quality Gate" }),
   ).toBeVisible();
+  await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible();
   await expect(
-    page.getByText("Unavailable", { exact: true }).first(),
+    page.getByText(/Run a passing Production Quality Gate/),
   ).toBeVisible();
-  await expect(page.getByText(/Task 45 must persist/)).toBeVisible();
 
   await page.getByRole("link", { name: /^12\. Production/ }).click();
   await expect(
-    page.getByText(/Production requires the unavailable Task 45/),
+    page.getByText(/Production requires a passing exact-version Quality Gate/),
   ).toBeVisible();
 
   const changed = await request.post(

@@ -481,6 +481,20 @@ class KnowledgeRepository:
         row = result.mappings().one_or_none()
         return None if row is None else KnowledgeVersion.from_mapping(row)
 
+    async def publish_production(self, *, version_id: UUID) -> KnowledgeVersion | None:
+        await self._scope()
+        result = await self._session.execute(
+            text(
+                "UPDATE public.knowledge_versions SET state='PRODUCTION',updated_at=now() "
+                "WHERE tenant_id=:tenant_id AND id=:version_id AND state='TEST' "
+                "RETURNING id,tenant_id,name,version_number,state,digest,"
+                "based_on_version_id,created_at,updated_at"
+            ),
+            {"tenant_id": self._context.tenant_id, "version_id": version_id},
+        )
+        row = result.mappings().one_or_none()
+        return None if row is None else KnowledgeVersion.from_mapping(row)
+
     async def candidates_for_key(
         self, *, version_id: UUID, key: str
     ) -> tuple[AuthorityCandidate, ...]:

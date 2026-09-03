@@ -4,10 +4,7 @@ import {
   reconnectOperationalIntegration,
 } from "../../app/actions";
 import { formatTime } from "../../lib/dashboard";
-import type {
-  OperationsWorkspace as OperationsWorkspaceData,
-  UnavailableFeature,
-} from "../../lib/operations";
+import type { OperationsWorkspace as OperationsWorkspaceData } from "../../lib/operations";
 
 export function OperationsWorkspace({
   tenantId,
@@ -196,41 +193,89 @@ export function OperationsWorkspace({
 
       <section className="operational-section">
         <header>
-          <p className="eyebrow">Later release dependencies</p>
+          <p className="eyebrow">Health and incident evidence</p>
+          <h2>Operational detection</h2>
+        </header>
+        <div className="operational-grid">
+          <article className="operational-card">
+            <span
+              className={`review-state review-${workspace.health.state.toLowerCase()}`}
+            >
+              {humanize(workspace.health.state)}
+            </span>
+            <h3>Tenant health</h3>
+            <p>
+              {workspace.health.components.length} component signals recorded.
+            </p>
+          </article>
+          {workspace.incidents.map((incident) => (
+            <article className="operational-card" key={incident.id}>
+              <span
+                className={`review-state review-${incident.severity.toLowerCase()}`}
+              >
+                {humanize(incident.severity)}
+              </span>
+              <h3>{incident.title}</h3>
+              <p>{incident.occurrence_count} correlated occurrence(s).</p>
+              <code>{incident.correlation_id}</code>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operational-section">
+        <header>
+          <p className="eyebrow">Release controls</p>
           <h2>Fail-closed controls</h2>
         </header>
         <div className="operational-grid unavailable-grid">
-          <UnavailableCard title="Incidents" feature={workspace.incidents} />
-          <UnavailableCard
-            title="Quality Gate"
-            feature={workspace.quality_gate}
-          />
-          <UnavailableCard
-            title="Deployments"
-            feature={workspace.deployments}
-          />
+          <QualityGateCard gate={workspace.quality_gate} />
+          <article className="operational-card">
+            <span className="review-state review-healthy">Workflow ready</span>
+            <h3>Deployments</h3>
+            {workspace.deployments.latest.length ? (
+              workspace.deployments.latest.map((deployment) => (
+                <p key={deployment.id}>
+                  {deployment.environment}: {humanize(deployment.status)} ·{" "}
+                  <code>{deployment.release_version}</code>
+                </p>
+              ))
+            ) : (
+              <p>No deployment has been recorded for this tenant.</p>
+            )}
+            <small>Production requires GitHub environment approval.</small>
+          </article>
         </div>
       </section>
     </div>
   );
 }
 
-function UnavailableCard({
-  title,
-  feature,
+function QualityGateCard({
+  gate,
 }: {
-  title: string;
-  feature: UnavailableFeature;
+  gate: OperationsWorkspaceData["quality_gate"];
 }) {
+  const latest = gate.latest;
   return (
-    <article className="operational-card unavailable-card">
-      <span className="review-state review-unavailable">Unavailable</span>
-      <h3>{title}</h3>
-      <p>{feature.reason}</p>
-      <code>{feature.code}</code>
-      <button disabled type="button">
-        {title} action unavailable
-      </button>
+    <article className="operational-card">
+      <span
+        className={`review-state review-${latest?.passed ? "healthy" : "unavailable"}`}
+      >
+        {latest?.passed ? "Passed" : "Blocked"}
+      </span>
+      <h3>Production Quality Gate</h3>
+      {latest ? (
+        <>
+          <p>
+            {latest.passed_cases} passed · {latest.failed_cases} failed · exact
+            version evidence required.
+          </p>
+          <code>{latest.id}</code>
+        </>
+      ) : (
+        <p>No persisted exact-version decision exists yet.</p>
+      )}
     </article>
   );
 }

@@ -456,6 +456,7 @@ const deadLetters = ["RETRY", "DISCARD", "RESOLVE"].map((action, index) => ({
   updated_at: now,
 }));
 const operationalAudits = [];
+let qualityGateDecision = null;
 
 function operationsWorkspace() {
   const openDeadLetters = deadLetters.filter((item) => item.status === "open");
@@ -494,26 +495,43 @@ function operationsWorkspace() {
     dead_letter_page: 1,
     dead_letter_has_more: false,
     recent_audit: operationalAudits,
-    incidents: unavailableFeature(
-      "incident_detection_task_44_required",
-      "Incident detection is installed by Task 44.",
-      44,
-    ),
-    quality_gate: unavailableFeature(
-      "quality_gate_task_45_required",
-      "The Production Quality Gate is installed by Task 45.",
-      45,
-    ),
-    deployments: unavailableFeature(
-      "deployment_controls_task_47_required",
-      "Deployment promotion and rollback are installed by Task 47.",
-      47,
-    ),
+    health: {
+      generated_at: now,
+      state: "DEGRADED",
+      components: [
+        {
+          component: "google_calendar",
+          state: "DEGRADED",
+          observed_at: now,
+          reason_code: "reauth_required",
+        },
+      ],
+    },
+    incidents: [
+      {
+        id: "76000000-0000-4000-8000-000000000001",
+        incident_type: "connector_reauth_required",
+        severity: "WARNING",
+        status: "OPEN",
+        title: "Google Calendar requires reconnection",
+        correlation_id: "76000000-0000-4000-8000-000000000002",
+        occurrence_count: 1,
+        first_detected_at: now,
+        last_detected_at: now,
+        evidence_until: "2026-09-02T16:00:00Z",
+      },
+    ],
+    quality_gate: {
+      available: true,
+      exact_version_required: true,
+      latest: qualityGateDecision,
+    },
+    deployments: {
+      available: true,
+      promotion_mode: "GITHUB_ENVIRONMENT_APPROVAL",
+      latest: [],
+    },
   };
-}
-
-function unavailableFeature(code, reason, ownerTask) {
-  return { available: false, code, reason, owner_task: ownerTask };
 }
 
 function usageSummary(dimension) {
@@ -586,7 +604,7 @@ const onboardingSteps = [
 
 function onboardingStatus(tenantId) {
   const steps = onboardingSteps.map(([slug, name, suffix], index) => {
-    let status = index < 10 ? "COMPLETE" : "UNAVAILABLE";
+    let status = index < 10 ? "COMPLETE" : "BLOCKED";
     let blockers = [];
     if (slug === "test" && onboardingConfigurationChanged) {
       status = "STALE";
@@ -598,28 +616,44 @@ function onboardingStatus(tenantId) {
       ];
     }
     if (slug === "quality-gate") {
-      blockers = [
-        ...(onboardingConfigurationChanged
-          ? [
+      status = onboardingConfigurationChanged
+        ? "BLOCKED"
+        : qualityGateDecision?.passed
+          ? "COMPLETE"
+          : "READY";
+      blockers = onboardingConfigurationChanged
+        ? [
+            {
+              code: "test_required",
+              message: "Complete the current Test candidate first.",
+            },
+          ]
+        : qualityGateDecision?.passed
+          ? []
+          : [
               {
-                code: "test_required",
-                message: "Complete the current Test candidate first.",
+                code: "production_quality_gate_required",
+                message:
+                  "Run a passing Production Quality Gate for the exact candidate digests.",
               },
-            ]
-          : []),
-        {
-          code: "production_quality_gate_task_45_required",
-          message:
-            "Task 45 must persist exact-digest Production Quality Gate evidence.",
-        },
-      ];
+            ];
     }
     if (slug === "production") {
+      status =
+        qualityGateDecision?.passed && !onboardingConfigurationChanged
+          ? "READY"
+          : "BLOCKED";
       blockers = [
-        {
-          code: "quality_gate_required",
-          message: "Production requires the unavailable Task 45 Quality Gate.",
-        },
+        qualityGateDecision?.passed && !onboardingConfigurationChanged
+          ? {
+              code: "production_publication_required",
+              message: "Publish the approved exact candidate to Production.",
+            }
+          : {
+              code: "quality_gate_required",
+              message:
+                "Production requires a passing exact-version Quality Gate.",
+            },
       ];
     }
     return {
@@ -652,8 +686,9 @@ function onboardingStatus(tenantId) {
     agent_instance_id: "20000000-0000-4000-8000-000000000039",
     agent_version_id: "30000000-0000-4000-8000-000000000039",
     agent_version_number: onboardingConfigurationChanged ? 8 : 7,
-    complete_steps: onboardingConfigurationChanged ? 9 : 10,
-    current_step_slug: onboardingConfigurationChanged ? "test" : "quality-gate",
+    complete_steps: steps.filter((step) => step.status === "COMPLETE").length,
+    current_step_slug:
+      steps.find((step) => step.status !== "COMPLETE")?.slug ?? "production",
     classifications: [
       "STANDARD",
       "CUSTOM_CONNECTOR",
@@ -1483,15 +1518,24 @@ createServer(async (request, response) => {
   }
 
   const qualityGateMutationMatch = url.pathname.match(
-    /^\/admin\/tenants\/([^/]+)\/release-controls\/quality-gate$/,
+    /^\/admin\/tenants\/([^/]+)\/evals\/quality-gate\/runs$/,
   );
   if (qualityGateMutationMatch && request.method === "POST") {
-    problem(
-      response,
-      409,
-      "quality_gate_task_45_required",
-      "Task 45 must install the Production Quality Gate.",
-    );
+    const body = await readJson(request);
+    qualityGateDecision = {
+      id: "77000000-0000-4000-8000-000000000001",
+      eval_run_id: "77000000-0000-4000-8000-000000000002",
+      passed: true,
+      agent_spec_digest: body.agent_spec_digest,
+      knowledge_digest: body.knowledge_digest,
+      code_digest: body.code_digest,
+      hard_blockers: [],
+      passed_cases: 79,
+      failed_cases: 0,
+      runner_version: "production-v1",
+      decided_at: now,
+    };
+    json(response, 200, qualityGateDecision);
     return;
   }
 

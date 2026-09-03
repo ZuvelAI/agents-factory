@@ -1,4 +1,4 @@
-# Eval Runner v0
+# Eval Runner and Production Quality Gate
 
 This directory contains the deterministic local evaluation gate introduced in
 Task 9A. It exercises the internal runtime contract with a seeded fake runtime;
@@ -21,6 +21,12 @@ Task 16 adds deterministic v0 observations for Customer Service scope,
 Spanish/English response language, and truthful automation disclosure. These
 are development regressions only; v0 still cannot satisfy or replace the
 exact-digest Production Quality Gate.
+
+Task 45 extends the v0-compatible runner with persisted exact-version runs and
+seven unconditional hard blockers. Production decisions bind the suite and
+seed to AgentSpec, Knowledge and code SHA-256 digests; any changed digest makes
+the previous decision stale. The backend exposes authorized run and evidence
+endpoints while the local CLI continues returning non-zero on failure.
 
 Task 24 adds `appointments.jsonl`: six structured probes of the same appointment
 action gate used by the connector (identity, confirmation and approval). These

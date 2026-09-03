@@ -27,7 +27,11 @@ REQUIRED_RUNS = [
   'make test-unit',
   'make eval',
   'make test-integration',
+  'make test-e2e',
   'docker compose config --quiet',
+  'infrastructure/scripts/test_images.sh',
+  'infrastructure/scripts/generate_sbom.sh',
+  'infrastructure/scripts/scan_vulnerabilities.sh',
   'make test-security'
 ].freeze
 
@@ -123,8 +127,16 @@ fail('CI run commands must exactly match the locked baseline allowlist') unless 
 expected_with = {
   'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' => nil,
   'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' => { 'python-version' => '3.12' },
-  'astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d' => { 'version' => '0.12.5' },
-  'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' => { 'node-version' => '24' },
+  'astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d' => {
+    'version' => '0.12.5',
+    'enable-cache' => true,
+    'cache-dependency-glob' => 'uv.lock'
+  },
+  'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' => {
+    'node-version' => '24',
+    'cache' => 'pnpm',
+    'cache-dependency-path' => 'pnpm-lock.yaml'
+  },
   'pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86' => { 'version' => '11.24.0' }
 }
 
