@@ -2,8 +2,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { hasPlatformAdminRole } from "./lib/auth";
+import { approvalResponse } from "./lib/approval-security";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  if (
+    request.nextUrl.pathname === "/approval" ||
+    request.nextUrl.pathname.startsWith("/approval/")
+  ) {
+    return approvalResponse(request);
+  }
   if (
     request.nextUrl.pathname === "/login" ||
     request.nextUrl.pathname === "/health/ready"

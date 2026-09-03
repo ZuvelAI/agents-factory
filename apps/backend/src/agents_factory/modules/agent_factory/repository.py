@@ -53,6 +53,19 @@ class AgentSpecRepository:
         row = result.mappings().one_or_none()
         return None if row is None else AgentInstance.from_mapping(row)
 
+    async def primary_instance(self) -> AgentInstance | None:
+        await self._scope()
+        result = await self._session.execute(
+            text(
+                "SELECT id, tenant_id, product, created_at, updated_at "
+                "FROM public.agent_instances WHERE tenant_id = :tenant_id "
+                "ORDER BY created_at, id LIMIT 1"
+            ),
+            {"tenant_id": self._context.tenant_id},
+        )
+        row = result.mappings().one_or_none()
+        return None if row is None else AgentInstance.from_mapping(row)
+
     async def create_draft(
         self,
         *,
@@ -89,6 +102,38 @@ class AgentSpecRepository:
         )
         return AgentSpecVersion.from_mapping(result.mappings().one())
 
+    async def create_draft_from_latest(
+        self,
+        *,
+        agent_instance_id: UUID,
+        expected_latest_version_id: UUID,
+        configuration: AgentSpecConfiguration,
+    ) -> AgentSpecVersion | None:
+        """Create a Draft only when the editor's base is still current."""
+        await self._scope()
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": str(agent_instance_id)},
+        )
+        latest_id = await self._session.scalar(
+            text(
+                "SELECT id FROM public.agent_spec_versions "
+                "WHERE tenant_id = :tenant_id AND agent_instance_id = :instance_id "
+                "ORDER BY version_number DESC LIMIT 1"
+            ),
+            {
+                "tenant_id": self._context.tenant_id,
+                "instance_id": agent_instance_id,
+            },
+        )
+        if latest_id != expected_latest_version_id:
+            return None
+        return await self.create_draft(
+            agent_instance_id=agent_instance_id,
+            configuration=configuration,
+            based_on_version_id=expected_latest_version_id,
+        )
+
     async def get_version(self, version_id: UUID) -> AgentSpecVersion | None:
         await self._scope()
         result = await self._session.execute(
@@ -99,6 +144,26 @@ class AgentSpecRepository:
                 "WHERE tenant_id = :tenant_id AND id = :version_id"
             ),
             {"tenant_id": self._context.tenant_id, "version_id": version_id},
+        )
+        row = result.mappings().one_or_none()
+        return None if row is None else AgentSpecVersion.from_mapping(row)
+
+    async def latest_version(
+        self, *, agent_instance_id: UUID
+    ) -> AgentSpecVersion | None:
+        await self._scope()
+        result = await self._session.execute(
+            text(
+                "SELECT id, tenant_id, agent_instance_id, version_number, state, "
+                "based_on_version_id, configuration, compiled_spec, compiled_digest, "
+                "created_at, updated_at FROM public.agent_spec_versions "
+                "WHERE tenant_id = :tenant_id AND agent_instance_id = :instance_id "
+                "ORDER BY version_number DESC LIMIT 1"
+            ),
+            {
+                "tenant_id": self._context.tenant_id,
+                "instance_id": agent_instance_id,
+            },
         )
         row = result.mappings().one_or_none()
         return None if row is None else AgentSpecVersion.from_mapping(row)

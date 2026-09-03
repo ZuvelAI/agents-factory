@@ -154,6 +154,16 @@ class WhatsAppProvider(Protocol):
 
     def verify_signature(self, *, raw_body: bytes, signature: str) -> bool: ...
 
+    async def download_media(
+        self,
+        *,
+        context: TenantContext,
+        whatsapp_account_id: UUID,
+        phone_number_id: str,
+        media_id: str,
+        max_bytes: int,
+    ) -> tuple[bytes, str]: ...
+
     def parse_webhook(
         self,
         payload: Mapping[str, object],

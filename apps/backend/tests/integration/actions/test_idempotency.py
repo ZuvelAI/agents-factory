@@ -151,13 +151,20 @@ async def test_duplicate_action_and_execute_are_idempotent_and_audited(
 
         assert first_outcome.state == second_outcome.state == "SUCCEEDED"
         assert connector.calls == 1
-        assert (
-            await session.scalar(
-                text("SELECT count(*) FROM public.audit_events WHERE entity_id = :id"),
-                {"id": action_id},
+        audit_events = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT event_type FROM public.audit_events "
+                        "WHERE entity_id = :id"
+                    ),
+                    {"id": action_id},
+                )
             )
-            == 1
+            .scalars()
+            .all()
         )
+        assert sorted(audit_events) == ["action.revalidated", "action.succeeded"]
         assert (
             await session.scalar(
                 text(

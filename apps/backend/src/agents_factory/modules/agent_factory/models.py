@@ -55,6 +55,22 @@ class PersonaConfiguration(FrozenModel):
         default="Configured Business", min_length=1, max_length=200
     )
     instructions: str = Field(min_length=1, max_length=50_000)
+    agent_name: str | None = Field(default=None, min_length=1, max_length=80)
+    tone: str = Field(default="Cercano y claro", min_length=1, max_length=120)
+    formality: str = Field(default="Neutral", min_length=1, max_length=80)
+    brand_vocabulary: tuple[str, ...] = Field(default=(), max_length=100)
+    greeting: str = Field(
+        default="¡Hola! ¿En qué puedo ayudarte?", min_length=1, max_length=500
+    )
+
+    @model_validator(mode="after")
+    def validate_brand_vocabulary(self) -> Self:
+        normalized = [value.strip().casefold() for value in self.brand_vocabulary]
+        if any(not value or len(value) > 80 for value in normalized):
+            raise ValueError("brand vocabulary entries must contain 1 to 80 characters")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("brand vocabulary entries must be unique")
+        return self
 
 
 class ConnectorBinding(FrozenModel):
@@ -72,17 +88,34 @@ class ConnectorBinding(FrozenModel):
         return self
 
 
+class ActionPolicyOverride(FrozenModel):
+    action: str = Field(pattern=_QUALIFIED_NAME.pattern)
+    identity_level: Literal[0, 1, 2, 3]
+    confirmation_required: bool
+    approval_required: bool
+
+
 class AgentModelConfiguration(FrozenModel):
     model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
     reasoning_effort: Literal["low"] = "low"
 
 
 class LanguagePolicy(FrozenModel):
-    supported_locales: tuple[Literal["es-CO"], Literal["en-US"]] = (
+    supported_locales: tuple[Literal["es-CO", "en-US"], ...] = (
         "es-CO",
         "en-US",
     )
-    default_locale: Literal["es-CO"] = "es-CO"
+    default_locale: Literal["es-CO", "en-US"] = "es-CO"
+
+    @model_validator(mode="after")
+    def validate_locales(self) -> Self:
+        if not self.supported_locales:
+            raise ValueError("at least one supported locale is required")
+        if len(set(self.supported_locales)) != len(self.supported_locales):
+            raise ValueError("supported locales must be unique")
+        if self.default_locale not in self.supported_locales:
+            raise ValueError("default locale must be supported")
+        return self
 
 
 class HumanOperationsConfiguration(FrozenModel):
@@ -105,6 +138,7 @@ class AgentSpecConfiguration(FrozenModel):
     permitted_tools: tuple[str, ...] = ()
     permitted_actions: tuple[str, ...] = ()
     connector_bindings: tuple[ConnectorBinding, ...] = ()
+    action_policies: tuple[ActionPolicyOverride, ...] = ()
     policy: VersionReference
     identity_policy: VersionReference
     approval_routes: VersionReference
@@ -131,6 +165,9 @@ class AgentSpecConfiguration(FrozenModel):
         binding_ids = [item.binding_id for item in self.connector_bindings]
         if len(set(binding_ids)) != len(binding_ids):
             raise ValueError("connector binding IDs must be unique")
+        policy_actions = [item.action for item in self.action_policies]
+        if len(set(policy_actions)) != len(policy_actions):
+            raise ValueError("action policy overrides must be unique")
         return self
 
 

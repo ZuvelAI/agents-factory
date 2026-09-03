@@ -9,6 +9,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from apps.backend.tests.handoff_support import activate_verified_handoff
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
 from agents_factory.modules.whatsapp.contracts import (
@@ -258,14 +259,9 @@ async def test_send_rechecks_conversation_authority(
         provider=provider,
     )
     outbound_id = await service.prepare_text(message_id=assistant_id)
-    async with session_factory.begin() as session:
-        await session.execute(
-            text(
-                "UPDATE public.conversations SET control_state = 'HUMAN_ACTIVE' "
-                "WHERE id = :conversation_id"
-            ),
-            {"conversation_id": conversation_id},
-        )
+    await activate_verified_handoff(
+        session_factory, _context(tenant_id), conversation_id
+    )
 
     result = await service.send(outbound_id)
 

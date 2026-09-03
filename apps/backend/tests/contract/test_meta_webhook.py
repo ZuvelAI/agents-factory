@@ -191,7 +191,16 @@ def test_provider_normalizes_each_v1_inbound_message_type(message_type: str) -> 
     assert event.whatsapp_message_id == "wamid.test.inbound.001"
     assert event.sender_wa_id == "573000000001"
     assert event.message_type == message_type
-    assert event.content == ({"text": "Hola"} if message_type == "text" else {})
+    expected_content = {
+        "text": {"text": "Hola"},
+        "audio": {"id": "media-audio-001"},
+        "image": {"id": "media-image-001"},
+        "document": {"id": "media-document-001"},
+        "location": {"latitude": 4.7, "longitude": -74.1},
+        "contacts": {"contacts": [{"name": {"formatted_name": "Persona"}}]},
+        "video": {"id": "media-video-001"},
+    }
+    assert event.content == expected_content[message_type]
     assert event.occurred_at.isoformat() == "2026-08-27T00:00:00+00:00"
     assert batch.delivery_statuses == ()
 

@@ -23,6 +23,7 @@ from agents_factory.modules.whatsapp.outbound_service import (
     OutboundMessageService,
     OutboundProvider,
 )
+from agents_factory.modules.usage.recorder import UsageRecorder
 
 
 class InvalidOutboundJob(ValueError):
@@ -48,12 +49,14 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
             graph_api_base_url=settings.meta_graph_api_base_url,
         ),
     )
+    usage_recorder = UsageRecorder(database.session_factory)
 
     async def prepare_text_handler(envelope: JobEnvelope) -> None:
         await handle_prepare_text(
             envelope=envelope,
             database=database,
             provider=provider,
+            usage_recorder=usage_recorder,
         )
 
     async def send_handler(envelope: JobEnvelope) -> None:
@@ -61,6 +64,7 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
             envelope=envelope,
             database=database,
             provider=provider,
+            usage_recorder=usage_recorder,
         )
 
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
@@ -73,6 +77,7 @@ async def handle_prepare_text(
     envelope: JobEnvelope,
     database: Database,
     provider: OutboundProvider,
+    usage_recorder: UsageRecorder | None = None,
 ) -> None:
     if envelope.kind != "outbound.text":
         raise InvalidOutboundJob("unexpected outbound preparation job kind")
@@ -81,6 +86,7 @@ async def handle_prepare_text(
         session_factory=database.session_factory,
         context=_context(envelope),
         provider=provider,
+        usage_recorder=usage_recorder,
     ).prepare_text(message_id=message_id)
 
 
@@ -89,6 +95,7 @@ async def handle_send(
     envelope: JobEnvelope,
     database: Database,
     provider: OutboundProvider,
+    usage_recorder: UsageRecorder | None = None,
 ) -> None:
     if envelope.kind != "whatsapp.outbound.send":
         raise InvalidOutboundJob("unexpected outbound send job kind")
@@ -97,6 +104,7 @@ async def handle_send(
         session_factory=database.session_factory,
         context=_context(envelope),
         provider=provider,
+        usage_recorder=usage_recorder,
     ).send(message_id)
 
 
@@ -122,7 +130,7 @@ async def _load_message_id(*, database: Database, envelope: JobEnvelope) -> UUID
 def _context(envelope: JobEnvelope) -> TenantContext:
     return TenantContext(
         tenant_id=envelope.tenant_id,
-        actor_id=None,
+        actor_id=envelope.job_id,
         actor_type="system",
         correlation_id=envelope.job_id,
     )

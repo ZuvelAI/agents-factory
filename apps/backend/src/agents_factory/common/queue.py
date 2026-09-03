@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
+from agents_factory.common.deferral import JobDeferred
 from agents_factory.common.ids import new_uuid7
 from agents_factory.common.locks import ConversationLockManager
 from agents_factory.config import load_settings
@@ -28,6 +29,7 @@ JobRunStatus = Literal[
     "retry",
     "dead_letter",
     "already_complete",
+    "deferred",
 ]
 JobHandler = Callable[["JobEnvelope"], Awaitable[None]]
 
@@ -180,6 +182,11 @@ class OutboxDispatcher:
         for job in claimed:
             try:
                 envelope = job.envelope()
+                if (
+                    envelope.kind == "approvals.result.held"
+                    and not await self._release_approval_hold(job)
+                ):
+                    continue
                 queued = await self._queue.enqueue_job(
                     "process_job",
                     envelope.to_arq_payload(),
@@ -247,6 +254,28 @@ class OutboxDispatcher:
                 for row in rows
             ]
 
+    async def _release_approval_hold(self, job: _ClaimedOutboxJob) -> bool:
+        # The global dispatcher can read job envelopes, not tenant business rows.
+        # Check the conversation in a separate, explicitly tenant-scoped session.
+        async with self._session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+            await set_tenant_context(session, job.tenant_id)
+            ready = await session.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM public.actions a JOIN public.conversations c ON c.tenant_id=a.tenant_id AND c.id=a.conversation_id WHERE a.tenant_id=:tenant AND a.id=:action AND c.control_state='AI_ACTIVE')"
+                ),
+                {"tenant": job.tenant_id, "action": job.envelope().aggregate_id},
+            )
+            if ready:
+                return True
+            await session.execute(
+                text(
+                    "UPDATE public.outbox_jobs SET status='pending',dispatch_lease_id=NULL,dispatch_lease_expires_at=NULL,available_at=now()+interval '30 seconds',updated_at=now() WHERE tenant_id=:tenant AND id=:id AND dispatch_lease_id=:lease"
+                ),
+                {"tenant": job.tenant_id, "id": job.job_id, "lease": job.lease_id},
+            )
+            return False
+
     async def _mark_queued(self, *, job: _ClaimedOutboxJob) -> None:
         async with self._session_factory.begin() as session:
             await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
@@ -300,6 +329,7 @@ class JobRunResult:
 class _StartedAttempt:
     attempt_number: int
     max_attempts: int
+    budget_attempt_number: int
 
 
 class DurableJobRunner:
@@ -354,11 +384,17 @@ class DurableJobRunner:
             except asyncio.CancelledError:
                 await cleanup
             raise
+        except JobDeferred as deferred:
+            await self._finish_deferred(envelope, started, deferred.delay_seconds)
+            return JobRunResult(
+                status="deferred", attempt_number=started.attempt_number
+            )
         except Exception as error:
             status = await self._finish_failure(
                 envelope=envelope,
                 attempt=started,
                 error_code=_exception_code(error),
+                terminal_error=getattr(error, "retryable", None) is False,
             )
             return JobRunResult(
                 status=status,
@@ -381,7 +417,7 @@ class DurableJobRunner:
                 (
                     await session.execute(
                         text(
-                            "SELECT status, topic, payload, attempt_count, max_attempts "
+                            "SELECT status, topic, payload, attempt_count, max_attempts, deferral_count "
                             "FROM public.outbox_jobs WHERE id = :job_id "
                             "AND tenant_id = :tenant_id FOR UPDATE"
                         ),
@@ -403,6 +439,7 @@ class DurableJobRunner:
             _validate_ledger_envelope(envelope=envelope, row=row)
             attempt_number = int(row["attempt_count"]) + 1
             max_attempts = int(row["max_attempts"])
+            budget_attempt_number = attempt_number - int(row["deferral_count"])
             await session.execute(
                 text(
                     "UPDATE public.outbox_jobs SET status = 'processing', "
@@ -433,6 +470,47 @@ class DurableJobRunner:
             return _StartedAttempt(
                 attempt_number=attempt_number,
                 max_attempts=max_attempts,
+                budget_attempt_number=budget_attempt_number,
+            )
+
+    async def _finish_deferred(
+        self, envelope: JobEnvelope, attempt: _StartedAttempt, delay: float
+    ) -> None:
+        async with self._session_factory.begin() as session:
+            context = await _prepare_worker_session(session, envelope)
+            params = {
+                "tenant": envelope.tenant_id,
+                "job": envelope.job_id,
+                "attempt": attempt.attempt_number,
+                "available": datetime.now(UTC) + timedelta(seconds=delay),
+            }
+            await session.execute(
+                text(
+                    "UPDATE public.job_attempts SET status='failed',error_code='capacity_deferred' "
+                    "WHERE tenant_id=:tenant AND outbox_job_id=:job AND attempt_number=:attempt"
+                ),
+                params,
+            )
+            updated = await session.scalar(
+                text(
+                    "UPDATE public.outbox_jobs SET status='pending',available_at=:available,deferral_count=deferral_count+1, "
+                    "last_error_code='capacity_deferred',updated_at=now() "
+                    "WHERE tenant_id=:tenant AND id=:job AND status='processing' "
+                    "AND attempt_count=:attempt RETURNING id"
+                ),
+                params,
+            )
+            if updated != envelope.job_id:
+                raise RuntimeError("job deferral state changed concurrently")
+            await AuditService(session).record(
+                context=context,
+                event_type="job.capacity_deferred",
+                entity_type="outbox_job",
+                entity_id=envelope.job_id,
+                payload={
+                    "attempt_number": attempt.attempt_number,
+                    "delay_seconds": delay,
+                },
             )
 
     async def _finish_success(
@@ -479,8 +557,11 @@ class DurableJobRunner:
         envelope: JobEnvelope,
         attempt: _StartedAttempt,
         error_code: str,
+        terminal_error: bool = False,
     ) -> Literal["retry", "dead_letter"]:
-        terminal = attempt.attempt_number >= attempt.max_attempts
+        terminal = (
+            terminal_error or attempt.budget_attempt_number >= attempt.max_attempts
+        )
         async with self._session_factory.begin() as session:
             context = await _prepare_worker_session(session, envelope)
             await session.execute(

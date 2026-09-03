@@ -136,6 +136,7 @@ class TemplateService:
         language: str,
         variables: Mapping[str, str],
         idempotency_key: str,
+        conversation_id: UUID | None = None,
     ) -> UUID:
         now = datetime.now(UTC)
         if (
@@ -147,6 +148,20 @@ class TemplateService:
             raise TemplatePolicyViolation
         async with self._session_factory.begin() as session:
             await _prepare_app_session(session, self._context.tenant_id)
+            if conversation_id is not None:
+                allowed = await session.scalar(
+                    text(
+                        "SELECT id FROM public.conversations WHERE tenant_id = :tenant AND id = :conversation AND whatsapp_account_id = :account AND customer_wa_id = :recipient AND control_state = 'AI_ACTIVE' FOR UPDATE"
+                    ),
+                    {
+                        "tenant": self._context.tenant_id,
+                        "conversation": conversation_id,
+                        "account": whatsapp_account_id,
+                        "recipient": recipient_wa_id,
+                    },
+                )
+                if allowed is None:
+                    raise TemplatePolicyViolation
             existing_id = await session.scalar(
                 text(
                     "SELECT id FROM public.outbound_messages "
@@ -217,9 +232,9 @@ class TemplateService:
             created_id = await session.scalar(
                 text(
                     "INSERT INTO public.outbound_messages "
-                    "(id, tenant_id, whatsapp_account_id, whatsapp_template_id, "
+                    "(id, tenant_id, conversation_id, whatsapp_account_id, whatsapp_template_id, "
                     "recipient_wa_id, kind, idempotency_key, payload, status, "
-                    "status_history) VALUES (:id, :tenant_id, :account_id, "
+                    "status_history) VALUES (:id, :tenant_id, :conversation_id, :account_id, "
                     ":template_id, :recipient_wa_id, 'template', "
                     ":idempotency_key, :payload, 'PREPARED', :history) "
                     "ON CONFLICT (tenant_id, idempotency_key) DO UPDATE "
@@ -232,6 +247,7 @@ class TemplateService:
                 {
                     "id": outbound_id,
                     "tenant_id": self._context.tenant_id,
+                    "conversation_id": conversation_id,
                     "account_id": whatsapp_account_id,
                     "template_id": row["id"],
                     "recipient_wa_id": recipient_wa_id,

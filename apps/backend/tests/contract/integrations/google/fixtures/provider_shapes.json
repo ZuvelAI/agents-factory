@@ -1,0 +1,10 @@
+{
+  "event": {"id": "eventfixture01", "etag": "\"v1\"", "status": "confirmed", "summary": "Fixture appointment", "start": {"dateTime": "2026-09-01T09:00:00-05:00"}, "end": {"dateTime": "2026-09-01T09:30:00-05:00"}},
+  "freebusy": {"calendars": {"primary": {"busy": [{"start": "2026-09-01T14:00:00Z", "end": "2026-09-01T14:30:00Z"}]}}},
+  "message": {"id": "mailfixture01", "threadId": "threadfixture01", "labelIds": ["SENT"]},
+  "file": {"id": "filefixture01", "name": "evidence.txt", "mimeType": "text/plain", "size": "8", "modifiedTime": "2026-09-01T14:00:00Z", "trashed": false},
+  "headers": {"values": [["Case ID", "Status", "Total"]]},
+  "rows": {"values": [["case-1", "OPEN", 25]]},
+  "append": {"updates": {"updatedRows": 1, "updatedRange": "'Queue'!A3:C3"}},
+  "update": {"totalUpdatedCells": 1, "totalUpdatedRows": 1}
+}

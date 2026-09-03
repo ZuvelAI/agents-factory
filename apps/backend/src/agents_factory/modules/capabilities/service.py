@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from agents_factory.modules.agent_factory.models import AgentSpec
+from agents_factory.modules.capabilities.contracts import ActionDefinition
 from agents_factory.modules.capabilities.registry import (
     CapabilityRegistry,
     ManifestNotFound,
@@ -11,6 +12,12 @@ from agents_factory.modules.integrations.registry import (
     ConnectorManifestNotFound,
     ConnectorRegistry,
 )
+from agents_factory.modules.identity.models import IdentityLevel
+from agents_factory.modules.policies.evaluator import (
+    ActionPolicyEvaluator,
+    WeakenedSafetyPolicy,
+)
+from agents_factory.modules.policies.models import TenantActionPolicy
 from agents_factory.modules.runtime.contracts import RuntimeTool
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
 
@@ -31,10 +38,12 @@ class CapabilityService:
 
     def validate_agent_spec(self, spec: AgentSpec) -> None:
         actions: set[str] = set()
+        definitions: dict[str, ActionDefinition] = {}
         try:
             for reference in spec.configuration.capabilities:
                 manifest = self._capabilities.get(reference.name, reference.version)
                 actions.update(action.name for action in manifest.actions)
+                definitions.update((action.name, action) for action in manifest.actions)
             available_operations = self._available_binding_operations(spec)
         except (ManifestNotFound, ConnectorManifestNotFound) as error:
             raise AgentSpecManifestError(str(error)) from error
@@ -54,6 +63,37 @@ class CapabilityService:
                 f"AgentSpec operations are not supported by bound connectors: "
                 f"{sorted(unsupported)}"
             )
+        evaluator = ActionPolicyEvaluator()
+        try:
+            for override in spec.configuration.action_policies:
+                definition = definitions.get(override.action)
+                if definition is None or override.action not in permitted:
+                    raise AgentSpecManifestError(
+                        f"policy action is not enabled: {override.action}"
+                    )
+                if (
+                    override.identity_level < definition.required_identity_level
+                    or definition.requires_confirmation
+                    and not override.confirmation_required
+                    or definition.requires_approval
+                    and not override.approval_required
+                ):
+                    raise AgentSpecManifestError(
+                        "tenant policy cannot weaken platform minimums"
+                    )
+                evaluator.evaluate(
+                    risk=definition.risk,
+                    minimum_identity_level=IdentityLevel(
+                        definition.required_identity_level
+                    ),
+                    tenant_policy=TenantActionPolicy(
+                        identity_level=IdentityLevel(override.identity_level),
+                        confirmation_required=override.confirmation_required,
+                        approval_required=override.approval_required,
+                    ),
+                )
+        except WeakenedSafetyPolicy as error:
+            raise AgentSpecManifestError(str(error)) from error
 
     def select_tools(
         self,
@@ -72,6 +112,14 @@ class CapabilityService:
 
     def _available_binding_operations(self, spec: AgentSpec) -> set[str]:
         operations: set[str] = set()
+        native_operations: set[str] = set()
+        declarations = [
+            action
+            for reference in spec.configuration.capabilities
+            for action in self._capabilities.get(
+                reference.name, reference.version
+            ).actions
+        ]
         for binding in spec.configuration.connector_bindings:
             manifest = self._connectors.get(
                 binding.connector,
@@ -91,4 +139,19 @@ class CapabilityService:
                     f"{sorted(bound - declared)}"
                 )
             operations.update(bound)
+            native_operations.update(bound)
+            for action in declarations:
+                if action.connector_requirement_mode != "single_binding":
+                    continue
+                required = set(action.required_connector_operations or (action.name,))
+                if required.issubset(bound):
+                    operations.add(action.name)
+        for action in declarations:
+            if action.connector_requirement_mode == "none" or (
+                action.connector_requirement_mode == "all_bindings"
+                and set(action.required_connector_operations).issubset(
+                    native_operations
+                )
+            ):
+                operations.add(action.name)
         return operations

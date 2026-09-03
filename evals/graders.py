@@ -204,7 +204,92 @@ class TruthfulDisclosureGrader:
         )
 
 
+class AppointmentBehaviorGrader:
+    name: GraderName = "appointment_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        passed = (
+            case.expected.appointment_behavior is not None
+            and observation.artifact_data.get("appointment_behavior")
+            == case.expected.appointment_behavior
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="appointment gate matched"
+            if passed
+            else "appointment gate differed",
+        )
+
+
+class OrderBehaviorGrader:
+    name: GraderName = "order_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        passed = (
+            case.expected.order_behavior is not None
+            and observation.artifact_data.get("order_behavior")
+            == case.expected.order_behavior
+        )
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="order behavior matched"
+            if passed
+            else "order behavior differed",
+        )
+
+
+class ClaimIntakeBehaviorGrader:
+    name: GraderName = "claim_intake_behavior"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        expected = case.expected.claim_intake_behavior
+        passed = expected is not None and observation.artifact_data.get(
+            "claim_intake_behavior"
+        ) == expected.model_dump(mode="json")
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="claim intake behavior matched"
+            if passed
+            else "claim intake behavior differed",
+        )
+
+
+class ApprovalResultGrader:
+    name: GraderName = "approval_result"
+
+    def grade(self, *, case: EvalCase, observation: EvalObservation) -> GradeResult:
+        from agents_factory.modules.approvals.result_schema import DecisionResult
+        from pydantic import ValidationError
+
+        try:
+            result = DecisionResult.model_validate(
+                observation.artifact_data.get("approval_result")
+            )
+            expected = case.expected.approval_result
+            passed = expected is not None and (
+                result.status,
+                result.reason_code,
+                result.next_actions,
+            ) == (expected.status, expected.reason_code, expected.next_actions)
+        except ValidationError:
+            passed = False
+        return GradeResult(
+            grader=self.name,
+            passed=passed,
+            diagnostic="structured approval result matched"
+            if passed
+            else "approval result was unsafe or mismatched",
+        )
+
+
 GRADERS: dict[GraderName, EvalGrader] = {
+    "approval_result": ApprovalResultGrader(),
+    "claim_intake_behavior": ClaimIntakeBehaviorGrader(),
+    "order_behavior": OrderBehaviorGrader(),
+    "appointment_behavior": AppointmentBehaviorGrader(),
     "response_exists": ResponseExistsGrader(),
     "selected_tools": SelectedToolsGrader(),
     "persisted_result": PersistedResultGrader(),

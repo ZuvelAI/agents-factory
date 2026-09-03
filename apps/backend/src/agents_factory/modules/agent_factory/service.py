@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 from agents_factory.common.errors import DomainError
@@ -14,9 +14,22 @@ from agents_factory.modules.agent_factory.models import (
     AgentInstance,
     AgentSpecConfiguration,
     AgentSpecVersion,
+    HumanOperationsConfiguration,
+    LanguagePolicy,
+    PersonaConfiguration,
     Sha256Digest,
+    VersionedDigestReference,
+    VersionReference,
 )
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
+from agents_factory.modules.agent_factory.schemas import (
+    AgentEditorState,
+    AgentEditorVersion,
+    AgentPresentationUpdateRequest,
+)
+from agents_factory.modules.runtime.customer_service.quick_options import (
+    build_quick_options,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +87,112 @@ class AgentSpecLifecycleService:
             based_on_version_id=None,
         )
         return instance, draft
+
+    async def create_customer_service_draft(
+        self, *, business_name: str
+    ) -> tuple[AgentInstance, AgentSpecVersion]:
+        if await self._repository.primary_instance() is not None:
+            raise DomainError(
+                type="https://agents-factory.dev/problems/agent-instance-exists",
+                title="Agent Already Configured",
+                status=409,
+                detail="This tenant already has a Customer Service Agent.",
+                code="agent_instance_exists",
+            )
+        return await self.create_instance(
+            configuration=_default_configuration(business_name=business_name)
+        )
+
+    async def editor_state(self) -> AgentEditorState | None:
+        instance = await self._repository.primary_instance()
+        if instance is None:
+            return None
+        latest = await self._repository.latest_version(agent_instance_id=instance.id)
+        if latest is None:
+            raise RuntimeError("Agent Instance has no AgentSpec version")
+        production = await self._repository.active_version(
+            agent_instance_id=instance.id
+        )
+        language: Literal["es", "en"] = (
+            "en" if latest.configuration.language.default_locale == "en-US" else "es"
+        )
+        return AgentEditorState(
+            instance=instance,
+            editable_version=latest,
+            production_version=(
+                None
+                if production is None
+                else AgentEditorVersion(
+                    id=production.id,
+                    version_number=production.version_number,
+                    state=production.state,
+                    created_at=production.created_at,
+                )
+            ),
+            quick_options=build_quick_options(
+                active_capabilities=frozenset(
+                    reference.name for reference in latest.configuration.capabilities
+                ),
+                language=language,
+                handoff_enabled=(latest.configuration.human_operations.handoff_enabled),
+                handoff_surface_available=(
+                    latest.configuration.human_operations.handoff_surface_available
+                ),
+            ),
+        )
+
+    async def create_presentation_draft(
+        self,
+        *,
+        agent_instance_id: UUID,
+        update: AgentPresentationUpdateRequest,
+    ) -> AgentSpecVersion:
+        instance = await self._repository.get_instance(agent_instance_id)
+        base = await self._repository.get_version(update.expected_version_id)
+        if (
+            instance is None
+            or base is None
+            or base.agent_instance_id != agent_instance_id
+        ):
+            raise _not_found()
+
+        persona_values = base.configuration.persona.model_dump()
+        for field in ("agent_name", "tone", "formality", "greeting"):
+            value = getattr(update, field)
+            if value is not None:
+                persona_values[field] = value.strip() or None
+        if update.brand_vocabulary is not None:
+            persona_values["brand_vocabulary"] = tuple(
+                value.strip() for value in update.brand_vocabulary
+            )
+        persona_values["version"] = str(base.version_number + 1)
+
+        language_values = base.configuration.language.model_dump()
+        if update.supported_locales is not None:
+            language_values["supported_locales"] = update.supported_locales
+        if update.default_locale is not None:
+            language_values["default_locale"] = update.default_locale
+
+        configuration = base.configuration.model_copy(
+            update={
+                "persona": PersonaConfiguration.model_validate(persona_values),
+                "language": LanguagePolicy.model_validate(language_values),
+            }
+        )
+        created = await self._repository.create_draft_from_latest(
+            agent_instance_id=agent_instance_id,
+            expected_latest_version_id=update.expected_version_id,
+            configuration=configuration,
+        )
+        if created is None:
+            raise DomainError(
+                type="https://agents-factory.dev/problems/agent-spec-stale-write",
+                title="Agent Configuration Changed",
+                status=409,
+                detail="The Agent Draft changed. Reload it before saving again.",
+                code="agent_spec_stale_write",
+            )
+        return created
 
     async def create_draft(
         self,
@@ -239,4 +358,28 @@ def _invalid_transition(current: str, target: str) -> DomainError:
         status=409,
         detail=f"AgentSpec cannot transition from {current} to {target}.",
         code="invalid_agent_spec_transition",
+    )
+
+
+def _default_configuration(*, business_name: str) -> AgentSpecConfiguration:
+    return AgentSpecConfiguration(
+        product_version="1.0.0",
+        persona=PersonaConfiguration(
+            version="1",
+            business_name=business_name.strip(),
+            instructions=(
+                "Representa a la empresa con claridad, empatía y precisión. "
+                "Usa únicamente información y acciones habilitadas."
+            ),
+        ),
+        policy=VersionReference(name="customer_service", version="1"),
+        identity_policy=VersionReference(name="standard", version="1"),
+        approval_routes=VersionReference(name="standard", version="1"),
+        knowledge=VersionedDigestReference(
+            name="tenant_knowledge", version="0", digest="0" * 64
+        ),
+        human_operations=HumanOperationsConfiguration(
+            version="1", handoff_enabled=False, handoff_surface_available=False
+        ),
+        code_digest="0" * 64,
     )

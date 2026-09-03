@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -20,15 +21,22 @@ class TenantRepository:
         result = await self._session.execute(
             text(
                 "INSERT INTO public.tenants "
-                "(id, slug, name, status, created_at, updated_at) "
-                "VALUES (:id, :slug, :name, :status, :created_at, :updated_at) "
-                "RETURNING id, slug, name, status, created_at, updated_at"
+                "(id,slug,name,legal_name,industry,timezone,locale,status,revision,"
+                "created_at,updated_at) VALUES (:id,:slug,:name,:legal_name,"
+                ":industry,:timezone,:locale,:status,:revision,:created_at,:updated_at) "
+                "RETURNING id,slug,name,legal_name,industry,timezone,locale,status,"
+                "revision,created_at,updated_at"
             ),
             {
                 "id": tenant.id,
                 "slug": tenant.slug,
                 "name": tenant.name,
+                "legal_name": tenant.legal_name,
+                "industry": tenant.industry,
+                "timezone": tenant.timezone,
+                "locale": tenant.locale,
                 "status": tenant.status,
+                "revision": tenant.revision,
                 "created_at": tenant.created_at,
                 "updated_at": tenant.updated_at,
             },
@@ -38,7 +46,8 @@ class TenantRepository:
     async def get(self, tenant_id: UUID) -> Tenant | None:
         result = await self._session.execute(
             text(
-                "SELECT id, slug, name, status, created_at, updated_at "
+                "SELECT id,slug,name,legal_name,industry,timezone,locale,status,"
+                "revision,created_at,updated_at "
                 "FROM public.tenants WHERE id = :tenant_id"
             ),
             {"tenant_id": tenant_id},
@@ -46,11 +55,45 @@ class TenantRepository:
         row = result.mappings().one_or_none()
         return None if row is None else Tenant.from_mapping(row)
 
-    async def list_visible(self) -> list[Tenant]:
+    async def list_visible(self, *, limit: int = 100) -> list[Tenant]:
         result = await self._session.execute(
             text(
-                "SELECT id, slug, name, status, created_at, updated_at "
-                "FROM public.tenants ORDER BY id"
-            )
+                "SELECT id,slug,name,legal_name,industry,timezone,locale,status,"
+                "revision,created_at,updated_at FROM public.tenants "
+                "ORDER BY created_at DESC,id DESC LIMIT :limit"
+            ),
+            {"limit": limit},
         )
         return [Tenant.from_mapping(row) for row in result.mappings()]
+
+    async def update_profile(
+        self,
+        *,
+        tenant_id: UUID,
+        expected_revision: int,
+        name: str,
+        legal_name: str,
+        industry: str,
+        timezone: str,
+        locale: Literal["es-CO", "en-US"],
+    ) -> Tenant | None:
+        result = await self._session.execute(
+            text(
+                "UPDATE public.tenants SET name=:name,legal_name=:legal_name,"
+                "industry=:industry,timezone=:timezone,locale=:locale,"
+                "revision=revision+1,updated_at=now() WHERE id=:tenant_id "
+                "AND revision=:expected_revision RETURNING id,slug,name,legal_name,"
+                "industry,timezone,locale,status,revision,created_at,updated_at"
+            ),
+            {
+                "tenant_id": tenant_id,
+                "expected_revision": expected_revision,
+                "name": name,
+                "legal_name": legal_name,
+                "industry": industry,
+                "timezone": timezone,
+                "locale": locale,
+            },
+        )
+        row = result.mappings().one_or_none()
+        return None if row is None else Tenant.from_mapping(row)

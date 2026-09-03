@@ -158,6 +158,9 @@ class AgentTurnInput:
     messages: tuple[TurnMessage, ...]
     tools: tuple[RuntimeTool, ...]
     trace: RuntimeTraceMetadata
+    execution: RuntimeExecutionPolicy | None = None
+    observer: RuntimeObserver | None = field(default=None, repr=False, compare=False)
+    admission: RuntimeAdmission | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.messages or self.messages[-1].role != "user":
@@ -179,12 +182,36 @@ class RuntimeToolCall:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeUsage:
-    requests: int
-    input_tokens: int
-    cached_input_tokens: int
-    output_tokens: int
-    reasoning_tokens: int
-    total_tokens: int
+    requests: int | None
+    input_tokens: int | None
+    cached_input_tokens: int | None
+    output_tokens: int | None
+    reasoning_tokens: int | None
+    total_tokens: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeExecutionPolicy:
+    max_tool_calls: int
+    max_model_tokens: int
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.max_tool_calls <= 32 or self.max_model_tokens < 1:
+            raise ValueError("invalid runtime execution policy")
+
+
+class RuntimeObserver(Protocol):
+    async def model_response(self, usage: RuntimeUsage, latency_ms: int) -> None: ...
+
+    async def tool_attempt(self, name: str, latency_ms: int) -> None: ...
+
+
+class RuntimeAdmission(Protocol):
+    async def before_input_token_count(self) -> None: ...
+
+    async def before_model(self) -> None: ...
+
+    async def before_tool(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

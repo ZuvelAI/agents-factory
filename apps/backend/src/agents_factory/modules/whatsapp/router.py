@@ -147,7 +147,7 @@ async def list_whatsapp_accounts(
     principal: PlatformAdmin,
     session: TransactionSession,
 ) -> tuple[WhatsAppAccountResponse, ...]:
-    accounts = _account_service(request, session)
+    accounts = build_account_service(request, session)
     summaries = await accounts.list_summaries(
         context=_context(request, principal, tenant_id)
     )
@@ -165,7 +165,7 @@ async def check_whatsapp_account_health(
     principal: PlatformAdmin,
     session: TransactionSession,
 ) -> WhatsAppAccountResponse:
-    accounts = _account_service(request, session)
+    accounts = build_account_service(request, session)
     summary = await accounts.check_health(
         context=_context(request, principal, tenant_id),
         account_id=account_id,
@@ -185,7 +185,7 @@ async def revoke_whatsapp_account(
     principal: PlatformAdmin,
     session: TransactionSession,
 ) -> WhatsAppAccountResponse:
-    accounts = _account_service(request, session)
+    accounts = build_account_service(request, session)
     summary = await accounts.revoke(
         context=_context(request, principal, tenant_id),
         account_id=account_id,
@@ -224,7 +224,7 @@ def _signup_services(
     )
 
 
-def _account_service(
+def build_account_service(
     request: Request,
     session: AsyncSession,
 ) -> WhatsAppAccountService:

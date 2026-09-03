@@ -7,11 +7,33 @@ select no_plan();
 
 create temp table task5_tenant_isolation_registry (
   table_name text primary key,
-  owner_column text not null
+  owner_column text not null,
+  database_role text not null default 'agents_factory_app'
 ) on commit drop;
 
 insert into task5_tenant_isolation_registry (table_name, owner_column)
 values
+  ('public.usage_configurations', 'tenant_id'),
+  ('public.usage_records', 'tenant_id'),
+  ('public.usage_alerts', 'tenant_id'),
+  ('public.retention_policies', 'tenant_id'),
+  ('public.handoff_configurations', 'tenant_id'),
+  ('public.handoffs', 'tenant_id'),
+  ('public.approval_routes', 'tenant_id'),
+  ('public.approval_requests', 'tenant_id'),
+  ('public.approval_links', 'tenant_id'),
+  ('public.approval_decisions', 'tenant_id'),
+  ('public.media_observations', 'tenant_id'),
+  ('public.cases', 'tenant_id'),
+  ('public.case_events', 'tenant_id'),
+  ('public.case_operations', 'tenant_id'),
+  ('public.case_delivery_operations', 'tenant_id'),
+  ('public.media_evidence', 'tenant_id'),
+  ('public.order_operations', 'tenant_id'),
+  ('public.appointment_configurations', 'tenant_id'),
+  ('public.appointments', 'tenant_id'),
+  ('public.appointment_operations', 'tenant_id'),
+  ('public.integration_connections', 'tenant_id'),
   ('public.tenants', 'id'),
   ('public.audit_events', 'tenant_id'),
   ('public.outbox_jobs', 'tenant_id'),
@@ -47,6 +69,15 @@ values
   ('public.knowledge_source_diffs', 'tenant_id'),
   ('public.knowledge_eval_evidence', 'tenant_id');
 
+insert into task5_tenant_isolation_registry (
+  table_name,
+  owner_column,
+  database_role
+)
+values
+  ('public.conversation_reviews', 'tenant_id', 'agents_factory_admin'),
+  ('public.eval_case_drafts', 'tenant_id', 'agents_factory_admin');
+
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)
 language sql
@@ -73,7 +104,8 @@ $function$;
 
 create function pg_temp.assert_tenant_isolated(
   table_name text,
-  owner_column text default 'tenant_id'
+  owner_column text default 'tenant_id',
+  database_role text default 'agents_factory_app'
 )
 returns setof text
 language plpgsql
@@ -128,8 +160,8 @@ begin
   );
 
   return next extensions.ok(
-    has_table_privilege('agents_factory_app', relation_id, 'SELECT'),
-    format('%s grants constrained application reads', table_name)
+    has_table_privilege(database_role::name, relation_id, 'SELECT'),
+    format('%s grants constrained %s reads', table_name, database_role)
   );
 
   return next extensions.ok(
@@ -139,7 +171,7 @@ begin
       where schemaname = relation_schema
         and tablename = relation_name
         and cmd = 'SELECT'
-        and 'agents_factory_app' = any(roles)
+        and database_role::name = any(roles)
         and coalesce(qual, '') like '%' || owner_column || '%'
         and coalesce(qual, '') like '%current_setting%app.tenant_id%'
     ),
@@ -147,7 +179,7 @@ begin
   );
 
   app_can_insert := has_table_privilege(
-    'agents_factory_app', relation_id, 'INSERT'
+    database_role::name, relation_id, 'INSERT'
   );
   return next extensions.ok(
     not app_can_insert
@@ -157,7 +189,7 @@ begin
       where schemaname = relation_schema
         and tablename = relation_name
         and cmd = 'INSERT'
-        and 'agents_factory_app' = any(roles)
+        and database_role::name = any(roles)
         and coalesce(with_check, '') like '%' || owner_column || '%'
         and coalesce(with_check, '') like '%current_setting%app.tenant_id%'
     ),
@@ -165,7 +197,7 @@ begin
   );
 
   app_can_update := has_table_privilege(
-    'agents_factory_app', relation_id, 'UPDATE'
+    database_role::name, relation_id, 'UPDATE'
   );
   return next extensions.ok(
     not app_can_update
@@ -175,7 +207,7 @@ begin
       where schemaname = relation_schema
         and tablename = relation_name
         and cmd = 'UPDATE'
-        and 'agents_factory_app' = any(roles)
+        and database_role::name = any(roles)
         and coalesce(qual, '') like '%' || owner_column || '%'
         and coalesce(qual, '') like '%current_setting%app.tenant_id%'
         and coalesce(with_check, '') like '%' || owner_column || '%'
@@ -185,7 +217,7 @@ begin
   );
 
   app_can_delete := has_table_privilege(
-    'agents_factory_app', relation_id, 'DELETE'
+    database_role::name, relation_id, 'DELETE'
   );
   return next extensions.ok(
     not app_can_delete
@@ -195,7 +227,7 @@ begin
       where schemaname = relation_schema
         and tablename = relation_name
         and cmd = 'DELETE'
-        and 'agents_factory_app' = any(roles)
+        and database_role::name = any(roles)
         and coalesce(qual, '') like '%' || owner_column || '%'
         and coalesce(qual, '') like '%current_setting%app.tenant_id%'
     ),
@@ -208,7 +240,7 @@ begin
       from pg_policies
       where schemaname = relation_schema
         and tablename = relation_name
-        and 'agents_factory_app' = any(roles)
+        and database_role::name = any(roles)
         and (
           cmd = 'ALL'
           or lower(coalesce(qual, '')) = 'true'
@@ -224,9 +256,24 @@ select assertion
 from task5_tenant_isolation_registry as registration
 cross join lateral pg_temp.assert_tenant_isolated(
   registration.table_name,
-  registration.owner_column
+  registration.owner_column,
+  registration.database_role
 ) as result(assertion)
 order by registration.table_name, assertion;
+
+select ok(
+  not has_table_privilege(
+    'agents_factory_app',
+    'public.conversation_reviews',
+    'SELECT,INSERT,UPDATE,DELETE'
+  )
+  and not has_table_privilege(
+    'agents_factory_app',
+    'public.eval_case_drafts',
+    'SELECT,INSERT,UPDATE,DELETE'
+  ),
+  'review and eval draft tables remain inaccessible to the runtime role'
+);
 
 create view public.task5_pgtap_tenant_projection
 with (security_invoker = true)

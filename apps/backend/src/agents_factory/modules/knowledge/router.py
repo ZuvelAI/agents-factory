@@ -4,7 +4,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request, status
 
+from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
+from agents_factory.common.errors import DomainError
 from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.knowledge.models import (
@@ -28,6 +30,7 @@ from agents_factory.modules.knowledge.schemas import (
     CreateKnowledgeVersionRequest,
     EmbeddingJobResponse,
     KnowledgeEvalEvidenceRequest,
+    KnowledgeUploadResponse,
     ReviewKnowledgeProposalRequest,
 )
 from agents_factory.modules.knowledge.proposals import (
@@ -37,12 +40,30 @@ from agents_factory.modules.knowledge.proposals import (
 )
 from agents_factory.modules.knowledge.publishing import KnowledgeEvalEvidence
 from agents_factory.modules.knowledge.service import KnowledgeService
+from agents_factory.modules.knowledge.ingestion.contracts import MAX_SOURCE_BYTES
+from agents_factory.modules.knowledge.ingestion.storage import LocalPrivateSourceStore
+from agents_factory.modules.knowledge.workspace import (
+    KnowledgeWorkspace,
+    KnowledgeWorkspaceService,
+)
 
 
 router = APIRouter(
     prefix="/admin/tenants/{tenant_id}/knowledge",
     tags=["platform-admin-knowledge"],
 )
+
+
+@router.get("/workspace", response_model=KnowledgeWorkspace)
+async def workspace(
+    tenant_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> KnowledgeWorkspace:
+    return await KnowledgeWorkspaceService(
+        session, _context(request, principal, tenant_id)
+    ).read()
 
 
 @router.post("/sources", response_model=KnowledgeSource, status_code=201)
@@ -76,6 +97,65 @@ async def request_source_ingestion(
     return await _service(request, principal, tenant_id, session).request_ingestion(
         source_id
     )
+
+
+@router.put(
+    "/sources/{source_id}/uploads/{upload_key}",
+    response_model=KnowledgeUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_source_file(
+    tenant_id: UUID,
+    source_id: UUID,
+    upload_key: str,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> KnowledgeUploadResponse:
+    service = _service(request, principal, tenant_id, session)
+    source = await service.get_source(source_id)
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    allowed = {
+        "PDF": {"application/pdf"},
+        "DOCX": {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        },
+        "SPREADSHEET": {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+    }
+    expected_media = allowed.get(source.source_type)
+    if (
+        expected_media is None
+        or source.configuration.get("upload_key") != upload_key
+        or media_type not in expected_media
+    ):
+        raise _upload_error("knowledge_upload_type_invalid", status=422)
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > MAX_SOURCE_BYTES:
+            raise _upload_error("knowledge_upload_too_large", status=413)
+    if not content:
+        raise _upload_error("knowledge_upload_empty", status=422)
+    store = getattr(request.app.state, "knowledge_source_store", None)
+    if not isinstance(store, LocalPrivateSourceStore):
+        raise _upload_error("knowledge_upload_unavailable", status=503)
+    await store.put_upload(
+        tenant_id=tenant_id,
+        source_id=source_id,
+        upload_key=upload_key,
+        content=bytes(content),
+        media_type=media_type,
+    )
+    await AuditService(session).record(
+        context=_context(request, principal, tenant_id),
+        event_type="knowledge.source.uploaded",
+        entity_type="knowledge_source",
+        entity_id=source_id,
+        payload={"source_type": source.source_type, "size_bytes": len(content)},
+    )
+    return KnowledgeUploadResponse(upload_key=upload_key, size_bytes=len(content))
 
 
 @router.post(
@@ -197,6 +277,19 @@ async def promote_version_to_test(
     )
 
 
+@router.post("/versions/{version_id}/test-v0", response_model=KnowledgeVersion)
+async def promote_version_to_test_v0(
+    tenant_id: UUID,
+    version_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> KnowledgeVersion:
+    return await _service(request, principal, tenant_id, session).promote_to_test_v0(
+        version_id
+    )
+
+
 @router.post("/versions/{version_id}/production", response_model=KnowledgeVersion)
 async def publish_version_to_production(
     tenant_id: UUID,
@@ -277,10 +370,26 @@ def _service(
     tenant_id: UUID,
     session: TransactionSession,
 ) -> KnowledgeService:
-    context = TenantContext(
+    context = _context(request, principal, tenant_id)
+    return KnowledgeService(KnowledgeRepository(session, context))
+
+
+def _context(
+    request: Request, principal: AdminPrincipal, tenant_id: UUID
+) -> TenantContext:
+    return TenantContext(
         tenant_id=tenant_id,
         actor_id=principal.user_id,
         actor_type="platform_admin",
         correlation_id=request.state.correlation_id,
     )
-    return KnowledgeService(KnowledgeRepository(session, context))
+
+
+def _upload_error(code: str, *, status: int) -> DomainError:
+    return DomainError(
+        type="https://agents-factory.dev/problems/knowledge-upload",
+        title="Knowledge Upload Rejected",
+        status=status,
+        detail="The Knowledge source file could not be accepted.",
+        code=code,
+    )

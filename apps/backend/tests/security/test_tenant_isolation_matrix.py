@@ -7,7 +7,7 @@ import tomllib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -49,6 +49,9 @@ UUID_PATTERN: Final = re.compile(
 class TenantIsolationRegistration:
     table_name: str
     owner_column: str = "tenant_id"
+    database_role: Literal["agents_factory_app", "agents_factory_admin"] = (
+        "agents_factory_app"
+    )
     insert_allowed: bool = True
     update_allowed: bool = True
     delete_allowed: bool = False
@@ -56,6 +59,68 @@ class TenantIsolationRegistration:
 
 
 TENANT_ISOLATION_REGISTRY = (
+    TenantIsolationRegistration(
+        "public.usage_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration("public.usage_records", update_allowed=False),
+    TenantIsolationRegistration("public.usage_alerts", update_allowed=False),
+    TenantIsolationRegistration(
+        "public.retention_policies", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.handoff_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.handoffs", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_routes", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_requests", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_links", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.approval_decisions", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.cases", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_events", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.case_delivery_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.media_observations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.media_evidence", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.order_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.appointment_configurations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.appointments", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.appointment_operations", insert_allowed=False, update_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.integration_connections",
+        insert_allowed=False,
+        update_allowed=False,
+        delete_allowed=False,
+    ),
     TenantIsolationRegistration(
         "public.tenants",
         "id",
@@ -220,6 +285,17 @@ TENANT_ISOLATION_REGISTRY = (
         update_allowed=False,
         delete_allowed=False,
     ),
+    TenantIsolationRegistration(
+        "public.conversation_reviews",
+        database_role="agents_factory_admin",
+        delete_allowed=False,
+    ),
+    TenantIsolationRegistration(
+        "public.eval_case_drafts",
+        database_role="agents_factory_admin",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
 )
 
 
@@ -244,6 +320,8 @@ class SeededWorld:
     insert_parent_b: UUID
     whatsapp_account_a: UUID
     whatsapp_account_b: UUID
+    insert_conversation_a: UUID
+    insert_conversation_b: UUID
 
 
 @pytest.fixture(scope="session")
@@ -325,6 +403,9 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("approval_decisions", "approval_decisions_append_only"),
+            ("case_events", "case_events_append_only"),
+            ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
             ("structured_facts", "structured_facts_append_only"),
             ("knowledge_documents", "knowledge_documents_append_only"),
@@ -340,7 +421,8 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         await connection.execute(
             text(
-                "TRUNCATE TABLE public.knowledge_chunks, "
+                "TRUNCATE TABLE public.conversation_reviews, "
+                "public.eval_case_drafts, public.knowledge_chunks, "
                 "public.knowledge_ingestion_artifacts, "
                 "public.knowledge_ingestions, public.knowledge_version_members, "
                 "public.knowledge_versions, public.knowledge_documents, "
@@ -367,6 +449,9 @@ async def _clear_foundation_data(engine: AsyncEngine) -> None:
             )
         )
         for table_name, trigger_name in (
+            ("approval_decisions", "approval_decisions_append_only"),
+            ("case_events", "case_events_append_only"),
+            ("case_operations", "case_operations_append_only"),
             ("knowledge_source_versions", "knowledge_source_versions_append_only"),
             ("structured_facts", "structured_facts_append_only"),
             ("knowledge_documents", "knowledge_documents_append_only"),
@@ -410,12 +495,16 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
     }
     row_a["public.tenants"] = tenant_a
     row_b["public.tenants"] = tenant_b
+    row_a["public.media_observations"] = row_a["public.messages"]
+    row_b["public.media_observations"] = row_b["public.messages"]
     row_a["public.knowledge_proposals"] = row_a["public.knowledge_ingestion_artifacts"]
     row_b["public.knowledge_proposals"] = row_b["public.knowledge_ingestion_artifacts"]
     insert_parent_a = uuid4()
     insert_parent_b = uuid4()
     whatsapp_account_a = row_a["public.whatsapp_accounts"]
     whatsapp_account_b = row_b["public.whatsapp_accounts"]
+    insert_conversation_a = uuid4()
+    insert_conversation_b = uuid4()
 
     async with database_engine.begin() as connection:
         await connection.execute(
@@ -426,9 +515,9 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             ),
             {"tenant_a": tenant_a, "tenant_b": tenant_b},
         )
-        for tenant_id, rows, label, insert_parent in (
-            (tenant_a, row_a, "a", insert_parent_a),
-            (tenant_b, row_b, "b", insert_parent_b),
+        for tenant_id, rows, label, insert_parent, insert_conversation in (
+            (tenant_a, row_a, "a", insert_parent_a, insert_conversation_a),
+            (tenant_b, row_b, "b", insert_parent_b, insert_conversation_b),
         ):
             completed_ingestion_id = uuid4()
             await connection.execute(
@@ -844,6 +933,14 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.integration_connections "
+                    "(id, tenant_id, connector_name, auth_kind) "
+                    "VALUES (:id, :tenant_id, 'woocommerce', 'API_KEY')"
+                ),
+                {"id": rows["public.integration_connections"], "tenant_id": tenant_id},
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.whatsapp_accounts "
                     "(id, tenant_id, provider, waba_id, phone_number_id, status) "
                     "VALUES (:id, :tenant_id, 'meta', :waba_id, :phone_number_id, "
@@ -882,6 +979,47 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "tenant_id": tenant_id,
                     "account_id": rows["public.whatsapp_accounts"],
                     "customer_wa_id": f"57300000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.conversations "
+                    "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
+                    "VALUES (:id, :tenant_id, :account_id, :customer_wa_id)"
+                ),
+                {
+                    "id": insert_conversation,
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "customer_wa_id": f"57310000000{1 if label == 'a' else 2}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.conversation_reviews "
+                    "(id, tenant_id, conversation_id, reviewed_by_admin_id) "
+                    "VALUES (:id, :tenant_id, :conversation_id, :admin_id)"
+                ),
+                {
+                    "id": rows["public.conversation_reviews"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "admin_id": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.eval_case_drafts "
+                    "(id, tenant_id, conversation_id, case_id, schema_version, "
+                    "payload, created_by_admin_id) VALUES (:id, :tenant_id, "
+                    ":conversation_id, :case_id, 1, '{}'::jsonb, :admin_id)"
+                ),
+                {
+                    "id": rows["public.eval_case_drafts"],
+                    "tenant_id": tenant_id,
+                    "conversation_id": rows["public.conversations"],
+                    "case_id": f"task5-eval-{label}",
+                    "admin_id": uuid4(),
                 },
             )
             await connection.execute(
@@ -987,6 +1125,182 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                 },
             )
 
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointment_configurations (id, tenant_id, connection_id, configuration) VALUES (:id, :tenant, :connection, '{}'::jsonb)"
+                ),
+                {
+                    "id": rows["public.appointment_configurations"],
+                    "tenant": tenant_id,
+                    "connection": rows["public.integration_connections"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointments (id, tenant_id, customer_ref, conversation_id, service_id, professional_id, location_id, start_at, end_at, busy_start, busy_end, external_event_id, etag, status, revision, last_action_id) VALUES (:id, :tenant, 'fixture', :conversation, 'service', 'professional', 'location', now(), now() + interval '30 minutes', now(), now() + interval '30 minutes', :external_id, 'fixture-etag', 'BOOKED', 1, :action)"
+                ),
+                {
+                    "id": rows["public.appointments"],
+                    "tenant": tenant_id,
+                    "conversation": rows["public.conversations"],
+                    "external_id": f"fixture-{tenant_id}",
+                    "action": rows["public.actions"],
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.appointment_operations (id, tenant_id, operation, parameter_digest, status) VALUES (:id, :tenant, 'appointments.create_appointment', :digest, 'CLAIMED')"
+                ),
+                {
+                    "id": rows["public.appointment_operations"],
+                    "tenant": tenant_id,
+                    "digest": "0" * 64,
+                },
+            )
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.order_operations(id, tenant_id, binding_id, operation, parameter_digest, status) VALUES (:id, :tenant, :binding, 'orders.add_order_note', :digest, 'CLAIMED')"
+                ),
+                {
+                    "id": rows["public.order_operations"],
+                    "tenant": tenant_id,
+                    "binding": uuid4(),
+                    "digest": "0" * 64,
+                },
+            )
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.media_evidence(id,tenant_id,whatsapp_account_id,provider_media_id,customer_ref,first_message_id,kind,status,expires_at) VALUES (:id,:tenant,:account,'2700','media-fixture',:message,'image','PROCESSING',now()+interval '90 days')"
+                ),
+                {
+                    "id": rows["public.media_evidence"],
+                    "tenant": tenant_id,
+                    "account": rows["public.whatsapp_accounts"],
+                    "message": rows["public.messages"],
+                },
+            )
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.media_observations(id,tenant_id,media_id,observation) VALUES (:id,:tenant,:media,'{}')"
+                ),
+                {
+                    "id": rows["public.media_observations"],
+                    "tenant": tenant_id,
+                    "media": rows["public.media_evidence"],
+                },
+            )
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.cases(id,tenant_id,customer_ref,capability,issue_type,binding_id,resource_id,deduplication_key,content_digest,intake,revision,status,priority,policy,approaching_at,target_at,created_at,updated_at) VALUES (:id,:tenant,'fixture','orders','delivery_delay',:binding,'order',:digest,:digest,'{}',1,'OPEN','NORMAL','{}',now()+interval '20 hours',now()+interval '24 hours',now(),now())"
+                ),
+                {
+                    "id": rows["public.cases"],
+                    "tenant": tenant_id,
+                    "binding": uuid4(),
+                    "digest": "0" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_events(id,tenant_id,case_id,revision,event_type,actor_id,actor_type,correlation_id,reason,to_status) VALUES (:id,:tenant,:case,1,'CREATED',:actor,'system',:actor,'fixture','OPEN')"
+                ),
+                {
+                    "id": rows["public.case_events"],
+                    "tenant": tenant_id,
+                    "case": rows["public.cases"],
+                    "actor": uuid4(),
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_operations(id,tenant_id,customer_ref,case_id,parameter_digest,receipt) VALUES (:id,:tenant,'fixture',:case,:digest,'{}')"
+                ),
+                {
+                    "id": rows["public.case_operations"],
+                    "tenant": tenant_id,
+                    "case": rows["public.cases"],
+                    "digest": "0" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.case_delivery_operations(id,tenant_id,effect_key,parameter_digest,operation,status) VALUES (:id,:tenant,'fixture',:digest,'sheets.update_row','CLAIMED')"
+                ),
+                {
+                    "id": rows["public.case_delivery_operations"],
+                    "tenant": tenant_id,
+                    "digest": "0" * 64,
+                },
+            )
+
+            approval_values = {
+                "tenant": tenant_id,
+                "action": rows["public.actions"],
+                "route": rows["public.approval_routes"],
+                "request": rows["public.approval_requests"],
+                "link": rows["public.approval_links"],
+                "decision": rows["public.approval_decisions"],
+                "digest": "0" * 64,
+            }
+            for sql in (
+                "INSERT INTO public.approval_routes(id,tenant_id,ref,capability,action,revision,configuration,digest) VALUES (:route,:tenant,'route','orders','orders.request_order_cancellation',1,'{}',:digest)",
+                "INSERT INTO public.approval_requests(id,tenant_id,action_id,parameter_digest,route_id,route_digest,state,expires_at,created_at) VALUES (:request,:tenant,:action,:digest,:route,:digest,'PENDING',now()+interval '1 day',now())",
+                "INSERT INTO public.approval_links(id,tenant_id,request_id,email,token_digest) VALUES (:link,:tenant,:request,'review@example.com',:digest)",
+                "INSERT INTO public.approval_decisions(id,tenant_id,request_id,action_id,parameter_digest,approver_email,decision,requested_result,decided_at,verification) VALUES (:decision,:tenant,:request,:action,:digest,'review@example.com','APPROVE','{}',now(),'LINK_AND_EMAIL_OTP')",
+            ):
+                await connection.execute(text(sql), approval_values)
+
+            await connection.execute(
+                text(
+                    "INSERT INTO public.retention_policies(id,tenant_id) VALUES (:id,:tenant)"
+                ),
+                {"id": rows["public.retention_policies"], "tenant": tenant_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.usage_configurations(id,tenant_id,configuration,revision) VALUES (:id,:tenant,'{}'::jsonb,1)"
+                ),
+                {"id": rows["public.usage_configurations"], "tenant": tenant_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,currency,event,quote,configuration_revision) VALUES (:id,:tenant,'fixture',repeat('0',64),now(),'tool','fixture','fixture','USD','{}'::jsonb,'{}'::jsonb,0)"
+                ),
+                {"id": rows["public.usage_records"], "tenant": tenant_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.usage_alerts(id,tenant_id,period_start,period_end,configuration_revision,metric,threshold,percentage,state) VALUES (:id,:tenant,now(),now()+interval '1 day',1,'model_tokens',70,70,'alert')"
+                ),
+                {"id": rows["public.usage_alerts"], "tenant": tenant_id},
+            )
+            handoff_values = {
+                "tenant": tenant_id,
+                "config": rows["public.handoff_configurations"],
+                "handoff": rows["public.handoffs"],
+                "account": rows["public.whatsapp_accounts"],
+                "conversation": rows["public.conversations"],
+                "notice": rows["public.messages"],
+            }
+            await connection.execute(
+                text(
+                    "INSERT INTO public.handoff_configurations(id,tenant_id,whatsapp_account_id,revision,configuration) "
+                    "VALUES (:config,:tenant,:account,1,'{}')"
+                ),
+                handoff_values,
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.handoffs(id,tenant_id,conversation_id,status,reason,configuration,notice_message_id,requested_at,last_activity_at,closed_at) "
+                    "VALUES (:handoff,:tenant,:conversation,'CLOSED','EXPLICIT_REQUEST','{}',:notice,now(),now(),now())"
+                ),
+                handoff_values,
+            )
+
     world = SeededWorld(
         tenant_a=tenant_a,
         tenant_b=tenant_b,
@@ -996,6 +1310,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
         insert_parent_b=insert_parent_b,
         whatsapp_account_a=whatsapp_account_a,
         whatsapp_account_b=whatsapp_account_b,
+        insert_conversation_a=insert_conversation_a,
+        insert_conversation_b=insert_conversation_b,
     )
     try:
         yield world
@@ -1003,8 +1319,12 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
         await _clear_foundation_data(database_engine)
 
 
-async def _prepare_app_session(session: AsyncSession, context: object) -> None:
-    await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+async def _prepare_app_session(
+    session: AsyncSession,
+    context: object,
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
+) -> None:
+    await session.execute(text(f"SET LOCAL ROLE {database_role}"))
     if context not in (MISSING_CONTEXT, RESET_CONTEXT):
         await session.execute(
             text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
@@ -1040,11 +1360,12 @@ async def _resolve_context_after_optional_reset(
     *,
     context: object,
     reset_tenant_id: UUID,
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> object:
     if context is not RESET_CONTEXT:
         return context
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, reset_tenant_id)
+        await _prepare_app_session(session, reset_tenant_id, database_role)
         await session.execute(text("SELECT 1"))
     return MISSING_CONTEXT
 
@@ -1056,15 +1377,17 @@ async def _denied_fingerprint(
     reset_tenant_id: UUID,
     statement: str,
     parameters: dict[str, object],
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> DenialFingerprint:
     effective_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=context,
         reset_tenant_id=reset_tenant_id,
+        database_role=database_role,
     )
     with pytest.raises(DBAPIError) as caught:
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, effective_context)
+            await _prepare_app_session(session, effective_context, database_role)
             await session.execute(text(statement), parameters)
     return _denial_fingerprint(caught.value)
 
@@ -1076,14 +1399,16 @@ async def _returning_ids(
     reset_tenant_id: UUID,
     statement: str,
     parameters: dict[str, object],
+    database_role: Literal["agents_factory_app", "agents_factory_admin"],
 ) -> list[UUID]:
     effective_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=context,
         reset_tenant_id=reset_tenant_id,
+        database_role=database_role,
     )
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, effective_context)
+        await _prepare_app_session(session, effective_context, database_role)
         result = await session.execute(text(statement), parameters)
     return list(result.scalars())
 
@@ -1112,6 +1437,31 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.usage_configurations": "INSERT INTO public.usage_configurations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.usage_alerts": "INSERT INTO public.usage_alerts(id,tenant_id,period_start,period_end,configuration_revision,metric,threshold,percentage,state) VALUES (:id,:tenant_id,now(),now()+interval '1 day',1,'model_tokens',70,70,'alert')",
+        "public.usage_records": "INSERT INTO public.usage_records(id,tenant_id,source_key,payload_digest,occurred_at,kind,provider,product,currency,event,quote,configuration_revision) VALUES (:id,:tenant_id,CAST(CAST(:id AS uuid) AS text),repeat('0',64),now(),'tool','fixture','fixture','USD','{}'::jsonb,'{}'::jsonb,0)",
+        "public.cases": "INSERT INTO public.cases(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.retention_policies": "INSERT INTO public.retention_policies(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.handoff_configurations": "INSERT INTO public.handoff_configurations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.handoffs": "INSERT INTO public.handoffs(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_routes": "INSERT INTO public.approval_routes(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_requests": "INSERT INTO public.approval_requests(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_links": "INSERT INTO public.approval_links(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.approval_decisions": "INSERT INTO public.approval_decisions(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_events": "INSERT INTO public.case_events(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_operations": "INSERT INTO public.case_operations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.case_delivery_operations": "INSERT INTO public.case_delivery_operations(id,tenant_id) VALUES (:id,:tenant_id)",
+        "public.media_observations": "INSERT INTO public.media_observations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.media_evidence": "INSERT INTO public.media_evidence (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.order_operations": "INSERT INTO public.order_operations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.appointment_configurations": "INSERT INTO public.appointment_configurations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.appointments": "INSERT INTO public.appointments (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.appointment_operations": "INSERT INTO public.appointment_operations (id, tenant_id) VALUES (:id, :tenant_id)",
+        "public.integration_connections": (
+            "INSERT INTO public.integration_connections "
+            "(id, tenant_id, connector_name, auth_kind) "
+            "VALUES (:id, :tenant_id, 'woocommerce', 'API_KEY')"
+        ),
         "public.tenants": (
             "INSERT INTO public.tenants (id, slug, name) "
             "VALUES (:id, :slug, 'Task 5 inserted tenant')"
@@ -1184,6 +1534,17 @@ def _insert_statement(table_name: str) -> str:
             "(id, tenant_id, conversation_id, from_state, to_state, version, "
             "actor_type, reason) VALUES (:id, :tenant_id, :conversation_id, "
             "'AI_ACTIVE', 'AWAITING_HUMAN', :version, 'system', 'task5_insert')"
+        ),
+        "public.conversation_reviews": (
+            "INSERT INTO public.conversation_reviews "
+            "(id, tenant_id, conversation_id, reviewed_by_admin_id) "
+            "VALUES (:id, :tenant_id, :parent_id, :correlation_id)"
+        ),
+        "public.eval_case_drafts": (
+            "INSERT INTO public.eval_case_drafts "
+            "(id, tenant_id, conversation_id, case_id, schema_version, payload, "
+            "created_by_admin_id) VALUES (:id, :tenant_id, :parent_id, :key, 1, "
+            "'{}'::jsonb, :correlation_id)"
         ),
         "public.outbound_messages": (
             "INSERT INTO public.outbound_messages "
@@ -1391,6 +1752,27 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.usage_configurations": None,
+        "public.usage_alerts": None,
+        "public.usage_records": None,
+        "public.cases": None,
+        "public.retention_policies": None,
+        "public.handoff_configurations": None,
+        "public.handoffs": None,
+        "public.approval_routes": None,
+        "public.approval_requests": None,
+        "public.approval_links": None,
+        "public.approval_decisions": None,
+        "public.case_events": None,
+        "public.case_operations": None,
+        "public.case_delivery_operations": None,
+        "public.media_observations": None,
+        "public.media_evidence": None,
+        "public.order_operations": None,
+        "public.appointment_configurations": None,
+        "public.appointments": None,
+        "public.appointment_operations": None,
+        "public.integration_connections": None,
         "public.tenants": None,
         "public.audit_events": None,
         "public.outbox_jobs": "topic = 'task5.updated'",
@@ -1403,6 +1785,8 @@ def _matching_update(table_name: str) -> str | None:
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
+        "public.conversation_reviews": "updated_at = now()",
+        "public.eval_case_drafts": None,
         "public.outbound_messages": "updated_at = now()",
         "public.agent_instances": None,
         "public.agent_spec_versions": None,
@@ -1441,7 +1825,18 @@ def _insert_parent_id(
         "public.outbound_messages",
     }:
         return world.whatsapp_account_a if tenant == "a" else world.whatsapp_account_b
-    if table_name in {"public.messages", "public.conversation_state_events"}:
+    if table_name in {
+        "public.messages",
+        "public.conversation_state_events",
+        "public.conversation_reviews",
+        "public.eval_case_drafts",
+    }:
+        if table_name in {"public.conversation_reviews", "public.eval_case_drafts"}:
+            return (
+                world.insert_conversation_a
+                if tenant == "a"
+                else world.insert_conversation_b
+            )
         rows = world.row_a if tenant == "a" else world.row_b
         return rows["public.conversations"]
     if table_name == "public.agent_spec_versions":
@@ -1501,12 +1896,13 @@ async def assert_tenant_isolated(
 
     assert registration.table_name == table_name
     assert registration.owner_column == owner_column
+    database_role = registration.database_role
     own_id = world.row_a[table_name]
     foreign_id = world.row_b[table_name]
     nonexistent_id = uuid4()
 
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, world.tenant_a)
+        await _prepare_app_session(session, world.tenant_a, database_role)
         own_visible = await session.scalar(
             text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
             {"row_id": own_id},
@@ -1523,7 +1919,7 @@ async def assert_tenant_isolated(
 
     for context in (MISSING_CONTEXT, "", uuid4()):
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, context)
+            await _prepare_app_session(session, context, database_role)
             visible_count = await session.scalar(
                 text(f"SELECT count(*) FROM {table_name}")
             )
@@ -1535,19 +1931,21 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=f"SELECT count(*) FROM {table_name}",
         parameters={},
+        database_role=database_role,
     )
     assert invalid_select.sqlstate == "22P02"
 
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, world.tenant_a)
+        await _prepare_app_session(session, world.tenant_a, database_role)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) >= 1
     reset_context = await _resolve_context_after_optional_reset(
         session_factory,
         context=RESET_CONTEXT,
         reset_tenant_id=world.tenant_a,
+        database_role=database_role,
     )
     async with session_factory.begin() as session:
-        await _prepare_app_session(session, reset_context)
+        await _prepare_app_session(session, reset_context, database_role)
         assert await session.scalar(text(f"SELECT count(*) FROM {table_name}")) == 0
 
     matching_owner = uuid4() if table_name == "public.tenants" else world.tenant_a
@@ -1559,7 +1957,7 @@ async def assert_tenant_isolated(
     )
     if registration.insert_allowed:
         async with session_factory.begin() as session:
-            await _prepare_app_session(session, matching_owner)
+            await _prepare_app_session(session, matching_owner, database_role)
             result = await session.execute(
                 text(f"{_insert_statement(table_name)} RETURNING id"),
                 matching_parameters,
@@ -1572,6 +1970,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=matching_parameters,
+            database_role=database_role,
         )
         assert matching_insert.sqlstate == "42501"
 
@@ -1593,6 +1992,7 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=foreign_parameters,
+        database_role=database_role,
     )
     absent_insert = await _denied_fingerprint(
         session_factory,
@@ -1600,6 +2000,7 @@ async def assert_tenant_isolated(
         reset_tenant_id=world.tenant_a,
         statement=_insert_statement(table_name),
         parameters=nonexistent_parameters,
+        database_role=database_role,
     )
     assert foreign_insert == absent_insert
     assert foreign_insert.sqlstate == "42501"
@@ -1626,6 +2027,7 @@ async def assert_tenant_isolated(
                 ),
                 nonce=f"context-{uuid4().hex}",
             ),
+            database_role=database_role,
         )
         assert denial.sqlstate == expected_state
 
@@ -1637,6 +2039,8 @@ async def assert_tenant_isolated(
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
+        "public.conversation_reviews",
+        "public.eval_case_drafts",
         "public.actions",
         "public.action_events",
     }:
@@ -1662,6 +2066,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=foreign_parent_parameters,
+            database_role=database_role,
         )
         absent_parent_denial = await _denied_fingerprint(
             session_factory,
@@ -1669,6 +2074,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=_insert_statement(table_name),
             parameters=absent_parent_parameters,
+            database_role=database_role,
         )
         assert foreign_parent_denial == absent_parent_denial
         assert foreign_parent_denial.sqlstate == "23503"
@@ -1686,6 +2092,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=update_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         ) == [own_id]
         for row_id in (foreign_id, nonexistent_id):
             assert (
@@ -1695,6 +2102,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=update_statement,
                     parameters={"row_id": row_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -1706,6 +2114,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=update_statement,
                     parameters={"row_id": own_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -1715,6 +2124,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=update_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         )
         assert invalid_update.sqlstate == "22P02"
     else:
@@ -1725,6 +2135,7 @@ async def assert_tenant_isolated(
                 reset_tenant_id=world.tenant_a,
                 statement=update_statement,
                 parameters={"owner": world.tenant_a, "row_id": row_id},
+                database_role=database_role,
             )
             for context in (
                 world.tenant_a,
@@ -1747,6 +2158,7 @@ async def assert_tenant_isolated(
             f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id"
         ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
+        database_role=database_role,
     )
     assert reassignment.sqlstate in registration.reassignment_denials
 
@@ -1760,6 +2172,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=delete_statement,
                     parameters={"row_id": row_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -1771,6 +2184,7 @@ async def assert_tenant_isolated(
                     reset_tenant_id=world.tenant_a,
                     statement=delete_statement,
                     parameters={"row_id": own_id},
+                    database_role=database_role,
                 )
                 == []
             )
@@ -1780,6 +2194,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=delete_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         )
         assert invalid_delete.sqlstate == "22P02"
         assert await _returning_ids(
@@ -1788,6 +2203,7 @@ async def assert_tenant_isolated(
             reset_tenant_id=world.tenant_a,
             statement=delete_statement,
             parameters={"row_id": own_id},
+            database_role=database_role,
         ) == [own_id]
     else:
         delete_denials = [
@@ -1797,6 +2213,7 @@ async def assert_tenant_isolated(
                 reset_tenant_id=world.tenant_a,
                 statement=delete_statement,
                 parameters={"row_id": row_id},
+                database_role=database_role,
             )
             for context in (
                 world.tenant_a,

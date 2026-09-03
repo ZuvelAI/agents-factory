@@ -249,6 +249,29 @@ async def _run_case(case: EvalCase, *, seed: int) -> EvalObservation:
         "policy_classification": policy.scope,
         "response_language": policy.language,
     }
+    if case.fixture_setup.appointment_probe is not None:
+        from evals.appointments import observe_appointment
+
+        artifact["appointment_behavior"] = observe_appointment(
+            case.fixture_setup.appointment_probe
+        )
+    if case.fixture_setup.order_probe is not None:
+        from evals.orders import observe_order
+
+        artifact["order_behavior"] = observe_order(case.fixture_setup.order_probe)
+    if case.fixture_setup.claim_intake_probe is not None:
+        from evals.returns_claims import observe_claim_intake
+
+        artifact["claim_intake_behavior"] = observe_claim_intake(
+            case.fixture_setup.claim_intake_probe
+        ).model_dump(mode="json")
+    if case.fixture_setup.approval_probe is not None:
+        from agents_factory.modules.approvals.result_schema import execution_result
+
+        probe = case.fixture_setup.approval_probe
+        artifact["approval_result"] = execution_result(
+            operation=probe.operation, state=probe.state, payload=probe.payload
+        ).model_dump(mode="json")
     return EvalObservation(
         response_text=result.output_text,
         selected_tools=tuple(tool.name for tool in selected_tools),

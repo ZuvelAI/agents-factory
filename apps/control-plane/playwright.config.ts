@@ -5,6 +5,7 @@ const appPort = 3100;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: "approval.spec.ts", // Separate production-CSP configuration, no proof-bearing traces.
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -20,7 +21,12 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `node_modules/.bin/next dev --hostname 127.0.0.1 --port ${appPort}`,
+      command: "node tests/e2e/fake-dashboard.mjs",
+      port: 8000,
+      reuseExistingServer: false,
+    },
+    {
+      command: `node_modules/.bin/next dev --webpack --hostname 127.0.0.1 --port ${appPort}`,
       port: appPort,
       reuseExistingServer: false,
       env: {

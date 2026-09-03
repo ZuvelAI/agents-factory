@@ -218,21 +218,9 @@ async def test_turn_short_circuits_before_runtime_when_authority_is_absent(
     spec = _spec(context.tenant_id)
 
     if blocker == "human_active":
-        async with session_factory.begin() as session:
-            await session.execute(text("SET LOCAL ROLE agents_factory_app"))
-            conversations = ConversationService(
-                session=session,
-                context=context,
-                awaiting_human_policy=AwaitingHumanPolicy.SILENT,
-            )
-            await conversations.request_handoff(
-                conversation_id=conversation_id,
-                reason="test_handoff",
-            )
-            await conversations.activate_human(
-                conversation_id=conversation_id,
-                reason="test_human_active",
-            )
+        from apps.backend.tests.handoff_support import activate_verified_handoff
+
+        await activate_verified_handoff(session_factory, context, conversation_id)
     else:
         spec = replace(spec, active=False)
 

@@ -1,7 +1,9 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from fastapi import FastAPI, Request
@@ -20,12 +22,42 @@ from agents_factory.common.security import (
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.actions.router import router as admin_action_router
+from agents_factory.modules.approvals.router import (
+    admin_router as admin_approval_router,
+    public_router as public_approval_router,
+)
+from agents_factory.modules.approvals.service import ApprovalService
+from agents_factory.modules.approvals.rate_limit import RedisApprovalRateLimiter
+from agents_factory.modules.cases.router import router as admin_case_router
+from agents_factory.modules.cases.service import CaseService
+from agents_factory.modules.conversations.admin import (
+    router as admin_conversation_router,
+)
+from agents_factory.modules.handoffs.router import router as admin_handoff_router
+from agents_factory.modules.handoffs.service import HandoffService
+from agents_factory.modules.handoffs.surfaces import HumanSurfaceRegistry
+from agents_factory.modules.usage.recorder import UsageRecorder
+from agents_factory.modules.usage.router import router as admin_usage_router
 from agents_factory.modules.agent_factory.router import (
     router as admin_agent_spec_router,
 )
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
+from agents_factory.modules.integrations.google.auth import configured_google_providers
+from agents_factory.modules.integrations.woocommerce.auth import (
+    WooCredentialProvider,
+    WooHTTP,
+)
+from agents_factory.modules.integrations.router import (
+    router as admin_integration_router,
+)
 from agents_factory.modules.knowledge.router import router as admin_knowledge_router
+from agents_factory.modules.knowledge.ingestion.storage import LocalPrivateSourceStore
+from agents_factory.modules.media.router import router as admin_media_router
+from agents_factory.modules.observability.dashboard import (
+    router as admin_dashboard_router,
+)
+from agents_factory.modules.operations.admin import router as admin_operations_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
 from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
@@ -110,11 +142,29 @@ def create_app(
     settings_loader: SettingsLoader = load_settings,
     readiness_checks: ReadinessChecks | None = None,
     token_verifier: TokenVerifier | None = None,
+    approval_service: ApprovalService | None = None,
+    handoff_service: HandoffService | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         settings = settings_loader()
         application.state.settings = settings
+        application.state.handoff_service = handoff_service
+        application.state.integration_providers = configured_google_providers(
+            settings.google_oauth_clients
+        )
+        application.state.knowledge_source_store = LocalPrivateSourceStore(
+            Path(
+                os.environ.get(
+                    "KNOWLEDGE_STORAGE_ROOT", "/var/lib/agents-factory/knowledge"
+                )
+            )
+        )
+        if settings.woocommerce_stores:
+            application.state.integration_providers.register(
+                "woocommerce",
+                WooCredentialProvider(WooHTTP(settings.woocommerce_stores)),
+            )
         verifier = token_verifier or JwksTokenVerifier(
             issuer=settings.supabase_jwt_issuer,
             audience=settings.supabase_jwt_audience,
@@ -130,7 +180,15 @@ def create_app(
                 decode_responses=True,
             )
             application.state.database = database
+            application.state.case_service = CaseService(database.session_factory)
+            application.state.usage_recorder = UsageRecorder(database.session_factory)
+            application.state.handoff_service = handoff_service or HandoffService(
+                database.session_factory, surfaces=HumanSurfaceRegistry()
+            )
             application.state.redis = redis_client
+            application.state.approval_rate_limiter = RedisApprovalRateLimiter(
+                redis_client
+            )
             application.state.readiness_checks = ReadinessChecks(
                 database=database.ping,
                 redis=lambda: _probe_redis(redis_client),
@@ -147,12 +205,23 @@ def create_app(
                 await database.dispose()
 
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
+    application.state.approval_service = approval_service
     application.include_router(admin_tenant_router)
+    application.include_router(admin_dashboard_router)
+    application.include_router(admin_operations_router)
     application.include_router(admin_action_router)
+    application.include_router(admin_approval_router)
+    application.include_router(public_approval_router)
+    application.include_router(admin_case_router)
+    application.include_router(admin_conversation_router)
+    application.include_router(admin_handoff_router)
+    application.include_router(admin_usage_router)
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)
+    application.include_router(admin_integration_router)
     application.include_router(admin_knowledge_router)
+    application.include_router(admin_media_router)
     application.include_router(admin_whatsapp_router)
     application.include_router(meta_whatsapp_router)
 

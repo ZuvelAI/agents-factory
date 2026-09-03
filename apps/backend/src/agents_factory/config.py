@@ -32,6 +32,8 @@ _CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
     "META_CONFIGURATION_ID",
     "META_REDIRECT_URI",
     "META_GRAPH_API_BASE_URL",
+    "GOOGLE_OAUTH_CLIENTS",
+    "WOOCOMMERCE_STORES",
 )
 
 
@@ -59,16 +61,38 @@ class Settings(BaseSettings):
     meta_configuration_id: NonEmptyString | None = None
     meta_redirect_uri: NonEmptyString | None = None
     meta_graph_api_base_url: NonEmptyString = "https://graph.facebook.com/v25.0"
+    google_oauth_clients: NonEmptySecret | None = None
+    woocommerce_stores: tuple[str, ...] = ()
+
+    @field_validator("woocommerce_stores")
+    @classmethod
+    def validate_woocommerce_stores(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        from agents_factory.modules.integrations.woocommerce.auth import (
+            validate_store_url,
+        )
+
+        return tuple(validate_store_url(item) for item in value)
 
     @field_validator(
         "meta_app_id",
         "meta_configuration_id",
         "meta_redirect_uri",
+        "google_oauth_clients",
         mode="before",
     )
     @classmethod
     def normalize_optional_meta_configuration(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("google_oauth_clients")
+    @classmethod
+    def validate_google_configuration(cls, value: SecretStr | None) -> SecretStr | None:
+        from agents_factory.modules.integrations.google.auth import (
+            configured_google_providers,
+        )
+
+        configured_google_providers(value)
+        return value
 
     @field_validator("database_url")
     @classmethod

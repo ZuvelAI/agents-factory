@@ -18,12 +18,23 @@ from agents_factory.common.queue import (
 )
 from agents_factory.database import Database
 from scheduler.knowledge_jobs import configure_knowledge_jobs
+from scheduler.appointment_jobs import configure_appointment_jobs
+from scheduler.case_jobs import configure_case_jobs
+from scheduler.approval_jobs import configure_approval_jobs
+from scheduler.lifecycle_jobs import configure_lifecycle_jobs
+from scheduler.lifecycle_scan import LifecycleScanner
+from scheduler.retention_jobs import configure_retention_jobs
+from scheduler.usage_jobs import configure_usage_jobs, record_storage_usage
 
 
 async def startup(context: dict[Any, Any]) -> None:
     await configure_durable_worker(context)
     database = cast(Database, context["database"])
     redis = cast(ArqRedis, context["redis"])
+    retention_enabled = configure_retention_jobs(context, database=database)
+    context["lifecycle_scanner"] = LifecycleScanner(
+        database.session_factory, retention_enabled=retention_enabled
+    )
     context["outbox_dispatcher"] = OutboxDispatcher(
         session_factory=database.session_factory,
         queue=redis,
@@ -35,10 +46,36 @@ async def startup(context: dict[Any, Any]) -> None:
             "knowledge.ingest": "knowledge",
             "knowledge.embed": "knowledge",
             "knowledge.detect_change": "scheduler",
+            "appointments.notify": "scheduler",
+            "cases.timer": "scheduler",
+            **configure_approval_jobs(context),
+            "approvals.expire": "scheduler",
+            "actions.expire": "scheduler",
+            "handoffs.inactivity": "scheduler",
+            **({"retention.cleanup": "scheduler"} if retention_enabled else {}),
         },
         retry_delay_seconds=1.0,
     )
     await configure_knowledge_jobs(context, database=database)
+    await configure_appointment_jobs(context, database=database)
+    await configure_case_jobs(context, database=database)
+    configure_lifecycle_jobs(context, database=database)
+    configure_usage_jobs(context, database=database)
+
+
+async def scan_lifecycles(context: dict[Any, Any]) -> dict[str, int]:
+    scanner = cast(LifecycleScanner, context["lifecycle_scanner"])
+    tenants = await scanner.tenants(after=context.get("lifecycle_scan_cursor"))
+    created, failures = 0, 0
+    for tenant_id in tenants:
+        try:
+            created += await scanner.scan_tenant(tenant_id)
+        except Exception:
+            # One bad tenant must not prevent other tenants' expiry/cleanup.
+            # No content or exception text is included in scheduler telemetry.
+            failures += 1
+    context["lifecycle_scan_cursor"] = tenants[-1] if tenants else None
+    return {"tenants": len(tenants), "scheduled": created, "failed_tenants": failures}
 
 
 async def dispatch_outbox(context: dict[Any, Any]) -> dict[str, int]:
@@ -64,11 +101,17 @@ async def process_job(
 class WorkerSettings:
     functions = [process_job]
     cron_jobs = [
+        cron(cast(WorkerCoroutine, scan_lifecycles), second=0, run_at_startup=True),
         cron(
             cast(WorkerCoroutine, dispatch_outbox),
             second=set(range(60)),
             run_at_startup=True,
-        )
+        ),
+        cron(
+            cast(WorkerCoroutine, record_storage_usage),
+            second=30,
+            run_at_startup=True,
+        ),
     ]
     queue_name = "scheduler"
     redis_settings = RedisSettings.from_dsn(

@@ -96,6 +96,12 @@ def reviewed_payload(
     )
     if validated.source_id != proposal.source_id:
         raise ValueError("a proposal edit cannot change its source")
+    original = validated_payload(
+        artifact_type=proposal.artifact_type,
+        payload=proposal.proposed_payload,
+    )
+    if validated.authority != original.authority:
+        raise ValueError("a proposal edit cannot change source authority")
     return validated
 
 

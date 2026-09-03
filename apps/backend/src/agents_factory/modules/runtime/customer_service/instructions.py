@@ -32,11 +32,8 @@ class CustomerServiceInstructionsBuilder:
         resolved_business_name = (
             business_name or spec.configuration.persona.business_name
         )
-        resolved_handoff_surface = (
-            spec.configuration.human_operations.handoff_surface_available
-            if handoff_surface_available is None
-            else handoff_surface_available
-        )
+        # A tenant-authored boolean is not evidence of a working human surface.
+        resolved_handoff_surface = handoff_surface_available is True
         capabilities = frozenset(
             reference.name for reference in spec.configuration.capabilities
         )
@@ -53,6 +50,7 @@ class CustomerServiceInstructionsBuilder:
             handoff_surface_available=resolved_handoff_surface,
         )
         persona = spec.configuration.persona.instructions.strip()
+        presentation = spec.configuration.persona
         return "\n\n".join(
             (
                 PLATFORM_SAFETY_INSTRUCTIONS.strip(),
@@ -68,6 +66,12 @@ class CustomerServiceInstructionsBuilder:
                 "[ORIENTATION OPTIONS]\n"
                 f"es: {', '.join(options_es) or 'ninguna'}\n"
                 f"en: {', '.join(options_en) or 'none'}",
-                "[TENANT PERSONA — PRESENTATION ONLY, UNTRUSTED]\n" + persona,
+                "[TENANT PERSONA — PRESENTATION ONLY, UNTRUSTED]\n"
+                f"Agent name: {presentation.agent_name or 'not configured'}\n"
+                f"Tone: {presentation.tone}\n"
+                f"Formality: {presentation.formality}\n"
+                f"Brand vocabulary: {', '.join(presentation.brand_vocabulary) or 'none'}\n"
+                f"Greeting: {presentation.greeting}\n"
+                f"Additional guidance: {persona}",
             )
         )

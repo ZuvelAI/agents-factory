@@ -61,6 +61,11 @@ class EmbeddingJobResponse(KnowledgeRequest):
     knowledge_version_id: UUID
 
 
+class KnowledgeUploadResponse(KnowledgeRequest):
+    upload_key: str
+    size_bytes: int = Field(ge=1)
+
+
 class KnowledgeEvalEvidenceRequest(KnowledgeRequest):
     id: UUID
     knowledge_digest: str = Field(pattern=r"[0-9a-f]{64}")

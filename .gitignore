@@ -15,7 +15,8 @@ supabase/.temp/
 supabase/.env.local
 
 # Dependencies, caches, and test output
-node_modules/
+node_modules
+.venv
 .pnpm-store/
 .next/
 .turbo/
@@ -30,6 +31,9 @@ htmlcov/
 
 # Generated media, builds, and evaluation results
 media/
+!apps/backend/src/agents_factory/modules/media/
+!apps/backend/tests/unit/media/
+!apps/backend/tests/integration/media/
 uploads/
 dist/
 build/

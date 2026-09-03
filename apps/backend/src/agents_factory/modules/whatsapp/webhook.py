@@ -25,6 +25,7 @@ from agents_factory.modules.whatsapp.meta_provider import (
 )
 from agents_factory.modules.whatsapp.outbound_service import OutboundStatusReconciler
 from agents_factory.modules.whatsapp.repository import WhatsAppWebhookRepository
+from agents_factory.modules.usage.recorder import UsageRecorder
 
 
 router = APIRouter(prefix="/webhooks/meta/whatsapp", tags=["meta-whatsapp"])
@@ -85,10 +86,13 @@ class MetaWebhookProcessor:
         *,
         session: AsyncSession,
         provider: WhatsAppProvider,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self._repository = WhatsAppWebhookRepository(session)
         self._outbox = OutboxService(session)
-        self._outbound_status = OutboundStatusReconciler(session)
+        self._outbound_status = OutboundStatusReconciler(
+            session, usage_recorder=usage_recorder
+        )
         self._provider = provider
 
     async def process(
@@ -122,7 +126,7 @@ class MetaWebhookProcessor:
                 raise UnknownAccountMapping
             context = TenantContext(
                 tenant_id=mapping.tenant_id,
-                actor_id=None,
+                actor_id=correlation_id,
                 actor_type="system",
                 correlation_id=correlation_id,
             )
@@ -156,7 +160,7 @@ class MetaWebhookProcessor:
                 raise UnknownAccountMapping
             context = TenantContext(
                 tenant_id=mapping.tenant_id,
-                actor_id=None,
+                actor_id=correlation_id,
                 actor_type="system",
                 correlation_id=correlation_id,
             )
@@ -178,9 +182,13 @@ async def get_meta_webhook_processor(
     session: TransactionSession,
 ) -> WebhookProcessor:
     settings: Settings = request.app.state.settings
+    usage_recorder = getattr(request.app.state, "usage_recorder", None)
     return MetaWebhookProcessor(
         session=session,
         provider=MetaCloudApiProvider(app_secret=settings.meta_app_secret),
+        usage_recorder=(
+            usage_recorder if isinstance(usage_recorder, UsageRecorder) else None
+        ),
     )
 
 
