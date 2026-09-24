@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, cast
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
 
@@ -120,9 +120,15 @@ async def _load_message_id(*, database: Database, envelope: JobEnvelope) -> UUID
 
 
 def _context(envelope: JobEnvelope) -> TenantContext:
+    # Internal service identity, not a user or an authorization grant. The
+    # durable ledger, tenant RLS and account/secret bindings remain mandatory.
+    # Stable per tenant for auditing; never supplied by the queue payload.
     return TenantContext(
         tenant_id=envelope.tenant_id,
-        actor_id=None,
+        actor_id=uuid5(
+            NAMESPACE_URL,
+            f"urn:agents-factory:service:whatsapp-outbound:{envelope.tenant_id}",
+        ),
         actor_type="system",
         correlation_id=envelope.job_id,
     )

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { beginWhatsAppSignup, finishWhatsAppSignup } from "../../../../actions";
+import { signupBlockReason, type WhatsAppMode } from "../../../../../lib/whatsapp-mode";
 
 type MetaLoginResponse = { authResponse?: { code?: string } };
 type MetaSdk = {
@@ -35,11 +36,15 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "working" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<WhatsAppMode | null>(null);
+  const [confirmedExclusive, setConfirmedExclusive] = useState(false);
+  const blocked = signupBlockReason(mode, confirmedExclusive);
 
   async function connect() {
+    if (blocked || !mode) return;
     setStatus("working");
     setMessage("Opening Meta Embedded Signup…");
-    const started = await beginWhatsAppSignup(tenantId);
+    const started = await beginWhatsAppSignup(tenantId, mode);
     if (!started.ok) {
       setStatus("error");
       setMessage(started.message);
@@ -72,6 +77,7 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
         businessId: assets.businessId,
         wabaId: assets.wabaId,
         phoneNumberId: assets.phoneNumberId,
+        mode,
       });
       if (!finished.ok) throw new Error(finished.message);
       setStatus("idle");
@@ -89,7 +95,28 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="signup-action">
-      <button type="button" onClick={connect} disabled={status === "working"}>
+      <fieldset disabled={status === "working"}>
+        <legend>¿Cómo quieres usar este número?</legend>
+        <label>
+          <input type="radio" name="whatsapp-mode" checked={mode === "API_ONLY"}
+            onChange={() => { setMode("API_ONLY"); setConfirmedExclusive(false); setMessage(""); }} />
+          Número exclusivo para el agente
+        </label>
+        <p>Usa un número separado. Esta opción no conserva WhatsApp Business en el celular con ese mismo número.</p>
+        <label>
+          <input type="radio" name="whatsapp-mode" checked={mode === "COEXISTENCE"}
+            onChange={() => { setMode("COEXISTENCE"); setConfirmedExclusive(false); setMessage(""); }} />
+          Conservar WhatsApp Business + agente — pendiente de habilitación
+        </label>
+        <p>Para un número ya activo en WhatsApp Business. Su conexión dependerá de Meta; no se convertirá automáticamente en un número exclusivo.</p>
+        {mode === "API_ONLY" && <label>
+          <input type="checkbox" checked={confirmedExclusive}
+            onChange={(event) => setConfirmedExclusive(event.target.checked)} />
+          Confirmo que este número será exclusivo para la API, no para la aplicación del celular.
+        </label>}
+      </fieldset>
+      {blocked && <p role="status">{blocked}</p>}
+      <button type="button" onClick={connect} disabled={status === "working" || blocked !== null}>
         {status === "working" ? "Connecting…" : "Connect with Meta"}
       </button>
       {message ? (

@@ -69,6 +69,18 @@ async def create_admin_tenant(
     return TenantResponse.from_tenant(tenant)
 
 
+@router.get("", response_model=list[TenantResponse])
+async def list_admin_tenants(
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> list[TenantResponse]:
+    _ = principal
+    return [
+        TenantResponse.from_tenant(tenant)
+        for tenant in await TenantRepository(session).list_visible()
+    ]
+
+
 @router.get("/{tenant_id}", response_model=TenantResponse)
 async def read_admin_tenant(
     tenant_id: UUID,

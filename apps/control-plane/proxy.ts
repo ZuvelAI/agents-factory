@@ -2,10 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { hasPlatformAdminRole } from "./lib/auth";
+import { hasReviewAccess } from "./lib/review-access";
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (
     request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname === "/review/login" ||
     request.nextUrl.pathname === "/health/ready"
   ) {
     return NextResponse.next({ request });
@@ -34,6 +36,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   });
 
   const { data, error } = await client.auth.getClaims();
+  if (!error && hasReviewAccess(data?.claims)) {
+    return request.nextUrl.pathname === "/review"
+      ? response
+      : NextResponse.redirect(new URL("/review", request.url));
+  }
   if (error || !hasPlatformAdminRole(data?.claims)) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
@@ -42,5 +49,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static(?:/|$)|_next/image(?:/|$)|favicon\\.ico$).*)"],
+  matcher: [
+    "/((?!_next/static(?:/|$)|_next/image(?:/|$)|brand(?:/|$)|fonts(?:/|$)|favicon\\.ico$).*)",
+  ],
 };

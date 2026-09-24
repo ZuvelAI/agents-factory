@@ -1,0 +1,81 @@
+name: aiworkers
+
+x-runtime: &runtime
+  image: aiworkers-runtime:local
+  build:
+    context: .
+    dockerfile: infrastructure/Dockerfile.runtime
+  env_file: .env
+  environment:
+    ENVIRONMENT: production
+    REDIS_URL: redis://redis:6379/0
+  restart: unless-stopped
+  init: true
+  security_opt: [no-new-privileges:true]
+  depends_on:
+    redis:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "3"}
+
+services:
+  redis:
+    image: redis:8.0.5-alpine
+    command: [redis-server, --appendonly, "yes"]
+    restart: unless-stopped
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  backend:
+    <<: *runtime
+    command: [uvicorn, agents_factory.main:app, --host, 0.0.0.0, --port, "8000"]
+    ports: [127.0.0.1:8100:8000]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+  control-plane:
+    image: aiworkers-dashboard:local
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.dashboard
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+    environment:
+      BACKEND_API_URL: http://backend:8000
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+    ports: [127.0.0.1:3200:3000]
+    restart: unless-stopped
+    init: true
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+  agent-worker:
+    <<: *runtime
+    command: [arq, agent_worker.worker.WorkerSettings]
+  knowledge-worker:
+    <<: *runtime
+    command: [arq, knowledge_worker.worker.WorkerSettings]
+  outbound-worker:
+    <<: *runtime
+    command: [arq, outbound_worker.worker.WorkerSettings]
+  scheduler:
+    <<: *runtime
+    command: [arq, scheduler.worker.WorkerSettings]
+
+volumes:
+  redis-data:

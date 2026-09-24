@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import Image from "next/image";
+import { UiIcon } from "../../components/ui-icon";
 
 import { login } from "../actions";
 import {
@@ -18,6 +20,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <main className="login-shell">
       <section className="login-card" aria-labelledby="login-title">
+        <Image
+          className="login-wordmark"
+          src="/brand/zuvel-wordmark.png"
+          alt="zuvel."
+          width={140}
+          height={43}
+          unoptimized
+          priority
+        />
         <p className="eyebrow">Private Control Plane</p>
         <h1 id="login-title">Agents Factory</h1>
         <p>Sign in with your platform administrator account.</p>
@@ -39,8 +50,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             autoComplete="current-password"
             required
           />
-          <button type="submit">Sign in</button>
+          <button type="submit">
+            Sign in <UiIcon name="arrow" size={18} />
+          </button>
         </form>
+        <p className="login-footnote">
+          <UiIcon name="lock" size={14} /> Acceso exclusivo para administradores
+        </p>
       </section>
     </main>
   );

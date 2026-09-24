@@ -26,8 +26,10 @@ from agents_factory.modules.agent_factory.router import (
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
+from agents_factory.modules.tenants.onboarding import router as admin_onboarding_router
 from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
 from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
+from agents_factory.modules.whatsapp.review_router import router as review_whatsapp_router
 
 
 class ReadinessProbe(Protocol):
@@ -35,8 +37,8 @@ class ReadinessProbe(Protocol):
 
 
 ComponentState = Literal["up", "down"]
-COMPOSE_HEALTHCHECK_CLIENT_TIMEOUT_SECONDS = 2.0
-DEFAULT_READINESS_TIMEOUT_SECONDS = 1.0
+COMPOSE_HEALTHCHECK_CLIENT_TIMEOUT_SECONDS = 8.0
+DEFAULT_READINESS_TIMEOUT_SECONDS = 6.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,11 +149,13 @@ def create_app(
 
     application = FastAPI(title="Agents Factory API", lifespan=lifespan)
     application.include_router(admin_tenant_router)
+    application.include_router(admin_onboarding_router)
     application.include_router(admin_action_router)
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)
     application.include_router(admin_whatsapp_router)
+    application.include_router(review_whatsapp_router)
     application.include_router(meta_whatsapp_router)
 
     @application.middleware("http")

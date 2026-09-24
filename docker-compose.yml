@@ -14,6 +14,7 @@ x-python-application: &python-application
     SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
     SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:-}
     SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     APP_MASTER_KEY: ${APP_MASTER_KEY:-}
     META_APP_SECRET: ${META_APP_SECRET:-}
     META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
@@ -52,9 +53,9 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)"
       interval: 10s
-      timeout: 3s
+      timeout: 10s
       retries: 3
       start_period: 10s
 
@@ -62,7 +63,7 @@ services:
     image: node:24.19.0-bookworm-slim
     working_dir: /workspace
     volumes:
-      - ./:/workspace:ro
+      - ./:/workspace
     command: ["corepack", "pnpm", "--filter", "@agents-factory/control-plane", "dev", "--hostname", "0.0.0.0"]
     environment:
       NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL:-}
@@ -72,7 +73,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${CONTROL_PLANE_PORT:-3000}:3000"
     healthcheck:
       test:
         - CMD

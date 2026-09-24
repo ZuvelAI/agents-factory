@@ -4,6 +4,7 @@ import {
 } from "../../../../actions";
 import { callAuthenticatedBackend } from "../../../../../lib/api";
 import { EmbeddedSignup } from "./embedded-signup";
+import { TestMessage } from "./test-message";
 
 type WhatsAppAccount = {
   id: string;
@@ -42,15 +43,15 @@ export default async function WhatsAppSetupPage({
       <h1 id="whatsapp-title">WhatsApp setup</h1>
       <p className="setup-intro">
         Meta Embedded Signup authorizes the client&apos;s own business and
-        number. Agents Factory never asks for or displays access tokens.
+        number. AI Workers never asks for or displays access tokens.
       </p>
 
       <div className="setup-panel">
         <div>
           <h2>Connection</h2>
           <p>
-            Default mode: <strong>API only</strong>. Coexistence is enabled only
-            when Meta explicitly reports the number as eligible.
+            Elige entre un número exclusivo o conservar la aplicación del celular.
+            La coexistencia está pendiente de habilitación y validación; elegirla no conecta ni migra tu número.
           </p>
         </div>
         <EmbeddedSignup tenantId={tenantId} />
@@ -113,12 +114,16 @@ export default async function WhatsAppSetupPage({
                 </button>
               </form>
             </div>
+            {account.status === "active" && (
+              <TestMessage tenantId={tenantId} accountId={account.id} />
+            )}
           </article>
         ))}
       </div>
       {backendAvailable && accounts.length === 0 ? (
         <p className="connection-notice" role="status">
-          Not connected.
+          Conecta la cuenta de WhatsApp de este cliente para habilitar el envío
+          de prueba.
         </p>
       ) : null}
     </section>

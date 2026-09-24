@@ -29,6 +29,7 @@ coverage/
 htmlcov/
 
 # Generated media, builds, and evaluation results
+/tmp/
 media/
 uploads/
 dist/
