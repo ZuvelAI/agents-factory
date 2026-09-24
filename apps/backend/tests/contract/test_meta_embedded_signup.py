@@ -17,8 +17,10 @@ from agents_factory.modules.whatsapp.account_service import (
     WhatsAppAccountSummary,
 )
 from agents_factory.modules.whatsapp.contracts import (
+    CoexistenceEligibility,
     MetaAuthorizationSnapshot,
     MetaHealthSnapshot,
+    WhatsAppMode,
 )
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import (
@@ -181,6 +183,54 @@ async def test_signup_rejects_expired_replayed_or_wrong_tenant_session_state() -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("selected_mode", ["API_ONLY", "COEXISTENCE"])
+async def test_signup_binds_selected_mode_to_server_state(
+    selected_mode: WhatsAppMode,
+) -> None:
+    signup, repository, provider, vault = service()
+    saved_states: dict[str, dict[str, object]] = {}
+
+    async def save(**values: object) -> None:
+        saved_states[str(values["state_digest"])] = dict(values)
+
+    async def consume(**values: object) -> bool:
+        saved = saved_states.get(str(values["state_digest"]))
+        return saved is not None and all(
+            saved.get(key) == values.get(key)
+            for key in (
+                "tenant_id",
+                "admin_user_id",
+                "admin_session_id",
+                "requested_mode",
+            )
+        )
+
+    repository.save_signup_state.side_effect = save
+    repository.consume_signup_state.side_effect = consume
+    started = await signup.start(
+        context=context(),
+        admin_session_id=SESSION_ID,
+        requested_mode=selected_mode,
+    )
+    assert next(iter(saved_states.values()))["requested_mode"] == selected_mode
+
+    with pytest.raises(WhatsAppSignupError) as error:
+        await signup.complete(
+            context=context(),
+            admin_session_id=SESSION_ID,
+            state=started.state,
+            code="unused-code",
+            business_id="business-client-1",
+            waba_id="waba-client-1",
+            phone_number_id="phone-client-1",
+            requested_mode="COEXISTENCE" if selected_mode == "API_ONLY" else "API_ONLY",
+        )
+    assert error.value.code == "whatsapp_signup_state_invalid"
+    provider.exchange_and_verify.assert_not_awaited()
+    vault.store.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("authorization", "expected_code"),
     [
@@ -238,6 +288,29 @@ async def test_phone_mapping_cannot_cross_tenants() -> None:
 
 
 @pytest.mark.asyncio
+async def test_coexistence_service_uses_verified_asset_ids_when_callback_omits_them() -> (
+    None
+):
+    signup, repository, _provider, _vault = service(
+        authorization=snapshot(eligibility="ELIGIBLE")
+    )
+    await signup.complete(
+        context=context(),
+        admin_session_id=SESSION_ID,
+        state="valid-state",
+        code="code",
+        business_id=None,
+        waba_id="waba-client-1",
+        phone_number_id=None,
+        requested_mode="COEXISTENCE",
+    )
+    connected = repository.connect_account.await_args.kwargs
+    assert connected["business_id"] == "business-client-1"
+    assert connected["phone_number_id"] == "phone-client-1"
+    assert connected["mode"] == "COEXISTENCE"
+
+
+@pytest.mark.asyncio
 async def test_coexistence_requires_explicit_provider_eligibility() -> None:
     signup, repository, _provider, vault = service(
         authorization=snapshot(eligibility="UNKNOWN")
@@ -261,7 +334,52 @@ async def test_coexistence_requires_explicit_provider_eligibility() -> None:
 
 
 @pytest.mark.asyncio
-async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> None:
+@pytest.mark.parametrize(
+    ("phone_status", "expected_eligibility"),
+    [
+        (
+            {
+                "id": "phone-client-1",
+                "is_on_biz_app": True,
+                "platform_type": "CLOUD_API",
+            },
+            "ELIGIBLE",
+        ),
+        (
+            {
+                "id": "phone-client-1",
+                "is_on_biz_app": False,
+                "platform_type": "CLOUD_API",
+            },
+            "INELIGIBLE",
+        ),
+        (
+            {"id": "phone-client-1", "is_on_biz_app": True, "platform_type": "OTHER"},
+            "INELIGIBLE",
+        ),
+        ({"id": "phone-client-1"}, "UNKNOWN"),
+        (
+            {
+                "id": "phone-client-1",
+                "is_on_biz_app": "true",
+                "platform_type": "CLOUD_API",
+            },
+            "UNKNOWN",
+        ),
+        (
+            {"id": "phone-client-1", "is_on_biz_app": 1, "platform_type": "CLOUD_API"},
+            "UNKNOWN",
+        ),
+        (
+            {"id": "other-phone", "is_on_biz_app": True, "platform_type": "CLOUD_API"},
+            "UNKNOWN",
+        ),
+    ],
+)
+async def test_concrete_meta_client_verifies_app_business_waba_and_phone(
+    phone_status: dict[str, object],
+    expected_eligibility: CoexistenceEligibility,
+) -> None:
     def respond(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/oauth/access_token"):
@@ -287,6 +405,9 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> No
             return httpx.Response(200, json={"data": [{"id": "waba-client-1"}]})
         if path.endswith("/waba-client-1/phone_numbers"):
             return httpx.Response(200, json={"data": [{"id": "phone-client-1"}]})
+        if path.endswith("/phone-client-1"):
+            assert request.url.params["fields"] == "id,is_on_biz_app,platform_type"
+            return httpx.Response(200, json=phone_status)
         return httpx.Response(404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -306,7 +427,89 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone() -> No
     assert authorization.owns_waba is True
     assert authorization.owns_phone_number is True
     assert authorization.business_id == "business-client-1"
+    assert authorization.coexistence_eligibility == expected_eligibility
     assert "verified-token" not in repr(authorization)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ambiguous", [False, True])
+async def test_coexistence_resolves_assets_from_provider_not_browser(
+    ambiguous: bool,
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/oauth/access_token"):
+            return httpx.Response(200, json={"access_token": "verified-token"})
+        if path.endswith("/debug_token"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "is_valid": True,
+                        "app_id": "meta-app-1",
+                        "scopes": sorted(REQUIRED_META_SCOPES),
+                        "granular_scopes": [
+                            {
+                                "scope": "whatsapp_business_management",
+                                "target_ids": ["waba-client-1"],
+                            }
+                        ],
+                    }
+                },
+            )
+        if path.endswith("/waba-client-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "waba-client-1",
+                    "owner_business_info": {"id": "business-client-1"},
+                },
+            )
+        if path.endswith("/owned_whatsapp_business_accounts"):
+            return httpx.Response(200, json={"data": [{"id": "waba-client-1"}]})
+        if path.endswith("/phone_numbers"):
+            phones = [{"id": "phone-client-1"}]
+            if ambiguous:
+                phones.append({"id": "other-phone"})
+            return httpx.Response(200, json={"data": phones})
+        if path.endswith("/phone-client-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "phone-client-1",
+                    "is_on_biz_app": True,
+                    "platform_type": "CLOUD_API",
+                },
+            )
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        provider = MetaEmbeddedSignupClient(
+            app_id="meta-app-1",
+            app_secret=SecretStr("meta-app-secret"),
+            redirect_uri="https://control.example.test/meta/callback",
+            graph_api_base_url="https://graph.facebook.com/v25.0",
+            http_client=client,
+        )
+        if ambiguous:
+            with pytest.raises(RuntimeError, match="unambiguous"):
+                await provider.exchange_and_verify(
+                    code="code",
+                    business_id=None,
+                    waba_id="waba-client-1",
+                    phone_number_id=None,
+                )
+        else:
+            result = await provider.exchange_and_verify(
+                code="code",
+                business_id=None,
+                waba_id="waba-client-1",
+                phone_number_id=None,
+            )
+            assert result.business_id == "business-client-1"
+            assert result.phone_number_id == "phone-client-1"
+            assert result.owns_waba and result.owns_phone_number
+            assert result.coexistence_eligibility == "ELIGIBLE"
 
 
 @pytest.mark.asyncio
@@ -334,6 +537,8 @@ async def test_concrete_meta_client_accepts_waba_shared_with_the_emitted_busines
             return httpx.Response(200, json={"data": [{"id": "waba-client-1"}]})
         if path.endswith("/waba-client-1/phone_numbers"):
             return httpx.Response(200, json={"data": [{"id": "phone-client-1"}]})
+        if path.endswith("/phone-client-1"):
+            return httpx.Response(200, json={"id": "phone-client-1"})
         return httpx.Response(404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:

@@ -5,7 +5,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -74,12 +74,12 @@ async def load_test_templates(
             "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
         }),
     )
-    secret = await resolver.resolve(context=context, whatsapp_account_id=account_id)
+    resolved_credential = await resolver.resolve(context=context, whatsapp_account_id=account_id)
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(
                 f"{settings.meta_graph_api_base_url.rstrip('/')}/{account.waba_id}/message_templates",
-                headers={"Authorization": f"Bearer {secret.reveal().decode('utf-8')}"},
+                headers={"Authorization": f"Bearer {resolved_credential.reveal().decode('utf-8')}"},
                 params={"fields": "id,name,language,status,category,components", "limit": "100"},
             )
             response.raise_for_status()
@@ -154,10 +154,16 @@ class SignupStartResponse(BaseModel):
 class SignupCompleteRequest(BaseModel):
     state: str = Field(min_length=16, max_length=500)
     code: str = Field(min_length=1, max_length=2000)
-    business_id: str = Field(min_length=1, max_length=200)
+    business_id: str | None = Field(default=None, min_length=1, max_length=200)
     waba_id: str = Field(min_length=1, max_length=200)
-    phone_number_id: str = Field(min_length=1, max_length=200)
+    phone_number_id: str | None = Field(default=None, min_length=1, max_length=200)
     mode: WhatsAppMode = "API_ONLY"
+
+    @model_validator(mode="after")
+    def require_api_assets(self) -> SignupCompleteRequest:
+        if self.mode == "API_ONLY" and (self.business_id is None or self.phone_number_id is None):
+            raise ValueError("API-only signup requires business and phone identifiers")
+        return self
 
 
 class WhatsAppAccountResponse(BaseModel):
@@ -209,6 +215,7 @@ async def start_embedded_signup(
     started = await signup.start(
         context=_context(request, principal, tenant_id),
         admin_session_id=principal.session_id,
+        requested_mode=payload.mode,
     )
     assert settings.meta_app_id is not None
     assert settings.meta_configuration_id is not None

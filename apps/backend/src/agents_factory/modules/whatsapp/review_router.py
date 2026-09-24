@@ -49,14 +49,14 @@ def validate_review_user(user: dict) -> UUID:
 
 
 async def reviewer(request: Request, authorization: Annotated[str | None, Header()] = None) -> UUID:
-    token = _parse_bearer_token(authorization)
+    review_bearer = _parse_bearer_token(authorization)
     settings = request.app.state.settings
     # Auth server verifies the token AND returns current metadata (revocation is immediate).
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(
                 f"{settings.supabase_url.rstrip('/')}/auth/v1/user",
-                headers={"Authorization": f"Bearer {token}",
+                headers={"Authorization": f"Bearer {review_bearer}",
                          "apikey": settings.supabase_publishable_key.get_secret_value()},
             )
             response.raise_for_status()

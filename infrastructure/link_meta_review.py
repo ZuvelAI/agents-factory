@@ -21,16 +21,16 @@ from agents_factory.modules.whatsapp.signup_service import ACCESS_TOKEN_PURPOSE,
 async def main():
     env = dotenv_values('/workspace/.env')
     review = dotenv_values('/workspace/.env.meta-review')
-    token = review['META_REVIEW_ACCESS_TOKEN']
+    review_access_token = review['META_REVIEW_ACCESS_TOKEN']
     tenant = UUID('c5cd8d04-01f2-49be-aa27-1075520a2a20')
     phone, waba, business = '1334721596385520', '1894805611498111', '1121764643872916'
     async with httpx.AsyncClient(base_url='https://graph.facebook.com/v25.0', timeout=20) as c:
-        r = await c.get('/debug_token', params={'input_token': token}, headers={'Authorization': 'Bearer ' + env['META_APP_ID'] + '|' + env['META_APP_SECRET']})
+        r = await c.get('/debug_token', params={'input_token': review_access_token}, headers={'Authorization': 'Bearer ' + env['META_APP_ID'] + '|' + env['META_APP_SECRET']})
         r.raise_for_status()
         d = r.json()['data']
         assert d['is_valid'] and str(d['app_id']) == '4513182438959780'
         assert REQUIRED_META_SCOPES.issubset(d['scopes'])
-        headers = {'Authorization': 'Bearer ' + token}
+        headers = {'Authorization': 'Bearer ' + review_access_token}
         r = await c.get('/' + waba, params={'fields': 'id,name,owner_business_info'}, headers=headers)
         r.raise_for_status()
         assert r.json()['owner_business_info']['id'] == business
@@ -60,11 +60,11 @@ async def main():
             account_id = existing.id if rotating else uuid4()
             binding = f'whatsapp_account:{account_id}'
             vault = SecretVault.for_session(s, key_provider=EnvironmentMasterKeyProvider(environment={'APP_MASTER_KEY': env['APP_MASTER_KEY']}))
-            ref = await vault.store(context=context, purpose=ACCESS_TOKEN_PURPOSE, record_context=binding, plaintext=token.encode())
+            ref = await vault.store(context=context, purpose=ACCESS_TOKEN_PURPOSE, record_context=binding, plaintext=review_access_token.encode())
             expiry = datetime.fromtimestamp(d['expires_at'], UTC) if d.get('expires_at') else None
             result = await repo.connect_account(account_id=account_id, context=context, business_id=business, waba_id=waba, phone_number_id=phone, access_token_secret_ref=ref, mode='API_ONLY', coexistence_eligibility='UNKNOWN', granted_scopes=tuple(sorted(d['scopes'])), token_expires_at=expiry, verified_at=datetime.now(UTC))
             loaded = await vault.load(context=context, reference=ref, purpose=ACCESS_TOKEN_PURPOSE, record_context=binding)
-            assert loaded.reveal() == token.encode()
+            assert loaded.reveal() == review_access_token.encode()
         print(json.dumps({'linked_test_account': str(result.id), 'encrypted_token_verified': True, 'token_type': d.get('type'), 'expires_at': d.get('expires_at'), 'data_access_expires_at': d.get('data_access_expires_at'), 'required_scopes_verified': True, 'messages_sent': 0}))
     finally:
         await db.dispose()

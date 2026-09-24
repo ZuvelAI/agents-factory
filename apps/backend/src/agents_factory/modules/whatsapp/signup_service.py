@@ -71,6 +71,7 @@ class SignupRepository(Protocol):
         admin_user_id: UUID,
         admin_session_id: UUID,
         expires_at: datetime,
+        requested_mode: WhatsAppMode,
     ) -> None: ...
 
     async def consume_signup_state(
@@ -81,6 +82,7 @@ class SignupRepository(Protocol):
         admin_user_id: UUID,
         admin_session_id: UUID,
         consumed_at: datetime,
+        requested_mode: WhatsAppMode,
     ) -> bool: ...
 
     async def find_by_phone_number(
@@ -143,7 +145,8 @@ class WhatsAppSignupService:
         self._state_ttl = state_ttl
 
     async def start(
-        self, *, context: TenantContext, admin_session_id: UUID
+        self, *, context: TenantContext, admin_session_id: UUID,
+        requested_mode: WhatsAppMode = "API_ONLY",
     ) -> EmbeddedSignupStart:
         admin_user_id = _admin_user_id(context)
         now = self._now()
@@ -155,6 +158,7 @@ class WhatsAppSignupService:
             admin_user_id=admin_user_id,
             admin_session_id=admin_session_id,
             expires_at=expires_at,
+            requested_mode=requested_mode,
         )
         return EmbeddedSignupStart(state=state, expires_at=expires_at)
 
@@ -165,9 +169,9 @@ class WhatsAppSignupService:
         admin_session_id: UUID,
         state: str,
         code: str,
-        business_id: str,
+        business_id: str | None,
         waba_id: str,
-        phone_number_id: str,
+        phone_number_id: str | None,
         requested_mode: WhatsAppMode = "API_ONLY",
     ) -> ConnectedWhatsAppAccount:
         admin_user_id = _admin_user_id(context)
@@ -178,6 +182,7 @@ class WhatsAppSignupService:
             admin_user_id=admin_user_id,
             admin_session_id=admin_session_id,
             consumed_at=now,
+            requested_mode=requested_mode,
         )
         if not consumed:
             raise WhatsAppSignupError(
@@ -199,9 +204,9 @@ class WhatsAppSignupService:
             ) from None
 
         if (
-            authorization.business_id != business_id
+            (business_id is not None and authorization.business_id != business_id)
             or authorization.waba_id != waba_id
-            or authorization.phone_number_id != phone_number_id
+            or (phone_number_id is not None and authorization.phone_number_id != phone_number_id)
             or not authorization.owns_waba
             or not authorization.owns_phone_number
         ):
@@ -223,6 +228,8 @@ class WhatsAppSignupService:
                 detail="Meta has not marked this number as eligible for Coexistence.",
             )
 
+        business_id = authorization.business_id
+        phone_number_id = authorization.phone_number_id
         await self._repository.lock_phone_number(phone_number_id=phone_number_id)
         existing = await self._repository.find_by_phone_number(
             phone_number_id=phone_number_id

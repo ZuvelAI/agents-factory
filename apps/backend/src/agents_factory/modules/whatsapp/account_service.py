@@ -90,13 +90,14 @@ class WhatsAppAccountRepository:
         admin_user_id: UUID,
         admin_session_id: UUID,
         expires_at: datetime,
+        requested_mode: WhatsAppMode = "API_ONLY",
     ) -> None:
         await self._session.execute(
             text(
                 "INSERT INTO agents_factory_private.whatsapp_signup_states "
-                "(state_digest, tenant_id, admin_user_id, admin_session_id, expires_at) "
+                "(state_digest, tenant_id, admin_user_id, admin_session_id, expires_at, requested_mode) "
                 "VALUES (:state_digest, :tenant_id, :admin_user_id, "
-                ":admin_session_id, :expires_at)"
+                ":admin_session_id, :expires_at, :requested_mode)"
             ),
             {
                 "state_digest": state_digest,
@@ -104,6 +105,7 @@ class WhatsAppAccountRepository:
                 "admin_user_id": admin_user_id,
                 "admin_session_id": admin_session_id,
                 "expires_at": expires_at,
+                "requested_mode": requested_mode,
             },
         )
 
@@ -115,6 +117,7 @@ class WhatsAppAccountRepository:
         admin_user_id: UUID,
         admin_session_id: UUID,
         consumed_at: datetime,
+        requested_mode: WhatsAppMode = "API_ONLY",
     ) -> bool:
         parameters = {
             "state_digest": state_digest,
@@ -122,6 +125,7 @@ class WhatsAppAccountRepository:
             "admin_user_id": admin_user_id,
             "admin_session_id": admin_session_id,
             "consumed_at": consumed_at,
+            "requested_mode": requested_mode,
         }
         if self._state_session_factory is None:
             consumed = await self._session.scalar(_CONSUME_SIGNUP_STATE, parameters)
@@ -721,6 +725,7 @@ _CONSUME_SIGNUP_STATE = text(
     "WHERE state_digest = :state_digest AND tenant_id = :tenant_id "
     "AND admin_user_id = :admin_user_id "
     "AND admin_session_id = :admin_session_id "
+    "AND requested_mode = :requested_mode "
     "AND consumed_at IS NULL AND expires_at > :consumed_at "
     "RETURNING state_digest"
 )

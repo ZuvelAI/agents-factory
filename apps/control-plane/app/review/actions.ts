@@ -6,8 +6,7 @@ import { callBackend, BackendProblem } from "../../lib/api";
 import { hasReviewAccess } from "../../lib/review-access";
 
 export async function reviewLogin(form: FormData) {
-  const email = form.get("email");
-  const password = form.get("password");
+  const [email, password] = [form.get("email"), form.get("password")];
   if (typeof email !== "string" || typeof password !== "string") redirect("/review/login?error=1");
   const client = await createServerSupabaseClient();
   const { data, error } = await client.auth.signInWithPassword({ email, password });

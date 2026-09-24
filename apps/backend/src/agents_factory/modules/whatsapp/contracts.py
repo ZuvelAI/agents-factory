@@ -120,9 +120,9 @@ class MetaEmbeddedSignupProvider(Protocol):
         self,
         *,
         code: str,
-        business_id: str,
+        business_id: str | None,
         waba_id: str,
-        phone_number_id: str,
+        phone_number_id: str | None,
     ) -> MetaAuthorizationSnapshot: ...
 
     async def inspect_health(

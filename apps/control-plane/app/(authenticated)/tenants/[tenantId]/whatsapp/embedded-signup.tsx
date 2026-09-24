@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { beginWhatsAppSignup, finishWhatsAppSignup } from "../../../../actions";
 import { signupBlockReason, type WhatsAppMode } from "../../../../../lib/whatsapp-mode";
+import { parseSignupEvent, type EmbeddedSignupAssets } from "../../../../../lib/whatsapp-signup-event";
 
 type MetaLoginResponse = { authResponse?: { code?: string } };
 type MetaSdk = {
@@ -25,12 +26,6 @@ declare global {
     FB?: MetaSdk;
   }
 }
-
-type EmbeddedSignupAssets = {
-  businessId: string;
-  wabaId: string;
-  phoneNumberId: string;
-};
 
 export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
   const router = useRouter();
@@ -53,7 +48,7 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
 
     try {
       const sdk = await loadMetaSdk(started.data.app_id);
-      const assetsPromise = waitForEmbeddedSignupAssets();
+      const assetsPromise = waitForEmbeddedSignupAssets(mode);
       const codePromise = new Promise<string>((resolve, reject) => {
         sdk.login(
           (response) => {
@@ -156,7 +151,7 @@ async function loadMetaSdk(appId: string): Promise<MetaSdk> {
   return window.FB;
 }
 
-function waitForEmbeddedSignupAssets(): Promise<EmbeddedSignupAssets> {
+function waitForEmbeddedSignupAssets(mode: WhatsAppMode): Promise<EmbeddedSignupAssets> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       cleanup();
@@ -167,51 +162,11 @@ function waitForEmbeddedSignupAssets(): Promise<EmbeddedSignupAssets> {
       window.removeEventListener("message", receive);
     }
     function receive(event: MessageEvent) {
-      if (
-        event.origin !== "https://www.facebook.com" &&
-        event.origin !== "https://web.facebook.com"
-      ) {
-        return;
-      }
-      let payload: unknown = event.data;
-      if (typeof payload === "string") {
-        try {
-          payload = JSON.parse(payload);
-        } catch {
-          return;
-        }
-      }
-      if (!isEmbeddedSignupFinish(payload)) return;
+      const assets = parseSignupEvent(event.origin, event.data, mode);
+      if (!assets) return;
       cleanup();
-      resolve({
-        businessId: payload.data.business_id,
-        wabaId: payload.data.waba_id,
-        phoneNumberId: payload.data.phone_number_id,
-      });
+      resolve(assets);
     }
     window.addEventListener("message", receive);
   });
-}
-
-function isEmbeddedSignupFinish(value: unknown): value is {
-  type: "WA_EMBEDDED_SIGNUP";
-  event: "FINISH";
-  data: { business_id: string; waba_id: string; phone_number_id: string };
-} {
-  if (value === null || typeof value !== "object") return false;
-  const candidate = value as Record<string, unknown>;
-  if (
-    candidate.type !== "WA_EMBEDDED_SIGNUP" ||
-    candidate.event !== "FINISH" ||
-    candidate.data === null ||
-    typeof candidate.data !== "object"
-  ) {
-    return false;
-  }
-  const data = candidate.data as Record<string, unknown>;
-  return (
-    typeof data.business_id === "string" &&
-    typeof data.waba_id === "string" &&
-    typeof data.phone_number_id === "string"
-  );
 }

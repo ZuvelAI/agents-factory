@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,51 @@ WORKFLOW_VALIDATORS = (
     REPOSITORY_ROOT / "infrastructure/scripts/verify_ci_workflow.sh",
     REPOSITORY_ROOT / "infrastructure/scripts/check_repository_security.sh",
 )
+
+
+@pytest.mark.parametrize(
+    ("sample", "expected_error"),
+    [
+        ("ordinary_setting = 123\n", None),
+        ('TOKEN = "synthetic-test-only"\n', "credential-like value is forbidden"),
+        ('PASSWORD = "synthetic-test-only"\n', "credential-like value is forbidden"),
+        (
+            'CLIENT_SECRET = "synthetic-test-only"\n',
+            "credential-like value is forbidden",
+        ),
+        ("-----BEGIN " + "PRIVATE KEY-----\n", "private key material is forbidden"),
+    ],
+)
+def test_repository_scanner_still_blocks_literal_credentials(
+    tmp_path: Path,
+    sample: str,
+    expected_error: str | None,
+) -> None:
+    # Exercise the real scanner in a disposable repository, not the working tree.
+    scripts = tmp_path / "infrastructure/scripts"
+    scripts.mkdir(parents=True)
+    for name in ("check_repository_security.sh", "verify_tenant_isolation_wiring.py"):
+        shutil.copy2(REPOSITORY_ROOT / "infrastructure/scripts" / name, scripts / name)
+    (tmp_path / "supabase/migrations").mkdir(parents=True)
+    (tmp_path / "supabase/migrations/000_foundation.sql").write_text("select 1;\n")
+    workflow = tmp_path / "workflow.yml"
+    workflow.write_text(_desired_workflow())
+    (tmp_path / "sample.txt").write_text(sample)
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+
+    result = subprocess.run(
+        ["sh", str(scripts / "check_repository_security.sh"), str(workflow)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if expected_error is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert expected_error in result.stderr
 
 
 def _run_validator(validator: Path, workflow: Path) -> subprocess.CompletedProcess[str]:

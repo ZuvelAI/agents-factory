@@ -1,0 +1,5 @@
+# Local verification only. No application secrets and no running workers.
+FROM ghcr.io/astral-sh/uv:0.12.5-python3.12-trixie
+RUN apt-get update && apt-get install -y --no-install-recommends ruby git \
+    && apt-get clean
+ENV PATH="/opt/venv/bin:${PATH}"

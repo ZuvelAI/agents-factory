@@ -127,9 +127,9 @@ export async function finishWhatsAppSignup(input: {
   tenantId: string;
   state: string;
   code: string;
-  businessId: string;
+  businessId: string | null;
   wabaId: string;
-  phoneNumberId: string;
+  phoneNumberId: string | null;
   mode: "API_ONLY" | "COEXISTENCE";
 }): Promise<ActionResult> {
   try {

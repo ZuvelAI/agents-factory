@@ -16,6 +16,7 @@ from pydantic import SecretStr, ValidationError
 from agents_factory.common.context import TenantContext
 from agents_factory.common.errors import DomainError
 from agents_factory.modules.whatsapp.contracts import (
+    CoexistenceEligibility,
     DeliveryStatus,
     InboundWhatsAppEvent,
     MetaAuthorizationSnapshot,
@@ -232,9 +233,9 @@ class MetaEmbeddedSignupClient:
         self,
         *,
         code: str,
-        business_id: str,
+        business_id: str | None,
         waba_id: str,
-        phone_number_id: str,
+        phone_number_id: str | None,
     ) -> MetaAuthorizationSnapshot:
         if self.app_id is None or self.redirect_uri is None:
             raise RuntimeError("Meta Embedded Signup is not configured")
@@ -279,6 +280,18 @@ class MetaEmbeddedSignupClient:
             )
 
             authorization_header = {"Authorization": f"Bearer {access_token_value}"}
+            if business_id is None:
+                waba_response = await client.get(
+                    f"{self.graph_api_base_url.rstrip('/')}/{waba_id}",
+                    params={"fields": "id,owner_business_info"},
+                    headers=authorization_header,
+                )
+                waba_payload = _required_json_mapping(waba_response)
+                owner = waba_payload.get("owner_business_info")
+                owner_id = owner.get("id") if isinstance(owner, Mapping) else None
+                if waba_payload.get("id") != waba_id or not isinstance(owner_id, str) or not owner_id:
+                    raise RuntimeError("Meta did not return a verified business owner")
+                business_id = owner_id
             owned_wabas_response = await client.get(
                 f"{self.graph_api_base_url.rstrip('/')}/{business_id}/"
                 "owned_whatsapp_business_accounts",
@@ -302,6 +315,23 @@ class MetaEmbeddedSignupClient:
                 headers=authorization_header,
             )
             phone_payload = _required_json_mapping(phone_response)
+            if phone_number_id is None:
+                candidates = phone_payload.get("data")
+                paging = phone_payload.get("paging")
+                has_more = isinstance(paging, Mapping) and bool(paging.get("next"))
+                if not isinstance(candidates, list) or len(candidates) != 1 or has_more:
+                    raise RuntimeError("Meta did not return an unambiguous phone number")
+                candidate = candidates[0]
+                candidate_id = candidate.get("id") if isinstance(candidate, Mapping) else None
+                if not isinstance(candidate_id, str) or not candidate_id:
+                    raise RuntimeError("Meta did not return an unambiguous phone number")
+                phone_number_id = candidate_id
+            phone_status_response = await client.get(
+                f"{self.graph_api_base_url.rstrip('/')}/{phone_number_id}",
+                params={"fields": "id,is_on_biz_app,platform_type"},
+                headers=authorization_header,
+            )
+            phone_status = _required_json_mapping(phone_status_response)
 
         expires_at = _optional_provider_expiry(debug_data.get("expires_at"))
         granular_targets = _granular_scope_targets(
@@ -323,8 +353,10 @@ class MetaEmbeddedSignupClient:
             token_expires_at=expires_at,
             owns_waba=owns_waba,
             owns_phone_number=owns_phone,
-            # Never infer Coexistence from ordinary Cloud API access.
-            coexistence_eligibility="UNKNOWN",
+            coexistence_eligibility=(
+                _coexistence_status(phone_status, phone_number_id)
+                if owns_waba and owns_phone else "UNKNOWN"
+            ),
         )
 
     async def inspect_health(
@@ -382,6 +414,19 @@ class MetaEmbeddedSignupClient:
             return
         async with httpx.AsyncClient(timeout=15.0) as client:
             yield client
+
+
+def _coexistence_status(
+    payload: Mapping[str, object], phone_number_id: str,
+) -> CoexistenceEligibility:
+    # Only provider evidence for this exact phone can confirm dual registration.
+    if payload.get("id") != phone_number_id:
+        return "UNKNOWN"
+    on_business_app = payload.get("is_on_biz_app")
+    platform = payload.get("platform_type")
+    if not isinstance(on_business_app, bool) or not isinstance(platform, str) or not platform:
+        return "UNKNOWN"
+    return "ELIGIBLE" if on_business_app and platform == "CLOUD_API" else "INELIGIBLE"
 
 
 def _provider_timestamp(value: str) -> datetime:
