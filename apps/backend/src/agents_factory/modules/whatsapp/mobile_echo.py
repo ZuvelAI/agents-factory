@@ -29,11 +29,17 @@ async def ingest_mobile_echo(
     allowed = await session.scalar(
         text(
             "SELECT EXISTS(SELECT 1 FROM public.whatsapp_accounts WHERE tenant_id=:tenant "
-            "AND id=:account AND status='active' AND mode='COEXISTENCE')"
+            "AND id=:account AND waba_id=:waba AND phone_number_id=:phone "
+            "AND status='active' AND mode='COEXISTENCE')"
         ),
-        {"tenant": context.tenant_id, "account": mapping.account_id},
+        {
+            "tenant": context.tenant_id,
+            "account": mapping.account_id,
+            "waba": event.waba_id,
+            "phone": event.phone_number_id,
+        },
     )
-    if not allowed:
+    if not allowed or mapping.tenant_id != context.tenant_id:
         raise DomainError(
             type="https://agents-factory.dev/problems/mobile-echo-account",
             title="Invalid mobile account",

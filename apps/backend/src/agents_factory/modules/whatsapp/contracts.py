@@ -38,6 +38,17 @@ class InboundWhatsAppEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppContactChange:
+    waba_id: str
+    phone_number_id: str
+    customer_wa_id: str
+    action: Literal["add", "remove"]
+    full_name: str | None
+    first_name: str | None
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class WhatsAppMobileEcho:
     waba_id: str
     phone_number_id: str
@@ -152,6 +163,7 @@ class ProviderWebhookBatch:
     inbound_events: tuple[InboundWhatsAppEvent, ...]
     delivery_statuses: tuple[WhatsAppDeliveryStatusEvent, ...]
     mobile_echoes: tuple[WhatsAppMobileEcho, ...] = ()
+    contact_changes: tuple[WhatsAppContactChange, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

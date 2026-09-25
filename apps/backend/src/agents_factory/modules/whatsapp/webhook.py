@@ -23,9 +23,13 @@ from agents_factory.modules.whatsapp.meta_provider import (
     InvalidWebhookPayload,
     MetaCloudApiProvider,
 )
-from agents_factory.modules.whatsapp.outbound_service import OutboundStatusReconciler
+from agents_factory.modules.whatsapp.outbound_service import (
+    OutboundStatusReconciler,
+    lock_conversation_dispatch,
+)
 from agents_factory.modules.whatsapp.repository import WhatsAppWebhookRepository
 from agents_factory.modules.whatsapp.mobile_echo import ingest_mobile_echo
+from agents_factory.modules.whatsapp.contact_sync import ingest_contact_change
 
 
 router = APIRouter(prefix="/webhooks/meta/whatsapp", tags=["meta-whatsapp"])
@@ -113,18 +117,70 @@ class MetaWebhookProcessor:
             raise InvalidWebhookPayload
 
         batch = self._provider.parse_webhook(payload)
-        accepted_messages = 0
-        duplicate_messages = 0
-        # Apply human control before any customer messages in the same batch.
-        for event in batch.mobile_echoes:
+        # Acquire every affected conversation fence before any row lock. Sorting
+        # only echoes is insufficient for batches mixing echoes and statuses.
+        targets = (
+            {
+                (event.waba_id, event.phone_number_id, event.recipient_wa_id)
+                for event in (*batch.mobile_echoes, *batch.delivery_statuses)
+            }
+            | {
+                (event.waba_id, event.phone_number_id, event.sender_wa_id)
+                for event in batch.inbound_events
+            }
+            | {
+                (event.waba_id, event.phone_number_id, event.customer_wa_id)
+                for event in batch.contact_changes
+            }
+        )
+        for waba_id, phone_number_id, customer_wa_id in sorted(targets):
             mapping = await self._repository.resolve_active_mapping(
-                waba_id=event.waba_id, phone_number_id=event.phone_number_id,
+                waba_id=waba_id,
+                phone_number_id=phone_number_id,
             )
             if mapping is None:
                 raise UnknownAccountMapping
-            context = TenantContext(tenant_id=mapping.tenant_id, actor_id=None,
-                actor_type="system", correlation_id=correlation_id)
-            created = await ingest_mobile_echo(self._session, context=context, mapping=mapping, event=event)
+            await lock_conversation_dispatch(
+                self._session,
+                tenant_id=mapping.tenant_id,
+                account_id=mapping.account_id,
+                customer_wa_id=customer_wa_id,
+            )
+        accepted_messages = 0
+        duplicate_messages = 0
+        for event in batch.contact_changes:
+            mapping = await self._repository.resolve_active_mapping(
+                waba_id=event.waba_id,
+                phone_number_id=event.phone_number_id,
+            )
+            if mapping is None:
+                raise UnknownAccountMapping
+            context = TenantContext(
+                tenant_id=mapping.tenant_id,
+                actor_id=None,
+                actor_type="system",
+                correlation_id=correlation_id,
+            )
+            await ingest_contact_change(
+                self._session, context=context, mapping=mapping, event=event
+            )
+        # Apply human control before any customer messages in the same batch.
+        for event in batch.mobile_echoes:
+            mapping = await self._repository.resolve_active_mapping(
+                waba_id=event.waba_id,
+                phone_number_id=event.phone_number_id,
+            )
+            if mapping is None:
+                raise UnknownAccountMapping
+            context = TenantContext(
+                tenant_id=mapping.tenant_id,
+                actor_id=None,
+                actor_type="system",
+                correlation_id=correlation_id,
+            )
+            created = await ingest_mobile_echo(
+                self._session, context=context, mapping=mapping, event=event
+            )
             if created:
                 accepted_messages += 1
             else:

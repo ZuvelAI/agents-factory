@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { beginWhatsAppSignup, finishWhatsAppSignup } from "../../../../actions";
-import { signupBlockReason, type WhatsAppMode } from "../../../../../lib/whatsapp-mode";
-import { parseSignupEvent, type EmbeddedSignupAssets } from "../../../../../lib/whatsapp-signup-event";
+import {
+  signupBlockReason,
+  type WhatsAppMode,
+} from "../../../../../lib/whatsapp-mode";
+import { runSignupSession } from "../../../../../lib/whatsapp-signup-session";
 
 type MetaLoginResponse = { authResponse?: { code?: string } };
 type MetaSdk = {
@@ -34,37 +37,33 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
   const [mode, setMode] = useState<WhatsAppMode | null>(null);
   const [confirmedExclusive, setConfirmedExclusive] = useState(false);
   const blocked = signupBlockReason(mode, confirmedExclusive);
+  const activeAttempt = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      activeAttempt.current?.abort();
+    },
+    [],
+  );
 
   async function connect() {
-    if (blocked || !mode) return;
+    if (blocked || !mode || activeAttempt.current) return;
+    const attempt = new AbortController();
+    activeAttempt.current = attempt;
     setStatus("working");
     setMessage("Opening Meta Embedded Signup…");
-    const started = await beginWhatsAppSignup(tenantId, mode);
-    if (!started.ok) {
-      setStatus("error");
-      setMessage(started.message);
-      return;
-    }
-
     try {
+      const started = await beginWhatsAppSignup(tenantId, mode);
+      if (attempt.signal.aborted) return;
+      if (!started.ok) throw new Error(started.message);
       const sdk = await loadMetaSdk(started.data.app_id);
-      const assetsPromise = waitForEmbeddedSignupAssets(mode);
-      const codePromise = new Promise<string>((resolve, reject) => {
-        sdk.login(
-          (response) => {
-            const code = response.authResponse?.code;
-            if (code) resolve(code);
-            else reject(new Error("Meta authorization was cancelled"));
-          },
-          {
-            config_id: started.data.configuration_id,
-            response_type: "code",
-            override_default_response_type: true,
-            extras: { sessionInfoVersion: "3" },
-          },
-        );
-      });
-      const [code, assets] = await Promise.all([codePromise, assetsPromise]);
+      const { code, assets } = await runSignupSession(
+        sdk,
+        window,
+        started.data.configuration_id,
+        mode,
+        attempt.signal,
+      );
+      if (attempt.signal.aborted) return;
       const finished = await finishWhatsAppSignup({
         tenantId,
         state: started.data.state,
@@ -74,17 +73,21 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
         phoneNumberId: assets.phoneNumberId,
         mode,
       });
+      if (attempt.signal.aborted) return;
       if (!finished.ok) throw new Error(finished.message);
       setStatus("idle");
       setMessage("WhatsApp connected.");
       router.refresh();
     } catch (error) {
+      if (attempt.signal.aborted) return;
       setStatus("error");
       setMessage(
         error instanceof Error
           ? error.message
           : "The WhatsApp connection could not be completed.",
       );
+    } finally {
+      if (activeAttempt.current === attempt) activeAttempt.current = null;
     }
   }
 
@@ -93,25 +96,57 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
       <fieldset disabled={status === "working"}>
         <legend>¿Cómo quieres usar este número?</legend>
         <label>
-          <input type="radio" name="whatsapp-mode" checked={mode === "API_ONLY"}
-            onChange={() => { setMode("API_ONLY"); setConfirmedExclusive(false); setMessage(""); }} />
+          <input
+            type="radio"
+            name="whatsapp-mode"
+            checked={mode === "API_ONLY"}
+            onChange={() => {
+              setMode("API_ONLY");
+              setConfirmedExclusive(false);
+              setMessage("");
+            }}
+          />
           Número exclusivo para el agente
         </label>
-        <p>Usa un número separado. Esta opción no conserva WhatsApp Business en el celular con ese mismo número.</p>
+        <p>
+          Usa un número separado. Esta opción no conserva WhatsApp Business en
+          el celular con ese mismo número.
+        </p>
         <label>
-          <input type="radio" name="whatsapp-mode" checked={mode === "COEXISTENCE"}
-            onChange={() => { setMode("COEXISTENCE"); setConfirmedExclusive(false); setMessage(""); }} />
+          <input
+            type="radio"
+            name="whatsapp-mode"
+            checked={mode === "COEXISTENCE"}
+            onChange={() => {
+              setMode("COEXISTENCE");
+              setConfirmedExclusive(false);
+              setMessage("");
+            }}
+          />
           Conservar WhatsApp Business + agente — pendiente de habilitación
         </label>
-        <p>Para un número ya activo en WhatsApp Business. Su conexión dependerá de Meta; no se convertirá automáticamente en un número exclusivo.</p>
-        {mode === "API_ONLY" && <label>
-          <input type="checkbox" checked={confirmedExclusive}
-            onChange={(event) => setConfirmedExclusive(event.target.checked)} />
-          Confirmo que este número será exclusivo para la API, no para la aplicación del celular.
-        </label>}
+        <p>
+          Para un número ya activo en WhatsApp Business. Su conexión dependerá
+          de Meta; no se convertirá automáticamente en un número exclusivo.
+        </p>
+        {mode === "API_ONLY" && (
+          <label>
+            <input
+              type="checkbox"
+              checked={confirmedExclusive}
+              onChange={(event) => setConfirmedExclusive(event.target.checked)}
+            />
+            Confirmo que este número será exclusivo para la API, no para la
+            aplicación del celular.
+          </label>
+        )}
       </fieldset>
       {blocked && <p role="status">{blocked}</p>}
-      <button type="button" onClick={connect} disabled={status === "working" || blocked !== null}>
+      <button
+        type="button"
+        onClick={connect}
+        disabled={status === "working" || blocked !== null}
+      >
         {status === "working" ? "Connecting…" : "Connect with Meta"}
       </button>
       {message ? (
@@ -149,24 +184,4 @@ async function loadMetaSdk(appId: string): Promise<MetaSdk> {
   if (!window.FB) throw new Error("Meta SDK is unavailable");
   window.FB.init({ appId, cookie: true, xfbml: false, version: "v25.0" });
   return window.FB;
-}
-
-function waitForEmbeddedSignupAssets(mode: WhatsAppMode): Promise<EmbeddedSignupAssets> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Meta did not return the selected WhatsApp assets"));
-    }, 120_000);
-    function cleanup() {
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", receive);
-    }
-    function receive(event: MessageEvent) {
-      const assets = parseSignupEvent(event.origin, event.data, mode);
-      if (!assets) return;
-      cleanup();
-      resolve(assets);
-    }
-    window.addEventListener("message", receive);
-  });
 }

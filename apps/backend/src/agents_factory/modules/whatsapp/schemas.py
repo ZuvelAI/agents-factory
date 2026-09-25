@@ -44,12 +44,30 @@ class MetaDeliveryStatus(MetaWebhookModel):
     errors: list[MetaDeliveryError] = Field(default_factory=list)
 
 
+class MetaSyncedContact(MetaWebhookModel):
+    phone_number: str = Field(min_length=1, max_length=100)
+    full_name: str | None = Field(default=None, max_length=1000)
+    first_name: str | None = Field(default=None, max_length=1000)
+
+
+class MetaSyncTimestamp(MetaWebhookModel):
+    timestamp: str = Field(min_length=1, max_length=20)
+
+
+class MetaContactChange(MetaWebhookModel):
+    type: Literal["contact"]
+    action: Literal["add", "remove"]
+    contact: MetaSyncedContact
+    metadata: MetaSyncTimestamp
+
+
 class MetaChangeValue(MetaWebhookModel):
     messaging_product: Literal["whatsapp"]
     metadata: MetaMetadata
     messages: list[MetaInboundMessage] = Field(default_factory=list)
     statuses: list[MetaDeliveryStatus] = Field(default_factory=list)
     message_echoes: list[MetaMobileEcho] = Field(default_factory=list)
+    state_sync: list[MetaContactChange] = Field(default_factory=list)
 
 
 class MetaChange(MetaWebhookModel):

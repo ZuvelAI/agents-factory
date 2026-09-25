@@ -53,9 +53,16 @@ class TenantIsolationRegistration:
     update_allowed: bool = True
     delete_allowed: bool = False
     reassignment_denials: frozenset[str] = frozenset({"42501"})
+    row_column: str = "id"
 
 
 TENANT_ISOLATION_REGISTRY = (
+    TenantIsolationRegistration(
+        "public.tenant_onboarding_configs",
+        insert_allowed=False,
+        update_allowed=False,
+        row_column="tenant_id",
+    ),
     TenantIsolationRegistration(
         "public.tenants",
         "id",
@@ -91,6 +98,7 @@ TENANT_ISOLATION_REGISTRY = (
         delete_allowed=False,
     ),
     TenantIsolationRegistration("public.whatsapp_templates", delete_allowed=False),
+    TenantIsolationRegistration("public.whatsapp_contacts", delete_allowed=False),
     TenantIsolationRegistration("public.conversations", delete_allowed=False),
     TenantIsolationRegistration(
         "public.messages",
@@ -298,6 +306,8 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
     }
     row_a["public.tenants"] = tenant_a
     row_b["public.tenants"] = tenant_b
+    row_a["public.tenant_onboarding_configs"] = tenant_a
+    row_b["public.tenant_onboarding_configs"] = tenant_b
     insert_parent_a = uuid4()
     insert_parent_b = uuid4()
     whatsapp_account_a = row_a["public.whatsapp_accounts"]
@@ -316,6 +326,12 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             (tenant_a, row_a, "a", insert_parent_a),
             (tenant_b, row_b, "b", insert_parent_b),
         ):
+            await connection.execute(
+                text(
+                    "INSERT INTO public.tenant_onboarding_configs (tenant_id) VALUES (:tenant_id)"
+                ),
+                {"tenant_id": tenant_id},
+            )
             await connection.execute(
                 text(
                     "INSERT INTO public.agent_instances "
@@ -532,6 +548,18 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "tenant_id": tenant_id,
                     "account_id": rows["public.whatsapp_accounts"],
                     "message_id": f"task5-message-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.whatsapp_contacts "
+                    "(id, tenant_id, whatsapp_account_id, customer_wa_id, full_name, provider_timestamp) "
+                    "VALUES (:id, :tenant_id, :account_id, '573000000001', 'Matrix contact', now())"
+                ),
+                {
+                    "id": rows["public.whatsapp_contacts"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
                 },
             )
             await connection.execute(
@@ -775,6 +803,9 @@ async def _discover_tenant_owned_tables(
 
 def _insert_statement(table_name: str) -> str:
     statements = {
+        "public.tenant_onboarding_configs": (
+            "INSERT INTO public.tenant_onboarding_configs (tenant_id) VALUES (:tenant_id)"
+        ),
         "public.tenants": (
             "INSERT INTO public.tenants (id, slug, name) "
             "VALUES (:id, :slug, 'Task 5 inserted tenant')"
@@ -828,6 +859,11 @@ def _insert_statement(table_name: str) -> str:
             "language, status, category, variable_names) VALUES "
             "(:id, :tenant_id, :whatsapp_account_id, :provider_template_id, "
             ":template_name, 'es_CO', 'APPROVED', 'UTILITY', '[]'::jsonb)"
+        ),
+        "public.whatsapp_contacts": (
+            "INSERT INTO public.whatsapp_contacts "
+            "(id, tenant_id, whatsapp_account_id, customer_wa_id, provider_timestamp) "
+            "VALUES (:id, :tenant_id, :whatsapp_account_id, :customer_wa_id, now())"
         ),
         "public.conversations": (
             "INSERT INTO public.conversations "
@@ -962,6 +998,7 @@ def _insert_parameters(
 
 def _matching_update(table_name: str) -> str | None:
     return {
+        "public.tenant_onboarding_configs": None,
         "public.tenants": None,
         "public.audit_events": None,
         "public.outbox_jobs": "topic = 'task5.updated'",
@@ -971,6 +1008,7 @@ def _matching_update(table_name: str) -> str | None:
         "public.whatsapp_accounts": None,
         "public.whatsapp_webhook_events": None,
         "public.whatsapp_templates": "updated_at = now()",
+        "public.whatsapp_contacts": "full_name = 'Matrix updated'",
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
@@ -994,6 +1032,7 @@ def _insert_parent_id(
 ) -> UUID:
     if table_name in {
         "public.whatsapp_webhook_events",
+        "public.whatsapp_contacts",
         "public.whatsapp_templates",
         "public.conversations",
         "public.outbound_messages",
@@ -1029,6 +1068,7 @@ async def assert_tenant_isolated(
 
     assert registration.table_name == table_name
     assert registration.owner_column == owner_column
+    row_column = registration.row_column
     own_id = world.row_a[table_name]
     foreign_id = world.row_b[table_name]
     nonexistent_id = uuid4()
@@ -1036,15 +1076,15 @@ async def assert_tenant_isolated(
     async with session_factory.begin() as session:
         await _prepare_app_session(session, world.tenant_a)
         own_visible = await session.scalar(
-            text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
+            text(f"SELECT count(*) FROM {table_name} WHERE {row_column} = :row_id"),
             {"row_id": own_id},
         )
         foreign_visible = await session.scalar(
-            text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
+            text(f"SELECT count(*) FROM {table_name} WHERE {row_column} = :row_id"),
             {"row_id": foreign_id},
         )
         absent_visible = await session.scalar(
-            text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
+            text(f"SELECT count(*) FROM {table_name} WHERE {row_column} = :row_id"),
             {"row_id": nonexistent_id},
         )
     assert (own_visible, foreign_visible, absent_visible) == (1, 0, 0)
@@ -1162,6 +1202,7 @@ async def assert_tenant_isolated(
         "public.dead_letter_jobs",
         "public.whatsapp_webhook_events",
         "public.whatsapp_templates",
+        "public.whatsapp_contacts",
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
@@ -1204,7 +1245,7 @@ async def assert_tenant_isolated(
     update_assignment = _matching_update(table_name)
     update_statement = (
         f"UPDATE {table_name} SET {update_assignment or f'{owner_column} = :owner'} "
-        "WHERE id = :row_id RETURNING id"
+        f"WHERE {row_column} = :row_id RETURNING {row_column}"
     )
     if registration.update_allowed:
         assert update_assignment is not None
@@ -1272,13 +1313,15 @@ async def assert_tenant_isolated(
         context=world.tenant_a,
         reset_tenant_id=world.tenant_a,
         statement=(
-            f"UPDATE {table_name} SET {owner_column} = :owner WHERE id = :row_id"
+            f"UPDATE {table_name} SET {owner_column} = :owner WHERE {row_column} = :row_id"
         ),
         parameters={"owner": world.tenant_b, "row_id": own_id},
     )
     assert reassignment.sqlstate in registration.reassignment_denials
 
-    delete_statement = f"DELETE FROM {table_name} WHERE id = :row_id RETURNING id"
+    delete_statement = (
+        f"DELETE FROM {table_name} WHERE {row_column} = :row_id RETURNING {row_column}"
+    )
     if registration.delete_allowed:
         for row_id in (foreign_id, nonexistent_id):
             assert (
@@ -1341,11 +1384,11 @@ async def assert_tenant_isolated(
 
     async with session_factory.begin() as session:
         own_survives = await session.scalar(
-            text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
+            text(f"SELECT count(*) FROM {table_name} WHERE {row_column} = :row_id"),
             {"row_id": own_id},
         )
         foreign_survives = await session.scalar(
-            text(f"SELECT count(*) FROM {table_name} WHERE id = :row_id"),
+            text(f"SELECT count(*) FROM {table_name} WHERE {row_column} = :row_id"),
             {"row_id": foreign_id},
         )
     assert (own_survives, foreign_survives) == (

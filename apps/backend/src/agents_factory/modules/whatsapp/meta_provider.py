@@ -29,6 +29,7 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppDeliveryStatusEvent,
     WhatsAppMessageType,
     WhatsAppMobileEcho,
+    WhatsAppContactChange,
 )
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.schemas import MetaWebhookPayload
@@ -85,21 +86,44 @@ class MetaCloudApiProvider:
         inbound_events: list[InboundWhatsAppEvent] = []
         delivery_statuses: list[WhatsAppDeliveryStatusEvent] = []
         mobile_echoes: list[WhatsAppMobileEcho] = []
+        contact_changes: list[WhatsAppContactChange] = []
         for entry in parsed.entry:
             for change in entry.changes:
+                if change.field == "smb_app_state_sync":
+                    for item in change.value.state_sync:
+                        contact_changes.append(
+                            WhatsAppContactChange(
+                                waba_id=entry.id,
+                                phone_number_id=change.value.metadata.phone_number_id,
+                                customer_wa_id=item.contact.phone_number,
+                                action=item.action,
+                                full_name=item.contact.full_name
+                                if item.action == "add"
+                                else None,
+                                first_name=item.contact.first_name
+                                if item.action == "add"
+                                else None,
+                                occurred_at=_provider_timestamp(
+                                    item.metadata.timestamp
+                                ),
+                            )
+                        )
+                    continue
                 if change.field == "smb_message_echoes":
                     for echo in change.value.message_echoes:
                         if echo.type not in _SUPPORTED_MESSAGE_TYPES:
                             raise InvalidWebhookPayload
-                        mobile_echoes.append(WhatsAppMobileEcho(
-                            waba_id=entry.id,
-                            phone_number_id=change.value.metadata.phone_number_id,
-                            whatsapp_message_id=echo.id,
-                            recipient_wa_id=echo.recipient_wa_id,
-                            message_type=cast(WhatsAppMessageType, echo.type),
-                            content=_normalized_content(echo.model_dump()),
-                            occurred_at=_provider_timestamp(echo.timestamp),
-                        ))
+                        mobile_echoes.append(
+                            WhatsAppMobileEcho(
+                                waba_id=entry.id,
+                                phone_number_id=change.value.metadata.phone_number_id,
+                                whatsapp_message_id=echo.id,
+                                recipient_wa_id=echo.recipient_wa_id,
+                                message_type=cast(WhatsAppMessageType, echo.type),
+                                content=_normalized_mobile_content(echo.model_dump()),
+                                occurred_at=_provider_timestamp(echo.timestamp),
+                            )
+                        )
                     continue
                 if change.field != "messages":
                     continue
@@ -138,6 +162,7 @@ class MetaCloudApiProvider:
             inbound_events=tuple(inbound_events),
             delivery_statuses=tuple(delivery_statuses),
             mobile_echoes=tuple(mobile_echoes),
+            contact_changes=tuple(contact_changes),
         )
 
     async def send_text(
@@ -306,7 +331,11 @@ class MetaEmbeddedSignupClient:
                 waba_payload = _required_json_mapping(waba_response)
                 owner = waba_payload.get("owner_business_info")
                 owner_id = owner.get("id") if isinstance(owner, Mapping) else None
-                if waba_payload.get("id") != waba_id or not isinstance(owner_id, str) or not owner_id:
+                if (
+                    waba_payload.get("id") != waba_id
+                    or not isinstance(owner_id, str)
+                    or not owner_id
+                ):
                     raise RuntimeError("Meta did not return a verified business owner")
                 business_id = owner_id
             owned_wabas_response = await client.get(
@@ -337,11 +366,17 @@ class MetaEmbeddedSignupClient:
                 paging = phone_payload.get("paging")
                 has_more = isinstance(paging, Mapping) and bool(paging.get("next"))
                 if not isinstance(candidates, list) or len(candidates) != 1 or has_more:
-                    raise RuntimeError("Meta did not return an unambiguous phone number")
+                    raise RuntimeError(
+                        "Meta did not return an unambiguous phone number"
+                    )
                 candidate = candidates[0]
-                candidate_id = candidate.get("id") if isinstance(candidate, Mapping) else None
+                candidate_id = (
+                    candidate.get("id") if isinstance(candidate, Mapping) else None
+                )
                 if not isinstance(candidate_id, str) or not candidate_id:
-                    raise RuntimeError("Meta did not return an unambiguous phone number")
+                    raise RuntimeError(
+                        "Meta did not return an unambiguous phone number"
+                    )
                 phone_number_id = candidate_id
             phone_status_response = await client.get(
                 f"{self.graph_api_base_url.rstrip('/')}/{phone_number_id}",
@@ -372,7 +407,8 @@ class MetaEmbeddedSignupClient:
             owns_phone_number=owns_phone,
             coexistence_eligibility=(
                 _coexistence_status(phone_status, phone_number_id)
-                if owns_waba and owns_phone else "UNKNOWN"
+                if owns_waba and owns_phone
+                else "UNKNOWN"
             ),
         )
 
@@ -434,14 +470,19 @@ class MetaEmbeddedSignupClient:
 
 
 def _coexistence_status(
-    payload: Mapping[str, object], phone_number_id: str,
+    payload: Mapping[str, object],
+    phone_number_id: str,
 ) -> CoexistenceEligibility:
     # Only provider evidence for this exact phone can confirm dual registration.
     if payload.get("id") != phone_number_id:
         return "UNKNOWN"
     on_business_app = payload.get("is_on_biz_app")
     platform = payload.get("platform_type")
-    if not isinstance(on_business_app, bool) or not isinstance(platform, str) or not platform:
+    if (
+        not isinstance(on_business_app, bool)
+        or not isinstance(platform, str)
+        or not platform
+    ):
         return "UNKNOWN"
     return "ELIGIBLE" if on_business_app and platform == "CLOUD_API" else "INELIGIBLE"
 
@@ -454,6 +495,25 @@ def _provider_timestamp(value: str) -> datetime:
         return datetime.fromtimestamp(seconds, tz=UTC)
     except (OverflowError, ValueError):
         raise InvalidWebhookPayload from None
+
+
+def _normalized_mobile_content(message: Mapping[str, object]) -> dict[str, object]:
+    kind = message.get("type")
+    if kind == "text":
+        return _normalized_content(message)
+    if not isinstance(kind, str):
+        raise InvalidWebhookPayload
+    content = message.get(kind)
+    if kind == "contacts":
+        if (
+            not isinstance(content, list)
+            or not content
+            or not all(isinstance(item, dict) for item in content)
+        ):
+            raise InvalidWebhookPayload
+    elif not isinstance(content, dict) or not content:
+        raise InvalidWebhookPayload
+    return {kind: content}
 
 
 def _normalized_content(message: Mapping[str, object]) -> dict[str, object]:

@@ -92,3 +92,49 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - Remaining planned work: history/contacts/disconnect ingestion and one-shot sync,
   explicit audited resume and UI, SDK v4/cancellation cleanup, complete security
   gates and fresh whole-branch review. No production services or real number touched.
+
+## Contacts, batch isolation, signup lifetime — 2026-09-25
+
+- Fixed multi-conversation deadlocks by acquiring every affected conversation
+  fence in sorted order before webhook writes (inbound, status, mobile, contacts).
+  Reversed-batch concurrent regression observed lock timeout before the fix.
+- Mobile echo writes require the exact active coexistence WABA/phone/account and
+  tenant. Added rejection, signature, cross-tenant duplicate-ID and media coverage;
+  non-text image/audio/video/document/location/contacts payloads are preserved.
+- Added signed smb_app_state_sync contact normalization and tenant-isolated
+  whatsapp_contacts persistence. Migration created with Supabase CLI and applied
+  only to disposable databases. Add/update/remove events never queue AI work;
+  duplicate/stale events do not overwrite newer data, equal-time removal wins and
+  clears names. Parser and storage tests observed RED then GREEN (5 + 4 cases).
+- Registered contacts and the previously unregistered tenant_onboarding_configs
+  in the full tenant attack matrix. Row-key support accommodates its tenant_id PK;
+  application writes remain denied. No database permissions relaxed.
+- Created isolated security PostgreSQL/Redis containers, without exposed ports or
+  persistent volumes, using test-only credentials. Fresh matrix + secret isolation
+  suite: 27 passed. Fresh whole backend suite: 457 passed, 2 failed, no setup errors.
+  Failures retained, not waived:
+  * test_core_contains_no_customer_uuid_or_tenant_id_conditionals: baseline
+    review_router.py and review-access.ts contain fixed customer UUIDs. This is
+    an intentional restricted reviewer surface; changing authorization requires
+    a separate decision, not a weakened scanner or removed access guard.
+  * test_database_gate_removes_stale_schema_state: pnpm 11.24.0 unavailable in
+    test image. Do not run reset script against the existing local stack. Test
+    leaves only its empty marker table in the disposable security database.
+- Signup code/assets now settle together with a bounded timeout and cleanup on
+  success, SDK failure, cancellation or component unmount. Late callbacks cannot
+  complete a cancelled attempt. Begin failures are caught and duplicate clicks
+  blocked synchronously. Seven new lifecycle tests observed RED then GREEN;
+  full frontend unit suite 30 passed, TypeScript check passed.
+- Official Meta version-4 documentation retrieved directly on 2026-09-25:
+  https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/version-4
+  Product selection in Facebook Login for Business configuration controls v4;
+  it is NOT the sessionInfoVersion field. Retained sessionInfoVersion=3 and added
+  the coexistence-only featureType selector. Existing remote configuration is
+  not independently verified or changed. Release gate remains CLOSED.
+- Ruling: expand the security registry rather than excluding preexisting onboarding
+  data — all tenant-owned tables must face the same attacks; cost is maintaining
+  row-key-aware test helpers. No production behavior change for that table.
+- Remaining: SDK script-load failure/abort lifecycle, browser-level verification,
+  durable one-shot synchronization/history/disconnect, delayed echo/resume rules,
+  tenant status controls, direct/session connection enforcement, baseline gates,
+  final whole-branch review. This is a checkpoint, not release readiness.
