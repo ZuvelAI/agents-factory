@@ -38,6 +38,16 @@ class InboundWhatsAppEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppHistorySync:
+    """Historical data only; never eligible for live inbound processing."""
+
+    waba_id: str
+    phone_number_id: str
+    chunks: tuple[dict[str, object], ...] = field(repr=False)
+    media_messages: tuple[dict[str, object], ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class WhatsAppContactChange:
     waba_id: str
     phone_number_id: str
@@ -164,6 +174,7 @@ class ProviderWebhookBatch:
     delivery_statuses: tuple[WhatsAppDeliveryStatusEvent, ...]
     mobile_echoes: tuple[WhatsAppMobileEcho, ...] = ()
     contact_changes: tuple[WhatsAppContactChange, ...] = ()
+    history_sync: tuple[WhatsAppHistorySync, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

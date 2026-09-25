@@ -30,6 +30,7 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppMessageType,
     WhatsAppMobileEcho,
     WhatsAppContactChange,
+    WhatsAppHistorySync,
 )
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.schemas import MetaWebhookPayload
@@ -87,8 +88,33 @@ class MetaCloudApiProvider:
         delivery_statuses: list[WhatsAppDeliveryStatusEvent] = []
         mobile_echoes: list[WhatsAppMobileEcho] = []
         contact_changes: list[WhatsAppContactChange] = []
+        history_sync: list[WhatsAppHistorySync] = []
         for entry in parsed.entry:
             for change in entry.changes:
+                if change.field == "history":
+                    chunks = tuple(
+                        item.model_dump(by_alias=True, exclude_unset=True)
+                        for item in change.value.history
+                    )
+                    media = tuple(
+                        item.model_dump(by_alias=True, exclude_unset=True)
+                        for item in change.value.messages
+                    )
+                    for chunk in chunks:
+                        for thread in chunk.get("threads", []):
+                            for message in thread["messages"]:
+                                _provider_timestamp(message["timestamp"])
+                    for message in media:
+                        _provider_timestamp(message["timestamp"])
+                    history_sync.append(
+                        WhatsAppHistorySync(
+                            waba_id=entry.id,
+                            phone_number_id=change.value.metadata.phone_number_id,
+                            chunks=chunks,
+                            media_messages=media,
+                        )
+                    )
+                    continue
                 if change.field == "smb_app_state_sync":
                     for item in change.value.state_sync:
                         contact_changes.append(
@@ -163,6 +189,7 @@ class MetaCloudApiProvider:
             delivery_statuses=tuple(delivery_statuses),
             mobile_echoes=tuple(mobile_echoes),
             contact_changes=tuple(contact_changes),
+            history_sync=tuple(history_sync),
         )
 
     async def send_text(

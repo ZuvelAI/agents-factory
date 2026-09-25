@@ -19,6 +19,9 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - Never run tests against the configured production database or start existing workers.
 - Use independent test dependencies and a disposable database without real credentials.
 - Preserve the checkpoint and other working directories.
+- User direction 2026-09-25: preserve Meta reviewer account for future reviews;
+  defer its internal correction until the end. Customer demo is out of scope and
+  deferred until separately requested. Do not change credentials or reviewer access.
 
 ## Progress
 
@@ -138,3 +141,20 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   durable one-shot synchronization/history/disconnect, delayed echo/resume rules,
   tenant status controls, direct/session connection enforcement, baseline gates,
   final whole-branch review. This is a checkpoint, not release readiness.
+
+## History normalization checkpoint — 2026-09-25
+
+- Added a distinct history_sync contract, separate from inbound messages, mobile
+  echoes and live delivery statuses. Preserves chunk metadata, threads, historical
+  message content, media placeholders and subsequent history-field media messages.
+- History-sharing denial (2593109) remains an explicit sync error payload, not
+  an empty successful import. Validates phase/chunk/progress and timestamps.
+- Seven contract tests failed before implementation and passed afterward; full
+  unit/contract suite: 302 passed. Full backend suite: 464 passed, 2 failed.
+  Existing failures remain test_core_contains_no_customer_uuid_or_tenant_id_conditionals
+  (review surface deferred by user) and test_database_gate_removes_stale_schema_state
+  (marker left by prior failed reset; pnpm/reset environment still unavailable).
+- This checkpoint ONLY normalizes history. Durable history inbox, async import,
+  deduplication and progress tracking remain pending; do not enable coexistence or
+  history subscriptions on its basis. Current processor does not persist history
+  batches yet. Release gate remains CLOSED, no Meta account/configuration changed.

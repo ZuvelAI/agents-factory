@@ -61,6 +61,26 @@ class MetaContactChange(MetaWebhookModel):
     metadata: MetaSyncTimestamp
 
 
+class MetaHistoryProgress(MetaWebhookModel):
+    phase: int = Field(ge=0, le=2, strict=True)
+    chunk_order: int = Field(ge=0, strict=True)
+    progress: int = Field(ge=0, le=100, strict=True)
+
+
+class MetaHistoryThread(MetaWebhookModel):
+    id: str = Field(min_length=1, max_length=100)
+    messages: list[MetaInboundMessage]
+
+
+class MetaHistoryChunk(MetaWebhookModel):
+    metadata: MetaHistoryProgress
+    threads: list[MetaHistoryThread]
+
+
+class MetaHistoryFailure(MetaWebhookModel):
+    errors: list[MetaDeliveryError] = Field(min_length=1)
+
+
 class MetaChangeValue(MetaWebhookModel):
     messaging_product: Literal["whatsapp"]
     metadata: MetaMetadata
@@ -68,6 +88,7 @@ class MetaChangeValue(MetaWebhookModel):
     statuses: list[MetaDeliveryStatus] = Field(default_factory=list)
     message_echoes: list[MetaMobileEcho] = Field(default_factory=list)
     state_sync: list[MetaContactChange] = Field(default_factory=list)
+    history: list[MetaHistoryChunk | MetaHistoryFailure] = Field(default_factory=list)
 
 
 class MetaChange(MetaWebhookModel):
