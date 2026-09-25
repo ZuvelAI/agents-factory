@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -7,7 +8,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
@@ -39,6 +40,116 @@ class RecordingProvider:
         raise AssertionError(f"unexpected template send: {request}")
 
 
+async def test_dispatch_fence_does_not_exhaust_connection_pool(
+    session_factory, local_database_url
+):
+    tenant, _, _, assistant = await _seed_text_reply(session_factory)
+    engine = create_async_engine(
+        local_database_url, pool_size=1, max_overflow=0, pool_timeout=0.2
+    )
+    try:
+        service = OutboundMessageService(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            context=_context(tenant),
+            provider=RecordingProvider(
+                [
+                    ProviderMessageResult(
+                        outcome="accepted", provider_message_id="wamid.one-connection"
+                    )
+                ]
+            ),
+        )
+        prepared = await service.prepare_text(message_id=assistant)
+        assert (await service.send(prepared)).status == "ACCEPTED"
+    finally:
+        await engine.dispose()
+
+
+async def test_cancelled_dispatch_releases_fence_and_retains_unknown_outcome(
+    session_factory,
+):
+    from agents_factory.modules.whatsapp.outbound_service import (
+        lock_conversation_dispatch,
+    )
+
+    tenant, account, _, assistant = await _seed_text_reply(session_factory)
+    entered = asyncio.Event()
+
+    class InterruptedProvider(RecordingProvider):
+        async def send_text(self, request):
+            entered.set()
+            await asyncio.Event().wait()
+
+    service = OutboundMessageService(
+        session_factory=session_factory,
+        context=_context(tenant),
+        provider=InterruptedProvider([]),
+    )
+    prepared = await service.prepare_text(message_id=assistant)
+    sending = asyncio.create_task(service.send(prepared))
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+    finally:
+        sending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sending
+
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL lock_timeout='500ms'"))
+        await lock_conversation_dispatch(
+            session, tenant_id=tenant, account_id=account, customer_wa_id="573000000001"
+        )
+    # A retry must not dispatch again when the first provider outcome is unknown.
+    assert (await service.send(prepared)).status == "UNCERTAIN"
+
+
+async def test_mobile_reply_blocks_prepared_ai_send(session_factory) -> None:
+    from agents_factory.modules.whatsapp.contracts import WhatsAppMobileEcho
+    from agents_factory.modules.whatsapp.mobile_echo import ingest_mobile_echo
+    from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
+
+    tenant, account, conversation, assistant = await _seed_text_reply(session_factory)
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', coexistence_eligibility='ELIGIBLE' WHERE id=:id"
+            ),
+            {"id": account},
+        )
+    provider = RecordingProvider([])
+    outbound = OutboundMessageService(
+        session_factory=session_factory, context=_context(tenant), provider=provider
+    )
+    prepared = await outbound.prepare_text(message_id=assistant)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await ingest_mobile_echo(
+            session,
+            context=_context(tenant),
+            mapping=WhatsAppAccountMapping(account_id=account, tenant_id=tenant),
+            event=WhatsAppMobileEcho(
+                waba_id=f"waba-{account.hex}",
+                phone_number_id=f"phone-{account.hex}",
+                whatsapp_message_id="wamid.human",
+                recipient_wa_id="573000000001",
+                message_type="text",
+                content={"text": "Yo me encargo"},
+                occurred_at=datetime.now(UTC),
+            ),
+        )
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text("SELECT status FROM public.outbound_messages WHERE id=:id"),
+                {"id": prepared},
+            )
+            == "BLOCKED"
+        )
+    result = await outbound.send(prepared)
+    assert result.status == "BLOCKED"
+    assert provider.text_requests == []
+
+
 def _context(tenant_id: UUID) -> TenantContext:
     return TenantContext(
         tenant_id=tenant_id,
@@ -46,6 +157,92 @@ def _context(tenant_id: UUID) -> TenantContext:
         actor_type="system",
         correlation_id=new_uuid7(),
     )
+
+
+async def test_mobile_takeover_serializes_with_inflight_dispatch(
+    session_factory,
+) -> None:
+    from agents_factory.modules.whatsapp.contracts import WhatsAppMobileEcho
+    from agents_factory.modules.whatsapp.mobile_echo import ingest_mobile_echo
+    from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
+
+    tenant, account, conversation, assistant = await _seed_text_reply(session_factory)
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', coexistence_eligibility='ELIGIBLE' WHERE id=:id"
+            ),
+            {"id": account},
+        )
+    entered, release, takeover_started = (
+        asyncio.Event(),
+        asyncio.Event(),
+        asyncio.Event(),
+    )
+
+    class PausedProvider(RecordingProvider):
+        async def send_text(self, request):
+            entered.set()
+            await release.wait()
+            return ProviderMessageResult(
+                outcome="accepted", provider_message_id="wamid.inflight"
+            )
+
+    outbound = OutboundMessageService(
+        session_factory=session_factory,
+        context=_context(tenant),
+        provider=PausedProvider([]),
+    )
+    prepared = await outbound.prepare_text(message_id=assistant)
+
+    async def takeover():
+        async with session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+            takeover_started.set()
+            await ingest_mobile_echo(
+                session,
+                context=_context(tenant),
+                mapping=WhatsAppAccountMapping(account_id=account, tenant_id=tenant),
+                event=WhatsAppMobileEcho(
+                    waba_id=f"waba-{account.hex}",
+                    phone_number_id=f"phone-{account.hex}",
+                    whatsapp_message_id="wamid.human.concurrent",
+                    recipient_wa_id="573000000001",
+                    message_type="text",
+                    content={"text": "Yo me encargo"},
+                    occurred_at=datetime.now(UTC),
+                ),
+            )
+
+    sending = asyncio.create_task(outbound.send(prepared))
+    mobile = None
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        mobile = asyncio.create_task(takeover())
+        await asyncio.wait_for(takeover_started.wait(), 3)
+        # A committed takeover must never race an already-claimed provider call.
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(mobile), 0.2)
+    finally:
+        release.set()
+        await asyncio.wait_for(sending, 3)
+        if mobile is not None:
+            await asyncio.wait_for(mobile, 3)
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text("SELECT control_state FROM public.conversations WHERE id=:id"),
+                {"id": conversation},
+            )
+            == "HUMAN_ACTIVE"
+        )
+        assert (
+            await session.scalar(
+                text("SELECT status FROM public.outbound_messages WHERE id=:id"),
+                {"id": prepared},
+            )
+            == "ACCEPTED"
+        )
 
 
 async def _seed_text_reply(

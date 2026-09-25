@@ -25,6 +25,7 @@ from agents_factory.modules.whatsapp.meta_provider import (
 )
 from agents_factory.modules.whatsapp.outbound_service import OutboundStatusReconciler
 from agents_factory.modules.whatsapp.repository import WhatsAppWebhookRepository
+from agents_factory.modules.whatsapp.mobile_echo import ingest_mobile_echo
 
 
 router = APIRouter(prefix="/webhooks/meta/whatsapp", tags=["meta-whatsapp"])
@@ -87,6 +88,7 @@ class MetaWebhookProcessor:
         provider: WhatsAppProvider,
     ) -> None:
         self._repository = WhatsAppWebhookRepository(session)
+        self._session = session
         self._outbox = OutboxService(session)
         self._outbound_status = OutboundStatusReconciler(session)
         self._provider = provider
@@ -113,6 +115,20 @@ class MetaWebhookProcessor:
         batch = self._provider.parse_webhook(payload)
         accepted_messages = 0
         duplicate_messages = 0
+        # Apply human control before any customer messages in the same batch.
+        for event in batch.mobile_echoes:
+            mapping = await self._repository.resolve_active_mapping(
+                waba_id=event.waba_id, phone_number_id=event.phone_number_id,
+            )
+            if mapping is None:
+                raise UnknownAccountMapping
+            context = TenantContext(tenant_id=mapping.tenant_id, actor_id=None,
+                actor_type="system", correlation_id=correlation_id)
+            created = await ingest_mobile_echo(self._session, context=context, mapping=mapping, event=event)
+            if created:
+                accepted_messages += 1
+            else:
+                duplicate_messages += 1
         for event in batch.inbound_events:
             mapping = await self._repository.resolve_active_mapping(
                 waba_id=event.waba_id,

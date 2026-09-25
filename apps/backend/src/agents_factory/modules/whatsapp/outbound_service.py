@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import RowMapping
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
@@ -223,6 +223,67 @@ class OutboundMessageService:
             return created_id
 
     async def send(self, message_id: UUID) -> OutboundSendResult:
+        engine = self._session_factory.kw.get("bind")
+        if not isinstance(engine, AsyncEngine):
+            raise TypeError("Dispatch requires an engine-bound session factory")
+        # One checked-out connection spans independently committed claim/result
+        # transactions. Invalidate on any interruption so no session lock leaks.
+        async with engine.connect() as connection:
+            factory = async_sessionmaker(connection, expire_on_commit=False)
+            try:
+                key = await self._acquire_dispatch_fence(factory, message_id)
+                bound_service = OutboundMessageService(
+                    session_factory=factory,
+                    context=self._context,
+                    provider=self._provider,
+                )
+                result = await bound_service._send_under_fence(message_id)
+                if key is not None:
+                    await connection.execute(
+                        text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                        {"key": key},
+                    )
+                    await connection.commit()
+                return result
+            except BaseException:
+                await connection.invalidate()
+                raise
+
+    async def _acquire_dispatch_fence(
+        self, factory: async_sessionmaker[AsyncSession], message_id: UUID
+    ) -> str | None:
+        async with factory.begin() as session:
+            await _prepare_app_session(session, self._context.tenant_id)
+            target = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT conversation.whatsapp_account_id, conversation.customer_wa_id "
+                            "FROM public.outbound_messages AS outbound "
+                            "JOIN public.conversations AS conversation ON conversation.id=outbound.conversation_id "
+                            "AND conversation.tenant_id=outbound.tenant_id "
+                            "WHERE outbound.tenant_id=:tenant AND outbound.id=:message"
+                        ),
+                        {"tenant": self._context.tenant_id, "message": message_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if target is not None:
+                key = _dispatch_key(
+                    self._context.tenant_id,
+                    target["whatsapp_account_id"],
+                    target["customer_wa_id"],
+                )
+                await session.execute(
+                    text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                    {"key": key},
+                )
+                return key
+            return None
+
+    async def _send_under_fence(self, message_id: UUID) -> OutboundSendResult:
         claimed, existing = await self._claim(message_id)
         if existing is not None:
             return existing
@@ -280,6 +341,16 @@ class OutboundMessageService:
         now = datetime.now(UTC)
         async with self._session_factory.begin() as session:
             await _prepare_app_session(session, self._context.tenant_id)
+            # All conversation-bound operations lock the conversation before
+            # outbound rows, including mobile takeover and preparation.
+            await session.execute(
+                text(
+                    "SELECT id FROM public.conversations WHERE tenant_id=:tenant "
+                    "AND id=(SELECT conversation_id FROM public.outbound_messages "
+                    "WHERE tenant_id=:tenant AND id=:message) FOR UPDATE"
+                ),
+                {"tenant": self._context.tenant_id, "message": message_id},
+            )
             row = await _load_outbound_for_update(
                 session,
                 tenant_id=self._context.tenant_id,
@@ -450,6 +521,62 @@ class OutboundMessageService:
                 },
             )
             return result
+
+
+async def lock_conversation_dispatch(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+    customer_wa_id: str,
+) -> None:
+    """Acquire before any conversation/outbound row locks, until transaction end."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": _dispatch_key(tenant_id, account_id, customer_wa_id)},
+    )
+
+
+def _dispatch_key(tenant_id: UUID, account_id: UUID, customer_wa_id: str) -> str:
+    return f"whatsapp-dispatch:{tenant_id}:{account_id}:{customer_wa_id}"
+
+
+async def block_prepared_ai_replies(
+    session: AsyncSession,
+    *,
+    context: TenantContext,
+    conversation_id: UUID,
+) -> int:
+    """Caller holds the conversation lock; preserve already-dispatched outcomes."""
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT outbound.id, outbound.status_history FROM public.outbound_messages AS outbound "
+                    "JOIN public.messages AS source ON source.id=outbound.source_message_id "
+                    "AND source.tenant_id=outbound.tenant_id "
+                    "WHERE outbound.tenant_id=:tenant AND outbound.conversation_id=:conversation "
+                    "AND outbound.status='PREPARED' AND source.sender_type='ai' "
+                    "ORDER BY outbound.id FOR UPDATE OF outbound"
+                ),
+                {"tenant": context.tenant_id, "conversation": conversation_id},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    now = datetime.now(UTC)
+    for row in rows:
+        await _set_status(
+            session,
+            tenant_id=context.tenant_id,
+            message_id=row["id"],
+            current_history=row["status_history"],
+            status="BLOCKED",
+            occurred_at=now,
+            error_code="human_takeover",
+        )
+    return len(rows)
 
 
 class OutboundStatusReconciler:

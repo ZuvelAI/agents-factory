@@ -141,6 +141,21 @@ class ConversationService:
             reason=reason,
         )
 
+    async def take_over_from_mobile(self, *, conversation_id: UUID) -> Conversation:
+        # Caller holds the conversation row lock for persistence and deduplication.
+        conversation = await self._require_conversation(conversation_id)
+        if conversation.control_state == ConversationControlState.CLOSED:
+            conversation = await self._transition(
+                conversation=conversation,
+                target_state=self._state_machine.reopen_for_inbound(conversation.control_state, enabled=True),
+                reason="mobile_reply_reopened",
+            )
+        if conversation.control_state == ConversationControlState.AI_ACTIVE:
+            conversation = await self.request_handoff(conversation_id=conversation_id, reason="mobile_reply")
+        if conversation.control_state == ConversationControlState.AWAITING_HUMAN:
+            conversation = await self.activate_human(conversation_id=conversation_id, reason="mobile_reply")
+        return conversation
+
     async def close_conversation(
         self,
         *,

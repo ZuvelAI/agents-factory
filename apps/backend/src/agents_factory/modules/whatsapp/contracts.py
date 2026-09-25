@@ -38,6 +38,17 @@ class InboundWhatsAppEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppMobileEcho:
+    waba_id: str
+    phone_number_id: str
+    whatsapp_message_id: str
+    recipient_wa_id: str
+    message_type: WhatsAppMessageType
+    content: dict[str, object]
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class WhatsAppDeliveryStatusEvent:
     waba_id: str
     phone_number_id: str
@@ -140,6 +151,7 @@ class MetaEmbeddedSignupProvider(Protocol):
 class ProviderWebhookBatch:
     inbound_events: tuple[InboundWhatsAppEvent, ...]
     delivery_statuses: tuple[WhatsAppDeliveryStatusEvent, ...]
+    mobile_echoes: tuple[WhatsAppMobileEcho, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

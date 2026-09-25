@@ -21,6 +21,10 @@ class MetaInboundMessage(MetaWebhookModel):
     type: str = Field(min_length=1, max_length=100)
 
 
+class MetaMobileEcho(MetaInboundMessage):
+    recipient_wa_id: str = Field(alias="to", min_length=1, max_length=100)
+
+
 class MetaPricing(MetaWebhookModel):
     billable: bool | None = None
     category: str | None = Field(default=None, min_length=1, max_length=100)
@@ -45,6 +49,7 @@ class MetaChangeValue(MetaWebhookModel):
     metadata: MetaMetadata
     messages: list[MetaInboundMessage] = Field(default_factory=list)
     statuses: list[MetaDeliveryStatus] = Field(default_factory=list)
+    message_echoes: list[MetaMobileEcho] = Field(default_factory=list)
 
 
 class MetaChange(MetaWebhookModel):

@@ -60,3 +60,35 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   deployment performed or production migration applied.
 - Ruling: use this durable ledger for the conversation-approved plan instead of
   task-script briefs (no machine-formatted plan exists). No scope change.
+
+## Mobile takeover checkpoint — 2026-09-24 (stages 3/4 still in progress)
+
+- Signed smb_message_echoes are parsed separately from customer input. Mobile
+  replies persist as human outbound messages, deduplicate, and move new/AI/
+  awaiting-human/closed conversations to HUMAN_ACTIVE without queuing an AI turn.
+- PREPARED AI replies for that conversation become BLOCKED atomically with
+  takeover. RED observed PREPARED instead of BLOCKED; GREEN verified persisted
+  status and zero provider dispatches. Already dispatched outcomes are preserved.
+- Dispatch and mobile takeover share a conversation-specific advisory fence;
+  conversation rows lock before outbound rows. Concurrency regression first
+  failed because takeover committed during the paused provider call, then passed.
+- Pool-size-one regression exposed nested-connection exhaustion. Dispatch now
+  reserves one connection across separately committed claim/result transactions,
+  with a session fence and connection invalidation on interruption. Regression
+  passed; cancellation test confirms fence release and UNCERTAIN (no re-send).
+- Ruling: preserve the result of a provider call already in flight, serializing
+  committed mobile takeover behind it — sent messages cannot be recalled, and
+  pretending they were cancelled risks duplicate sends. Cost: takeover may wait
+  for the bounded provider call; delivery preceding webhook arrival is unavoidable.
+- Fresh verification: 278 unit/contract tests passed; 56 integration tests passed
+  against disposable PostgreSQL. Integration excludes test_database_gates.py and
+  test_conversation_lock.py (same unavailable pnpm/Redis gates, not waived).
+  Focused Ruff F check passed with --no-cache; initial read-only-cache run could
+  not create its cache. No full-suite or release-readiness claim.
+- Next safety work: batched/concurrent multi-conversation lock ordering, tenant/
+  account rejection coverage, media echo preservation, delayed/replayed echo
+  semantics, direct/session database connection requirement for advisory fences
+  (transaction-pooling compatibility not validated). Keep release gate CLOSED.
+- Remaining planned work: history/contacts/disconnect ingestion and one-shot sync,
+  explicit audited resume and UI, SDK v4/cancellation cleanup, complete security
+  gates and fresh whole-branch review. No production services or real number touched.

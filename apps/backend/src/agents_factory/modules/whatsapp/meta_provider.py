@@ -28,6 +28,7 @@ from agents_factory.modules.whatsapp.contracts import (
     ProviderWebhookBatch,
     WhatsAppDeliveryStatusEvent,
     WhatsAppMessageType,
+    WhatsAppMobileEcho,
 )
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.schemas import MetaWebhookPayload
@@ -83,8 +84,23 @@ class MetaCloudApiProvider:
         raw_payload = dict(payload)
         inbound_events: list[InboundWhatsAppEvent] = []
         delivery_statuses: list[WhatsAppDeliveryStatusEvent] = []
+        mobile_echoes: list[WhatsAppMobileEcho] = []
         for entry in parsed.entry:
             for change in entry.changes:
+                if change.field == "smb_message_echoes":
+                    for echo in change.value.message_echoes:
+                        if echo.type not in _SUPPORTED_MESSAGE_TYPES:
+                            raise InvalidWebhookPayload
+                        mobile_echoes.append(WhatsAppMobileEcho(
+                            waba_id=entry.id,
+                            phone_number_id=change.value.metadata.phone_number_id,
+                            whatsapp_message_id=echo.id,
+                            recipient_wa_id=echo.recipient_wa_id,
+                            message_type=cast(WhatsAppMessageType, echo.type),
+                            content=_normalized_content(echo.model_dump()),
+                            occurred_at=_provider_timestamp(echo.timestamp),
+                        ))
+                    continue
                 if change.field != "messages":
                     continue
                 for message in change.value.messages:
@@ -121,6 +137,7 @@ class MetaCloudApiProvider:
         return ProviderWebhookBatch(
             inbound_events=tuple(inbound_events),
             delivery_statuses=tuple(delivery_statuses),
+            mobile_echoes=tuple(mobile_echoes),
         )
 
     async def send_text(
