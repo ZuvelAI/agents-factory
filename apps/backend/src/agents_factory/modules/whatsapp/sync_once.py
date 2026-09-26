@@ -27,14 +27,64 @@ class SyncStatus:
     reserved_at: datetime | None
 
 
-async def get_sync_status(
+@dataclass(frozen=True, slots=True)
+class SyncObservations:
+    active_contacts: int
+    history_batches_received: int
+    history_batches_imported: int
+    history_batches_declined: int
+    history_batches_pending: int
+
+
+async def get_sync_observations(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     account_id: UUID,
-) -> tuple[SyncStatus, SyncStatus]:
-    """Report request acceptance, not completion of Meta's async data delivery."""
+) -> SyncObservations:
+    """Count persisted evidence; these counts cannot establish Meta sync completion."""
     await set_tenant_context(session, tenant_id)
+    await _require_coexistence_account(
+        session, tenant_id=tenant_id, account_id=account_id
+    )
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT "
+                    "(SELECT count(*) FROM public.whatsapp_contacts "
+                    " WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                    " AND NOT is_deleted) AS active_contacts, "
+                    "(SELECT count(*) FROM public.whatsapp_history_inbox "
+                    " WHERE tenant_id=:tenant AND whatsapp_account_id=:account) AS received, "
+                    "(SELECT count(*) FROM public.whatsapp_history_import_receipts "
+                    " WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                    " AND outcome='IMPORTED') AS imported, "
+                    "(SELECT count(*) FROM public.whatsapp_history_import_receipts "
+                    " WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                    " AND outcome='DECLINED') AS declined"
+                ),
+                {"tenant": tenant_id, "account": account_id},
+            )
+        )
+        .mappings()
+        .one()
+    )
+    received = int(row["received"])
+    imported = int(row["imported"])
+    declined = int(row["declined"])
+    return SyncObservations(
+        active_contacts=int(row["active_contacts"]),
+        history_batches_received=received,
+        history_batches_imported=imported,
+        history_batches_declined=declined,
+        history_batches_pending=received - imported - declined,
+    )
+
+
+async def _require_coexistence_account(
+    session: AsyncSession, *, tenant_id: UUID, account_id: UUID
+) -> None:
     exists = await session.scalar(
         text(
             "SELECT id FROM public.whatsapp_accounts WHERE tenant_id=:tenant "
@@ -44,6 +94,19 @@ async def get_sync_status(
     )
     if exists is None:
         raise ValueError("Coexistence account not found")
+
+
+async def get_sync_status(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+) -> tuple[SyncStatus, SyncStatus]:
+    """Report request acceptance, not completion of Meta's async data delivery."""
+    await set_tenant_context(session, tenant_id)
+    await _require_coexistence_account(
+        session, tenant_id=tenant_id, account_id=account_id
+    )
     rows = (
         (
             await session.execute(

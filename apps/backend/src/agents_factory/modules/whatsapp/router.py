@@ -32,8 +32,10 @@ from agents_factory.modules.whatsapp.contracts import (
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import WhatsAppSignupService
 from agents_factory.modules.whatsapp.sync_once import (
+    SyncObservations,
     SyncStatus,
     enqueue_initial_sync,
+    get_sync_observations,
     get_sync_status,
 )
 from agents_factory.modules.whatsapp.template_service import TemplateService
@@ -263,6 +265,26 @@ class CoexistenceSyncStatusResponse(BaseModel):
         )
 
 
+class CoexistenceSyncObservationsResponse(BaseModel):
+    active_contacts: int
+    history_batches_received: int
+    history_batches_imported: int
+    history_batches_declined: int
+    history_batches_pending: int
+
+    @classmethod
+    def from_observations(
+        cls, observed: SyncObservations
+    ) -> CoexistenceSyncObservationsResponse:
+        return cls(
+            active_contacts=observed.active_contacts,
+            history_batches_received=observed.history_batches_received,
+            history_batches_imported=observed.history_batches_imported,
+            history_batches_declined=observed.history_batches_declined,
+            history_batches_pending=observed.history_batches_pending,
+        )
+
+
 @router.post(
     "/signup/start",
     response_model=SignupStartResponse,
@@ -369,6 +391,34 @@ async def get_coexistence_sync_status(
             code="whatsapp_account_not_found",
         ) from None
     return tuple(CoexistenceSyncStatusResponse.from_status(item) for item in statuses)
+
+
+@router.get(
+    "/{account_id}/sync-observations",
+    response_model=CoexistenceSyncObservationsResponse,
+)
+async def get_coexistence_sync_observations(
+    tenant_id: UUID,
+    account_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> CoexistenceSyncObservationsResponse:
+    try:
+        observed = await get_sync_observations(
+            session,
+            tenant_id=tenant_id,
+            account_id=account_id,
+        )
+    except ValueError:
+        raise DomainError(
+            type="https://agents-factory.dev/problems/whatsapp-account-not-found",
+            title="WhatsApp Account Not Found",
+            status=404,
+            detail="No coexistence account was found for this tenant.",
+            code="whatsapp_account_not_found",
+        ) from None
+    return CoexistenceSyncObservationsResponse.from_observations(observed)
 
 
 @router.post(

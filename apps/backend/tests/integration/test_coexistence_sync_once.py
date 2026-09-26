@@ -19,7 +19,7 @@ from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
 from outbound_worker import jobs as outbound_jobs
 
 
-async def seed_account(session_factory, *, verified_at):
+async def seed_account(session_factory, *, verified_at, phone_number_id="123456"):
     tenant, account = uuid4(), uuid4()
     async with session_factory.begin() as session:
         await session.execute(
@@ -30,9 +30,14 @@ async def seed_account(session_factory, *, verified_at):
         )
         await session.execute(
             text(
-                "INSERT INTO public.whatsapp_accounts (id,tenant_id,provider,waba_id,phone_number_id,status,mode,coexistence_eligibility,verified_at) VALUES (:id,:tenant,'meta','sync-waba','123456','active','COEXISTENCE','ELIGIBLE',:verified_at)"
+                "INSERT INTO public.whatsapp_accounts (id,tenant_id,provider,waba_id,phone_number_id,status,mode,coexistence_eligibility,verified_at) VALUES (:id,:tenant,'meta','sync-waba',:phone,'active','COEXISTENCE','ELIGIBLE',:verified_at)"
             ),
-            {"id": account, "tenant": tenant, "verified_at": verified_at},
+            {
+                "id": account,
+                "tenant": tenant,
+                "phone": phone_number_id,
+                "verified_at": verified_at,
+            },
         )
     return tenant, account
 
@@ -327,6 +332,88 @@ async def test_sync_status_route_hides_another_tenants_account(session_factory):
         with pytest.raises(DomainError) as error:
             await whatsapp_router.get_coexistence_sync_status(
                 tenant_id=uuid4(),
+                account_id=account,
+                request=SimpleNamespace(),
+                principal=AdminPrincipal(user_id=uuid4(), session_id=uuid4()),
+                session=session,
+            )
+        assert error.value.status == 404
+
+
+async def test_sync_observations_count_only_persisted_account_data(session_factory):
+    tenant, account = await seed_account(session_factory, verified_at=datetime.now(UTC))
+    other_tenant, other_account = await seed_account(
+        session_factory, verified_at=datetime.now(UTC), phone_number_id="654321"
+    )
+    async with session_factory.begin() as session:
+        for owner, owned_account in ((tenant, account), (other_tenant, other_account)):
+            await session.execute(
+                text(
+                    "INSERT INTO public.whatsapp_contacts "
+                    "(id,tenant_id,whatsapp_account_id,customer_wa_id,provider_timestamp) "
+                    "VALUES (:id,:tenant,:account,:customer,now())"
+                ),
+                {
+                    "id": uuid4(),
+                    "tenant": owner,
+                    "account": owned_account,
+                    "customer": str(uuid4()),
+                },
+            )
+        for digest in ("a", "b"):
+            await session.execute(
+                text(
+                    "INSERT INTO public.whatsapp_history_inbox "
+                    "(id,tenant_id,whatsapp_account_id,payload_digest,payload) "
+                    "VALUES (:id,:tenant,:account,:digest,'{}'::jsonb)"
+                ),
+                {
+                    "id": uuid4(),
+                    "tenant": tenant,
+                    "account": account,
+                    "digest": digest * 64,
+                },
+            )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_history_import_receipts "
+                "(id,tenant_id,whatsapp_account_id,inbox_id,outcome,progress,errors) "
+                "SELECT :id,:tenant,:account,id,'IMPORTED','[]'::jsonb,'[]'::jsonb "
+                "FROM public.whatsapp_history_inbox WHERE tenant_id=:tenant "
+                "AND whatsapp_account_id=:account AND payload_digest=:digest"
+            ),
+            {
+                "id": uuid4(),
+                "tenant": tenant,
+                "account": account,
+                "digest": "a" * 64,
+            },
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        observed = await sync_once.get_sync_observations(
+            session, tenant_id=tenant, account_id=account
+        )
+        assert observed.active_contacts == 1
+        assert observed.history_batches_received == 2
+        assert observed.history_batches_imported == 1
+        assert observed.history_batches_declined == 0
+        assert observed.history_batches_pending == 1
+        response = await whatsapp_router.get_coexistence_sync_observations(
+            tenant_id=tenant,
+            account_id=account,
+            request=SimpleNamespace(),
+            principal=AdminPrincipal(user_id=uuid4(), session_id=uuid4()),
+            session=session,
+        )
+        assert response.history_batches_pending == 1
+        with pytest.raises(ValueError, match="account"):
+            await sync_once.get_sync_observations(
+                session, tenant_id=other_tenant, account_id=account
+            )
+        with pytest.raises(DomainError) as error:
+            await whatsapp_router.get_coexistence_sync_observations(
+                tenant_id=other_tenant,
                 account_id=account,
                 request=SimpleNamespace(),
                 principal=AdminPrincipal(user_id=uuid4(), session_id=uuid4()),

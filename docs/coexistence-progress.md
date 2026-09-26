@@ -295,3 +295,18 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - RED observed absent status reader and route; GREEN focused sync suite: 8
   passed. Full backend after implementation: 497 passed, same two existing
   failures. Ruff F and targeted mypy passed. Release gate remains CLOSED.
+
+## Persisted sync evidence checkpoint — 2026-09-26
+
+- Added a separate platform-admin-only observation endpoint for one coexistence
+  account. It counts active imported contacts and received, imported, declined,
+  or locally pending history batches, scoped to that tenant/account. A foreign
+  account returns 404. No personal contact data or credentials appear.
+- These are locally persisted counts, not Meta delivery totals or a completion
+  signal. An accepted one-shot request with zero received batches remains
+  ambiguous; the release gate is still CLOSED.
+- RED observed the missing reader after correcting a test-fixture collision on
+  Meta's globally unique phone ID. GREEN focused sync suite: 9 passed. Ruff F
+  and targeted mypy passed. Full backend: 498 passed, same two known failures
+  (deferred Meta reviewer conditional and stale marker in the isolated database).
+  No live Meta activity, reviewer-account change, or production deployment.
