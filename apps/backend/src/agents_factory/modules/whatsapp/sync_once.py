@@ -1,18 +1,55 @@
 """One-shot WhatsApp Business app synchronization coordination."""
 
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
+from agents_factory.common.outbox import OutboxService
 from agents_factory.database import set_tenant_context
 
 SyncType = Literal["smb_app_state_sync", "history"]
 SyncState = Literal["UNKNOWN", "ACCEPTED"]
 SyncSender = Callable[[str, SyncType], Awaitable[str]]
+
+
+async def enqueue_initial_sync(
+    session: AsyncSession,
+    *,
+    context: TenantContext,
+    account_id: UUID,
+) -> None:
+    """Schedule both one-shot sync kinds in the committed signup transaction."""
+    await set_tenant_context(session, context.tenant_id)
+    account = await session.scalar(
+        text(
+            "SELECT id FROM public.whatsapp_accounts WHERE tenant_id=:tenant "
+            "AND id=:account AND status='active' AND mode='COEXISTENCE' "
+            "AND coexistence_eligibility='ELIGIBLE' "
+            "AND verified_at >= now() - interval '24 hours'"
+        ),
+        {"tenant": context.tenant_id, "account": account_id},
+    )
+    if account is None:
+        raise ValueError(
+            "Active eligible coexistence account required within sync window"
+        )
+    outbox = OutboxService(session)
+    for sync_type in ("smb_app_state_sync", "history"):
+        await outbox.enqueue(
+            context=context,
+            idempotency_key=f"whatsapp.sync.request:{account_id}:{sync_type}",
+            topic="whatsapp.sync.request",
+            payload={
+                "aggregate_id": str(account_id),
+                "whatsapp_account_id": str(account_id),
+                "sync_type": sync_type,
+            },
+        )
 
 
 async def request_sync_once(
@@ -27,6 +64,7 @@ async def request_sync_once(
     if sync_type not in {"smb_app_state_sync", "history"}:
         raise ValueError("Invalid sync type")
     async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         await set_tenant_context(session, tenant_id)
         account = (
             (
@@ -74,7 +112,7 @@ async def request_sync_once(
             )
             if existing is None:
                 raise ValueError("Meta sync window has expired")
-            return existing
+            return cast(SyncState, existing)
         phone_number_id = account["phone_number_id"]
     # This transaction has committed. A crash or timeout can no longer cause a
     # second worker to repeat Meta's one-time endpoint.
@@ -85,6 +123,7 @@ async def request_sync_once(
     except Exception:
         return "UNKNOWN"
     async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         await set_tenant_context(session, tenant_id)
         updated = await session.scalar(
             text(

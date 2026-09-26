@@ -31,6 +31,7 @@ from agents_factory.modules.whatsapp.contracts import (
 )
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import WhatsAppSignupService
+from agents_factory.modules.whatsapp.sync_once import enqueue_initial_sync
 from agents_factory.modules.whatsapp.template_service import TemplateService
 from agents_factory.modules.whatsapp.test_templates import simple_approved_templates
 
@@ -51,79 +52,121 @@ class TestMessageRequest(BaseModel):
 def _test_error(detail: str) -> DomainError:
     return DomainError(
         type="https://agents-factory.dev/problems/whatsapp-test-unavailable",
-        title="WhatsApp test unavailable", status=409,
-        detail=detail, code="whatsapp_test_unavailable",
+        title="WhatsApp test unavailable",
+        status=409,
+        detail=detail,
+        code="whatsapp_test_unavailable",
     )
 
 
 @router.post("/{account_id}/test-templates")
 async def load_test_templates(
-    tenant_id: UUID, account_id: UUID, request: Request,
-    principal: PlatformAdmin, session: TransactionSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
 ) -> list[dict[str, str]]:
     context = _context(request, principal, tenant_id)
     settings: Settings = request.app.state.settings
     account = await WhatsAppAccountRepository(session).get(
-        context=context, account_id=account_id,
+        context=context,
+        account_id=account_id,
     )
     if account is None or account.status != "active" or not account.waba_id.isdigit():
         raise _test_error("Conecta primero la cuenta de WhatsApp de este cliente.")
     resolver = DatabaseMetaAccessTokenResolver(
         session=session,
-        key_provider=EnvironmentMasterKeyProvider(environment={
-            "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
-        }),
+        key_provider=EnvironmentMasterKeyProvider(
+            environment={
+                "APP_MASTER_KEY": settings.app_master_key.get_secret_value(),
+            }
+        ),
     )
-    resolved_credential = await resolver.resolve(context=context, whatsapp_account_id=account_id)
+    resolved_credential = await resolver.resolve(
+        context=context, whatsapp_account_id=account_id
+    )
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(
                 f"{settings.meta_graph_api_base_url.rstrip('/')}/{account.waba_id}/message_templates",
-                headers={"Authorization": f"Bearer {resolved_credential.reveal().decode('utf-8')}"},
-                params={"fields": "id,name,language,status,category,components", "limit": "100"},
+                headers={
+                    "Authorization": f"Bearer {resolved_credential.reveal().decode('utf-8')}"
+                },
+                params={
+                    "fields": "id,name,language,status,category,components",
+                    "limit": "100",
+                },
             )
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError):
-        raise _test_error("No se pudieron consultar las plantillas en Meta. Revisa la conexión y sus permisos.") from None
+        raise _test_error(
+            "No se pudieron consultar las plantillas en Meta. Revisa la conexión y sus permisos."
+        ) from None
     if not isinstance(payload, dict):
         raise _test_error("Meta devolvió una respuesta de plantillas inválida.")
     templates = simple_approved_templates(payload)
     await TemplateService(
-        session_factory=request.app.state.database.session_factory, context=context,
+        session_factory=request.app.state.database.session_factory,
+        context=context,
     ).sync(whatsapp_account_id=account_id, templates=templates)
     return [{"name": t.name, "language": t.language} for t in templates]
 
 
 @router.post("/{account_id}/test-messages", status_code=202)
 async def queue_test_message(
-    tenant_id: UUID, account_id: UUID, payload: TestMessageRequest,
-    request: Request, principal: PlatformAdmin,
+    tenant_id: UUID,
+    account_id: UUID,
+    payload: TestMessageRequest,
+    request: Request,
+    principal: PlatformAdmin,
 ) -> dict[str, str]:
     context = _context(request, principal, tenant_id)
     message_id = await TemplateService(
-        session_factory=request.app.state.database.session_factory, context=context,
+        session_factory=request.app.state.database.session_factory,
+        context=context,
     ).prepare_proactive(
-        whatsapp_account_id=account_id, recipient_wa_id=payload.recipient,
-        template_name=payload.template_name, language=payload.language,
-        variables={}, idempotency_key=f"dashboard-test:{account_id}:{payload.idempotency_key}",
+        whatsapp_account_id=account_id,
+        recipient_wa_id=payload.recipient,
+        template_name=payload.template_name,
+        language=payload.language,
+        variables={},
+        idempotency_key=f"dashboard-test:{account_id}:{payload.idempotency_key}",
     )
     return {"id": str(message_id), "status": "PREPARED"}
 
 
 @router.get("/{account_id}/test-messages/{message_id}")
 async def test_message_status(
-    tenant_id: UUID, account_id: UUID, message_id: UUID, request: Request,
-    principal: PlatformAdmin, session: TransactionSession,
+    tenant_id: UUID,
+    account_id: UUID,
+    message_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
 ) -> dict[str, str | None]:
     await set_tenant_context(session, tenant_id)
-    row = (await session.execute(text(
-        "SELECT status, provider_message_id FROM public.outbound_messages "
-        "WHERE tenant_id=:tenant AND whatsapp_account_id=:account AND id=:message"
-    ), {"tenant": tenant_id, "account": account_id, "message": message_id})).mappings().one_or_none()
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT status, provider_message_id FROM public.outbound_messages "
+                    "WHERE tenant_id=:tenant AND whatsapp_account_id=:account AND id=:message"
+                ),
+                {"tenant": tenant_id, "account": account_id, "message": message_id},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         raise _test_error("No se encontró ese envío en este cliente.")
-    return {"id": str(message_id), "status": row["status"], "provider_message_id": row["provider_message_id"]}
+    return {
+        "id": str(message_id),
+        "status": row["status"],
+        "provider_message_id": row["provider_message_id"],
+    }
 
 
 class SignupStartRequest(BaseModel):
@@ -161,7 +204,9 @@ class SignupCompleteRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_api_assets(self) -> SignupCompleteRequest:
-        if self.mode == "API_ONLY" and (self.business_id is None or self.phone_number_id is None):
+        if self.mode == "API_ONLY" and (
+            self.business_id is None or self.phone_number_id is None
+        ):
             raise ValueError("API-only signup requires business and phone identifiers")
         return self
 
@@ -253,6 +298,12 @@ async def complete_embedded_signup(
         phone_number_id=payload.phone_number_id,
         requested_mode=payload.mode,
     )
+    if connected.mode == "COEXISTENCE":
+        await enqueue_initial_sync(
+            session,
+            context=_context(request, principal, tenant_id),
+            account_id=connected.id,
+        )
     return WhatsAppAccountResponse.from_summary(
         WhatsAppAccountSummary.from_account(connected)
     )
@@ -412,6 +463,8 @@ def _context(
     return TenantContext(
         tenant_id=tenant_id,
         actor_id=principal.user_id,
-        actor_type="customer" if getattr(request.state, "restricted_reviewer", False) else "platform_admin",
+        actor_type="customer"
+        if getattr(request.state, "restricted_reviewer", False)
+        else "platform_admin",
         correlation_id=request.state.correlation_id,
     )

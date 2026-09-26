@@ -257,3 +257,27 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   status and disconnect controls, delayed echo/resume policy, browser flow,
   final security review and rollout gates. No Meta request, pilot onboarding,
   production deployment or reviewer-account changes. Release gate CLOSED.
+
+## Onboarding-to-one-shot sync checkpoint — 2026-09-26
+
+- Eligible coexistence signup now schedules separate contact and history sync
+  outbox jobs in the same database transaction as the connected account. The
+  scheduler routes them to the outbound worker. An API-only account cannot
+  schedule coexistence sync, duplicate scheduling creates no extra jobs, and
+  queue payloads contain account/type identifiers but never credentials.
+- The worker validates the tenant-scoped job, resolves the account-bound secret
+  in a short app-role transaction, then invokes the prior one-shot coordinator.
+  A durable UNKNOWN reservation commits before the provider call, so uncertain
+  results and repeated jobs never send again. An accepted replay can finish
+  without rereading a credential that may since have been revoked.
+- Ruling: keep the existing COEXISTENCE signup release gate closed while this
+  code is integrated — sync lifecycle/status, disconnect, browser verification
+  and final security review remain incomplete. Cost if wrong: a newly connected
+  client would not yet be able to use coexistence; no existing client or pilot
+  number is modified by this branch.
+- RED observed missing queue scheduling, missing worker and replay credential
+  access. GREEN focused tests: 6 sync integration tests. Missing Graph endpoint
+  now raises a sanitized configuration error before any HTTP call. Fresh full
+  backend: 495 passed, the same two existing failures (deferred Meta reviewer
+  conditional and stale disposable-DB marker). Ruff F and targeted mypy passed.
+  No live Meta request, production deployment or reviewer-account change.

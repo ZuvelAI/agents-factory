@@ -82,6 +82,8 @@ class MetaCloudApiProvider:
             raise ValueError("Invalid Meta phone number ID")
         if sync_type not in {"smb_app_state_sync", "history"}:
             raise ValueError("Invalid Meta sync type")
+        if self.graph_api_base_url is None:
+            raise RuntimeError("Meta sync endpoint is not configured")
         try:
             access_value = access_token.reveal().decode("utf-8", errors="strict")
         except UnicodeDecodeError:

@@ -32,6 +32,7 @@ async def startup(context: dict[Any, Any]) -> None:
             "agent.turn": "agent",
             "outbound.text": "outbound",
             "whatsapp.outbound.send": "outbound",
+            "whatsapp.sync.request": "outbound",
         },
         retry_delay_seconds=1.0,
     )

@@ -18,11 +18,13 @@ from agents_factory.modules.secrets.envelope import EnvironmentMasterKeyProvider
 from agents_factory.modules.whatsapp.account_service import (
     SessionFactoryMetaAccessTokenResolver,
 )
+from agents_factory.modules.whatsapp.contracts import MetaAccessTokenResolver
 from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
 from agents_factory.modules.whatsapp.outbound_service import (
     OutboundMessageService,
     OutboundProvider,
 )
+from agents_factory.modules.whatsapp.sync_once import SyncType, request_sync_once
 
 
 class InvalidOutboundJob(ValueError):
@@ -36,15 +38,24 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
     key_provider = EnvironmentMasterKeyProvider(
         environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
     )
+    token_resolver = SessionFactoryMetaAccessTokenResolver(
+        session_factory=database.session_factory,
+        key_provider=key_provider,
+    )
     provider = cast(
         OutboundProvider,
         context.get("whatsapp_provider")
         or MetaCloudApiProvider(
             app_secret=settings.meta_app_secret,
-            access_tokens=SessionFactoryMetaAccessTokenResolver(
-                session_factory=database.session_factory,
-                key_provider=key_provider,
-            ),
+            access_tokens=token_resolver,
+            graph_api_base_url=settings.meta_graph_api_base_url,
+        ),
+    )
+    sync_provider = cast(
+        MetaCloudApiProvider,
+        context.get("whatsapp_sync_provider")
+        or MetaCloudApiProvider(
+            app_secret=settings.meta_app_secret,
             graph_api_base_url=settings.meta_graph_api_base_url,
         ),
     )
@@ -63,9 +74,89 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
             provider=provider,
         )
 
+    async def request_sync_handler(envelope: JobEnvelope) -> None:
+        await handle_request_sync(
+            envelope=envelope,
+            database=database,
+            provider=sync_provider,
+            token_resolver=token_resolver,
+        )
+
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
     handlers["outbound.text"] = prepare_text_handler
     handlers["whatsapp.outbound.send"] = send_handler
+    handlers["whatsapp.sync.request"] = request_sync_handler
+
+
+async def handle_request_sync(
+    *,
+    envelope: JobEnvelope,
+    database: Database,
+    provider: MetaCloudApiProvider,
+    token_resolver: MetaAccessTokenResolver,
+) -> None:
+    if envelope.kind != "whatsapp.sync.request":
+        raise InvalidOutboundJob("unexpected sync request job kind")
+    async with database.session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, envelope.tenant_id)
+        payload = await session.scalar(
+            text(
+                "SELECT payload FROM public.outbox_jobs "
+                "WHERE tenant_id=:tenant AND id=:job AND topic='whatsapp.sync.request'"
+            ),
+            {"tenant": envelope.tenant_id, "job": envelope.job_id},
+        )
+    if not isinstance(payload, Mapping):
+        raise InvalidOutboundJob("sync request payload is unavailable")
+    try:
+        account_id = UUID(str(payload["whatsapp_account_id"]))
+        sync_type = payload["sync_type"]
+    except (KeyError, TypeError, ValueError):
+        raise InvalidOutboundJob("sync request payload is invalid") from None
+    if account_id != envelope.aggregate_id or payload.get("aggregate_id") != str(
+        account_id
+    ):
+        raise InvalidOutboundJob("sync request aggregate does not match payload")
+    if sync_type not in {"smb_app_state_sync", "history"}:
+        raise InvalidOutboundJob("sync request type is invalid")
+    async with database.session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, envelope.tenant_id)
+        existing_state = await session.scalar(
+            text(
+                "SELECT state FROM public.whatsapp_sync_requests "
+                "WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                "AND sync_type=:sync_type"
+            ),
+            {
+                "tenant": envelope.tenant_id,
+                "account": account_id,
+                "sync_type": sync_type,
+            },
+        )
+    if existing_state is not None:
+        return  # Accepted or uncertain: neither may be sent again.
+    context = _context(envelope)
+    resolved_credential = await token_resolver.resolve(
+        context=context,
+        whatsapp_account_id=account_id,
+    )
+
+    async def send(phone_number_id: str, requested_type: SyncType) -> str:
+        return await provider.request_app_data_sync(
+            phone_number_id=phone_number_id,
+            sync_type=requested_type,
+            access_token=resolved_credential,
+        )
+
+    await request_sync_once(
+        database.session_factory,
+        tenant_id=envelope.tenant_id,
+        account_id=account_id,
+        sync_type=cast(SyncType, sync_type),
+        send=send,
+    )
 
 
 async def handle_prepare_text(

@@ -1,10 +1,19 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import text
 
+from agents_factory.common.context import TenantContext
+from agents_factory.common.queue import JobEnvelope
+from agents_factory.database import set_tenant_context
+from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp import sync_once
+from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
+from outbound_worker import jobs as outbound_jobs
 
 
 async def seed_account(session_factory, *, verified_at):
@@ -103,4 +112,157 @@ async def test_expired_onboarding_cannot_start_one_shot_sync(session_factory):
             account_id=account,
             sync_type="history",
             send=send,
+        )
+
+
+async def test_verified_coexistence_signup_queues_both_sync_types_once(session_factory):
+    tenant, account = await seed_account(session_factory, verified_at=datetime.now(UTC))
+    context = TenantContext(
+        tenant_id=tenant,
+        actor_id=uuid4(),
+        actor_type="platform_admin",
+        correlation_id=uuid4(),
+    )
+    for _ in range(2):
+        async with session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+            await sync_once.enqueue_initial_sync(
+                session, context=context, account_id=account
+            )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await set_tenant_context(session, tenant)
+        jobs = (
+            (
+                await session.execute(
+                    text("SELECT topic,payload FROM public.outbox_jobs ORDER BY id")
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert len(jobs) == 2
+        assert {row["payload"]["sync_type"] for row in jobs} == {
+            "history",
+            "smb_app_state_sync",
+        }
+        assert {row["topic"] for row in jobs} == {"whatsapp.sync.request"}
+        assert all(row["payload"]["aggregate_id"] == str(account) for row in jobs)
+        assert all("token" not in str(row["payload"]).lower() for row in jobs)
+
+
+async def test_api_only_account_does_not_queue_coexistence_sync(session_factory):
+    tenant, account = await seed_account(session_factory, verified_at=datetime.now(UTC))
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET mode='API_ONLY' WHERE id=:account"
+            ),
+            {"account": account},
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        with pytest.raises(ValueError, match="coexistence"):
+            await sync_once.enqueue_initial_sync(
+                session,
+                context=TenantContext(
+                    tenant_id=tenant,
+                    actor_id=uuid4(),
+                    actor_type="platform_admin",
+                    correlation_id=uuid4(),
+                ),
+                account_id=account,
+            )
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(text("SELECT count(*) FROM public.outbox_jobs")) == 0
+        )
+
+
+async def test_sync_worker_records_meta_request_once_despite_job_replay(
+    session_factory,
+):
+    tenant, account = await seed_account(session_factory, verified_at=datetime.now(UTC))
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await sync_once.enqueue_initial_sync(
+            session,
+            context=TenantContext(
+                tenant_id=tenant,
+                actor_id=uuid4(),
+                actor_type="platform_admin",
+                correlation_id=uuid4(),
+            ),
+            account_id=account,
+        )
+    async with session_factory.begin() as session:
+        job_id = await session.scalar(
+            text(
+                "SELECT id FROM public.outbox_jobs WHERE payload->>'sync_type'='history' AND tenant_id=:tenant"
+            ),
+            {"tenant": tenant},
+        )
+    envelope = JobEnvelope(
+        job_id=job_id,
+        tenant_id=tenant,
+        kind="whatsapp.sync.request",
+        aggregate_id=account,
+    )
+    requests = []
+
+    def meta_reply(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "messaging_product": "whatsapp",
+                "request_id": "support-456",
+            },
+        )
+
+    class TokenResolver:
+        calls = 0
+
+        async def resolve(self, *, context, whatsapp_account_id):
+            assert (context.tenant_id, whatsapp_account_id) == (tenant, account)
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("credential no longer available after accepted sync")
+            return ResolvedSecret(b"tenant-owned-test-token")
+
+    resolver = TokenResolver()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(meta_reply)) as client:
+        provider = MetaCloudApiProvider(
+            app_secret=SecretStr("test-only"),
+            http_client=client,
+            graph_api_base_url="https://graph.facebook.com/v25.0",
+        )
+        for _ in range(2):
+            await outbound_jobs.handle_request_sync(
+                envelope=envelope,
+                database=SimpleNamespace(session_factory=session_factory),
+                provider=provider,
+                token_resolver=resolver,
+            )
+    assert len(requests) == 1
+    assert requests[0].headers["Authorization"] == "Bearer tenant-owned-test-token"
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, tenant)
+        row = (
+            await session.execute(
+                text(
+                    "SELECT state,request_id FROM public.whatsapp_sync_requests "
+                    "WHERE whatsapp_account_id=:account AND sync_type='history'"
+                ),
+                {"account": account},
+            )
+        ).one()
+        assert row == ("ACCEPTED", "support-456")
+        await set_tenant_context(session, uuid4())
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_sync_requests")
+            )
+            == 0
         )

@@ -54,3 +54,13 @@ async def test_meta_app_data_sync_requires_request_id():
                 sync_type="history",
                 access_token=ResolvedSecret(b"test-token"),
             )
+
+
+async def test_meta_app_data_sync_requires_configured_graph_endpoint():
+    provider = MetaCloudApiProvider(app_secret=SecretStr("test-only"))
+    with pytest.raises(RuntimeError, match="not configured"):
+        await provider.request_app_data_sync(
+            phone_number_id="123456",
+            sync_type="history",
+            access_token=ResolvedSecret(b"test-token"),
+        )
