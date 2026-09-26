@@ -27,9 +27,14 @@ from agents_factory.modules.capabilities.router import router as admin_capabilit
 from agents_factory.modules.identity.router import router as admin_identity_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.tenants.onboarding import router as admin_onboarding_router
-from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
+from agents_factory.modules.whatsapp.alert_router import (
+    router as admin_whatsapp_alert_router,
+)
 from agents_factory.modules.whatsapp.router import router as admin_whatsapp_router
-from agents_factory.modules.whatsapp.review_router import router as review_whatsapp_router
+from agents_factory.modules.whatsapp.review_router import (
+    router as review_whatsapp_router,
+)
+from agents_factory.modules.whatsapp.webhook import router as meta_whatsapp_router
 
 
 class ReadinessProbe(Protocol):
@@ -155,6 +160,7 @@ def create_app(
     application.include_router(admin_capability_router)
     application.include_router(admin_identity_router)
     application.include_router(admin_whatsapp_router)
+    application.include_router(admin_whatsapp_alert_router)
     application.include_router(review_whatsapp_router)
     application.include_router(meta_whatsapp_router)
 

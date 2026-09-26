@@ -282,13 +282,28 @@ class MetaWebhookProcessor:
 
         for update in batch.account_updates:
             if update.event != "PARTNER_REMOVED" or update.display_phone_digits is None:
-                raise UnprocessedAccountUpdate
+                await self._repository.queue_account_update_alert(
+                    waba_id=update.waba_id,
+                    event=update.event,
+                    display_phone_digits=update.display_phone_digits,
+                    occurred_at=update.occurred_at,
+                    reason="unsupported_event",
+                )
+                continue
             result = await self._repository.apply_partner_removed(
                 waba_id=update.waba_id,
                 display_phone_digits=update.display_phone_digits,
                 occurred_at=update.occurred_at,
             )
-            if result not in {"deactivated", "already_inactive", "stale"}:
+            if result in {"unmatched", "unverified"}:
+                await self._repository.queue_account_update_alert(
+                    waba_id=update.waba_id,
+                    event=update.event,
+                    display_phone_digits=update.display_phone_digits,
+                    occurred_at=update.occurred_at,
+                    reason=result,
+                )
+            elif result not in {"deactivated", "already_inactive", "stale"}:
                 raise UnprocessedAccountUpdate
 
         return WebhookProcessingResult(

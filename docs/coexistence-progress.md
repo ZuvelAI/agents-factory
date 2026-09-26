@@ -367,3 +367,28 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   now pass. Ruff F and targeted mypy pass. The migration was applied only to
   the disposable local PostgreSQL container. No live Meta call, account
   change, production deployment or reviewer-account correction.
+
+## Ambiguous account-update quarantine checkpoint — 2026-09-26
+
+- Signed account-update events that cannot safely identify one active number
+  now enter a private, durable, deduplicated alert table before the webhook
+  acknowledges them. This covers unmatched or unverified PARTNER_REMOVED and
+  WABA-wide/unsupported events such as ACCOUNT_OFFBOARDED and
+  ACCOUNT_RECONNECTED. Replays create one alert; invalid signatures create none.
+  Exact verified PARTNER_REMOVED handling remains unchanged.
+- The webhook role has INSERT only; public roles cannot read or write the table.
+  A new bounded read-only platform-admin route lists alert metadata for manual
+  investigation, not a client/tenant route and not an automatic resolution.
+  Missing authentication returns 401; a principal without DB membership gets
+  403. No token, raw payload, or secret is returned.
+- Ruling: acknowledge only after the alert transaction commits; unexpected
+  persistence failure still yields a retryable error. Never infer a phone from
+  WABA alone or automatically reactivate on ACCOUNT_RECONNECTED. Cost if wrong:
+  an operator must review an alert instead of the app making a potentially
+  destructive guess. Operational alert notification/resolution is still pending.
+- RED observed absent queue and absent admin route; GREEN focused real-database
+  suite: 8 passed. Full backend: 514 passed, same two known failures (deferred
+  Meta reviewer conditional and stale marker in isolated test DB). Targeted
+  Ruff lint, format and mypy pass. The migration was applied only to disposable
+  local PostgreSQL; no remote/project schema, live Meta number, credentials,
+  reviewer access, or production deployment changed. Release gate remains CLOSED.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
+import json
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -29,6 +31,40 @@ class PersistedWebhookEvent:
 class WhatsAppWebhookRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def queue_account_update_alert(
+        self,
+        *,
+        waba_id: str,
+        event: str,
+        display_phone_digits: str | None,
+        occurred_at: datetime,
+        reason: str,
+    ) -> None:
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                [waba_id, event, display_phone_digits, occurred_at.isoformat()],
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        await self._session.execute(
+            text(
+                "INSERT INTO agents_factory_private.whatsapp_account_update_alerts "
+                "(id, event_fingerprint, waba_id, event, display_phone_digits, "
+                "occurred_at, reason) VALUES "
+                "(:id, :fingerprint, :waba_id, :event, :display_phone_digits, "
+                ":occurred_at, :reason) ON CONFLICT DO NOTHING"
+            ),
+            {
+                "id": new_uuid7(),
+                "fingerprint": fingerprint,
+                "waba_id": waba_id,
+                "event": event,
+                "display_phone_digits": display_phone_digits,
+                "occurred_at": occurred_at,
+                "reason": reason,
+            },
+        )
 
     async def apply_partner_removed(
         self,

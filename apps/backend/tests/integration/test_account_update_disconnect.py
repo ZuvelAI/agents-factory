@@ -9,13 +9,14 @@ from uuid import UUID
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.ids import new_uuid7
 from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
 from agents_factory.modules.whatsapp.webhook import (
+    InvalidWebhookSignature,
     MetaWebhookProcessor,
-    UnprocessedAccountUpdate,
 )
 
 
@@ -111,6 +112,22 @@ async def _status(factory: async_sessionmaker[AsyncSession], account_id: UUID) -
     return result
 
 
+async def _pending_alerts(
+    factory: async_sessionmaker[AsyncSession], *, waba_id: str
+) -> list[dict[str, object]]:
+    async with factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        rows = await session.execute(
+            text(
+                "SELECT event, display_phone_digits, reason "
+                "FROM agents_factory_private.whatsapp_account_update_alerts "
+                "WHERE waba_id = :waba_id ORDER BY event, display_phone_digits"
+            ),
+            {"waba_id": waba_id},
+        )
+        return [dict(row) for row in rows.mappings().all()]
+
+
 @pytest.mark.asyncio
 async def test_partner_removed_deactivates_only_exact_waba_and_display_phone(
     session_factory: async_sessionmaker[AsyncSession],
@@ -159,7 +176,7 @@ async def test_old_partner_removed_does_not_disconnect_newer_registration(
 
 
 @pytest.mark.asyncio
-async def test_unmatched_or_waba_wide_update_is_not_silently_accepted(
+async def test_unmatched_or_waba_wide_update_is_durably_queued_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     for body in (
@@ -167,8 +184,26 @@ async def test_unmatched_or_waba_wide_update_is_not_silently_accepted(
         _body(event="ACCOUNT_OFFBOARDED"),
         _body(event="ACCOUNT_RECONNECTED"),
     ):
-        with pytest.raises(UnprocessedAccountUpdate):
-            await _process(session_factory, body)
+        await _process(session_factory, body)
+        await _process(session_factory, body)
+
+    assert await _pending_alerts(session_factory, waba_id="waba-shared") == [
+        {
+            "event": "ACCOUNT_OFFBOARDED",
+            "display_phone_digits": None,
+            "reason": "unsupported_event",
+        },
+        {
+            "event": "ACCOUNT_RECONNECTED",
+            "display_phone_digits": None,
+            "reason": "unsupported_event",
+        },
+        {
+            "event": "PARTNER_REMOVED",
+            "display_phone_digits": "573124009571",
+            "reason": "unmatched",
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -182,14 +217,63 @@ async def test_partner_removed_cannot_cross_waba_boundary(
         verified_at=datetime(2025, 2, 9, tzinfo=UTC),
     )
 
-    with pytest.raises(UnprocessedAccountUpdate):
-        await _process(
-            session_factory,
-            _body(
-                event="PARTNER_REMOVED",
-                phone="573124009572",
-                waba="other-waba",
-            ),
-        )
+    await _process(
+        session_factory,
+        _body(
+            event="PARTNER_REMOVED",
+            phone="573124009572",
+            waba="other-waba",
+        ),
+    )
 
     assert await _status(session_factory, account) == "active"
+    assert await _pending_alerts(session_factory, waba_id="other-waba") == [
+        {
+            "event": "PARTNER_REMOVED",
+            "display_phone_digits": "573124009572",
+            "reason": "unmatched",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_invalid_signature_never_creates_an_account_update_alert(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    body = _body(event="ACCOUNT_OFFBOARDED", waba="unsigned-waba")
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        with pytest.raises(InvalidWebhookSignature):
+            await MetaWebhookProcessor(
+                session=session,
+                provider=MetaCloudApiProvider(
+                    app_secret=SecretStr(WEBHOOK_SIGNING_MATERIAL)
+                ),
+            ).process(
+                raw_body=body,
+                signature="sha256=" + "0" * 64,
+                correlation_id=new_uuid7(),
+            )
+
+    assert await _pending_alerts(session_factory, waba_id="unsigned-waba") == []
+
+
+@pytest.mark.asyncio
+async def test_pending_alerts_are_not_readable_by_webhook_or_public_roles(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _process(
+        session_factory,
+        _body(event="ACCOUNT_OFFBOARDED", waba="private-alert-waba"),
+    )
+
+    for role in ("agents_factory_app", "anon", "authenticated"):
+        with pytest.raises(DBAPIError):
+            async with session_factory.begin() as session:
+                await session.execute(text(f"SET LOCAL ROLE {role}"))
+                await session.execute(
+                    text(
+                        "SELECT event FROM "
+                        "agents_factory_private.whatsapp_account_update_alerts"
+                    )
+                )
