@@ -102,6 +102,14 @@ TENANT_ISOLATION_REGISTRY = (
     TenantIsolationRegistration(
         "public.whatsapp_history_inbox", update_allowed=False, delete_allowed=False
     ),
+    TenantIsolationRegistration(
+        "public.whatsapp_history_messages", update_allowed=False, delete_allowed=False
+    ),
+    TenantIsolationRegistration(
+        "public.whatsapp_history_import_receipts",
+        update_allowed=False,
+        delete_allowed=False,
+    ),
     TenantIsolationRegistration("public.conversations", delete_allowed=False),
     TenantIsolationRegistration(
         "public.messages",
@@ -579,6 +587,34 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.whatsapp_history_messages "
+                    "(id,tenant_id,whatsapp_account_id,provider_message_id,customer_wa_id,"
+                    "direction,content,provider_timestamp) "
+                    "VALUES (:id,:tenant_id,:account_id,:message_id,'573000000001',"
+                    "'inbound','{}'::jsonb,now())"
+                ),
+                {
+                    "id": rows["public.whatsapp_history_messages"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "message_id": f"history-message-{label}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.whatsapp_history_import_receipts "
+                    "(id,tenant_id,whatsapp_account_id,inbox_id,outcome,progress,errors) "
+                    "VALUES (:id,:tenant_id,:account_id,:inbox_id,'IMPORTED','[]'::jsonb,'[]'::jsonb)"
+                ),
+                {
+                    "id": rows["public.whatsapp_history_import_receipts"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                    "inbox_id": rows["public.whatsapp_history_inbox"],
+                },
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.conversations "
                     "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
                     "VALUES (:id, :tenant_id, :account_id, :customer_wa_id)"
@@ -885,6 +921,23 @@ def _insert_statement(table_name: str) -> str:
             "(id,tenant_id,whatsapp_account_id,payload_digest,payload) "
             "VALUES (:id,:tenant_id,:whatsapp_account_id,repeat('b',64),'{}'::jsonb)"
         ),
+        "public.whatsapp_history_messages": (
+            "INSERT INTO public.whatsapp_history_messages "
+            "(id,tenant_id,whatsapp_account_id,provider_message_id,customer_wa_id,"
+            "direction,content,provider_timestamp) "
+            "VALUES (:id,:tenant_id,:whatsapp_account_id,:message_id,:customer_wa_id,"
+            "'inbound','{}'::jsonb,now())"
+        ),
+        "public.whatsapp_history_import_receipts": (
+            "WITH new_inbox AS (INSERT INTO public.whatsapp_history_inbox "
+            "(id,tenant_id,whatsapp_account_id,payload_digest,payload) "
+            "VALUES (gen_random_uuid(),:tenant_id,:whatsapp_account_id,"
+            "md5(:message_id)||md5(:message_id),'{}'::jsonb) RETURNING id) "
+            "INSERT INTO public.whatsapp_history_import_receipts "
+            "(id,tenant_id,whatsapp_account_id,inbox_id,outcome,progress,errors) "
+            "SELECT :id,:tenant_id,:whatsapp_account_id,id,'IMPORTED','[]'::jsonb,'[]'::jsonb "
+            "FROM new_inbox"
+        ),
         "public.conversations": (
             "INSERT INTO public.conversations "
             "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
@@ -1030,6 +1083,8 @@ def _matching_update(table_name: str) -> str | None:
         "public.whatsapp_templates": "updated_at = now()",
         "public.whatsapp_contacts": "full_name = 'Matrix updated'",
         "public.whatsapp_history_inbox": None,
+        "public.whatsapp_history_messages": None,
+        "public.whatsapp_history_import_receipts": None,
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
@@ -1055,6 +1110,8 @@ def _insert_parent_id(
         "public.whatsapp_webhook_events",
         "public.whatsapp_contacts",
         "public.whatsapp_history_inbox",
+        "public.whatsapp_history_messages",
+        "public.whatsapp_history_import_receipts",
         "public.whatsapp_templates",
         "public.conversations",
         "public.outbound_messages",
@@ -1226,6 +1283,8 @@ async def assert_tenant_isolated(
         "public.whatsapp_templates",
         "public.whatsapp_contacts",
         "public.whatsapp_history_inbox",
+        "public.whatsapp_history_messages",
+        "public.whatsapp_history_import_receipts",
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",

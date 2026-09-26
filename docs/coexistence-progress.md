@@ -180,3 +180,22 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   disconnect handling. Inbox storage is not yet user-visible imported history.
   Release gate stays CLOSED. Meta reviewer account, pilot number and production
   are unchanged; reviewer correction stays deferred until the end per user.
+
+## Historical archive checkpoint — 2026-09-26
+
+- Added a validated archive projection for chunk order/progress, incoming and
+  business messages, provider ID deduplication, and explicit history-sharing
+  denial. Unmatched delayed media stays pending; it is never silently marked
+  imported. Five projection tests observed RED before implementation, then GREEN.
+- A new CLI-generated migration adds a separate tenant-isolated historical
+  message archive and per-inbox import receipts. Imported history never enters
+  live conversations/messages/outbox and therefore cannot start an AI turn or
+  messaging window. Matching replay returns zero new imports; provider-ID
+  conflicts are rejected. Cross-tenant RLS and composite foreign keys apply.
+- The import function exists but no background worker schedules it yet. Media
+  reconciliation, one-shot synchronization and disconnect handling still block
+  rollout. The migration was applied only to the disposable security database.
+- Fresh verification: 29 tenant attack-matrix cases passed; 4 archive integration
+  cases passed; Ruff F check passed. Full backend: 481 passed, 2 previously known
+  failures (deferred Meta reviewer hardcoding and isolated database reset marker).
+  No production database or Meta configuration changed; release gate CLOSED.
