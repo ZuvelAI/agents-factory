@@ -30,6 +30,7 @@ from agents_factory.modules.whatsapp.outbound_service import (
 from agents_factory.modules.whatsapp.repository import WhatsAppWebhookRepository
 from agents_factory.modules.whatsapp.mobile_echo import ingest_mobile_echo
 from agents_factory.modules.whatsapp.contact_sync import ingest_contact_change
+from agents_factory.modules.whatsapp.history_sync import persist_history
 
 
 router = APIRouter(prefix="/webhooks/meta/whatsapp", tags=["meta-whatsapp"])
@@ -148,6 +149,22 @@ class MetaWebhookProcessor:
             )
         accepted_messages = 0
         duplicate_messages = 0
+        for event in batch.history_sync:
+            mapping = await self._repository.resolve_active_mapping(
+                waba_id=event.waba_id,
+                phone_number_id=event.phone_number_id,
+            )
+            if mapping is None:
+                raise UnknownAccountMapping
+            context = TenantContext(
+                tenant_id=mapping.tenant_id,
+                actor_id=None,
+                actor_type="system",
+                correlation_id=correlation_id,
+            )
+            await persist_history(
+                self._session, context=context, mapping=mapping, event=event
+            )
         for event in batch.contact_changes:
             mapping = await self._repository.resolve_active_mapping(
                 waba_id=event.waba_id,

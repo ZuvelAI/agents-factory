@@ -158,3 +158,25 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   deduplication and progress tracking remain pending; do not enable coexistence or
   history subscriptions on its basis. Current processor does not persist history
   batches yet. Release gate remains CLOSED, no Meta account/configuration changed.
+
+## Durable history inbox checkpoint — 2026-09-25
+
+- Signed history batches now persist in the webhook transaction before acknowledgement.
+  Canonical SHA-256 payload deduplication is scoped to tenant and WhatsApp account.
+  Chunks and delayed media remain separate from the live-message pipeline: no AI
+  job, conversation or customer messaging window is created by this ingestion.
+- Added append-only inbox with forced RLS, explicit select/insert grants and a
+  composite tenant/account foreign key. Registered the table in the full tenant
+  isolation attack matrix, including cross-tenant parent attacks.
+- Guard requires matching tenant, WABA, phone and active COEXISTENCE account.
+  Deliberately does not grant UPDATE on accounts just to acquire a row lock.
+  Disconnect serialization/revalidation remains part of the pending importer work.
+- CLI-generated migration applied ONLY to disposable isolated security database.
+  Regression observed missing table, then zero stored rows before implementation.
+  Fresh targeted verification: 249 passed (unit, history integration and full
+  tenant isolation matrix). Full backend/release suite has NOT been rerun here;
+  previously documented baseline failures remain unresolved.
+- Next: asynchronous historical import, progress/error handling, one-shot sync and
+  disconnect handling. Inbox storage is not yet user-visible imported history.
+  Release gate stays CLOSED. Meta reviewer account, pilot number and production
+  are unchanged; reviewer correction stays deferred until the end per user.

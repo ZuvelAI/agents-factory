@@ -99,6 +99,9 @@ TENANT_ISOLATION_REGISTRY = (
     ),
     TenantIsolationRegistration("public.whatsapp_templates", delete_allowed=False),
     TenantIsolationRegistration("public.whatsapp_contacts", delete_allowed=False),
+    TenantIsolationRegistration(
+        "public.whatsapp_history_inbox", update_allowed=False, delete_allowed=False
+    ),
     TenantIsolationRegistration("public.conversations", delete_allowed=False),
     TenantIsolationRegistration(
         "public.messages",
@@ -552,6 +555,18 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.whatsapp_history_inbox "
+                    "(id, tenant_id, whatsapp_account_id, payload_digest, payload) "
+                    "VALUES (:id, :tenant_id, :account_id, repeat('a',64), '{}'::jsonb)"
+                ),
+                {
+                    "id": rows["public.whatsapp_history_inbox"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                },
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.whatsapp_contacts "
                     "(id, tenant_id, whatsapp_account_id, customer_wa_id, full_name, provider_timestamp) "
                     "VALUES (:id, :tenant_id, :account_id, '573000000001', 'Matrix contact', now())"
@@ -865,6 +880,11 @@ def _insert_statement(table_name: str) -> str:
             "(id, tenant_id, whatsapp_account_id, customer_wa_id, provider_timestamp) "
             "VALUES (:id, :tenant_id, :whatsapp_account_id, :customer_wa_id, now())"
         ),
+        "public.whatsapp_history_inbox": (
+            "INSERT INTO public.whatsapp_history_inbox "
+            "(id,tenant_id,whatsapp_account_id,payload_digest,payload) "
+            "VALUES (:id,:tenant_id,:whatsapp_account_id,repeat('b',64),'{}'::jsonb)"
+        ),
         "public.conversations": (
             "INSERT INTO public.conversations "
             "(id, tenant_id, whatsapp_account_id, customer_wa_id) "
@@ -1009,6 +1029,7 @@ def _matching_update(table_name: str) -> str | None:
         "public.whatsapp_webhook_events": None,
         "public.whatsapp_templates": "updated_at = now()",
         "public.whatsapp_contacts": "full_name = 'Matrix updated'",
+        "public.whatsapp_history_inbox": None,
         "public.conversations": "updated_at = now()",
         "public.messages": None,
         "public.conversation_state_events": None,
@@ -1033,6 +1054,7 @@ def _insert_parent_id(
     if table_name in {
         "public.whatsapp_webhook_events",
         "public.whatsapp_contacts",
+        "public.whatsapp_history_inbox",
         "public.whatsapp_templates",
         "public.conversations",
         "public.outbound_messages",
@@ -1203,6 +1225,7 @@ async def assert_tenant_isolated(
         "public.whatsapp_webhook_events",
         "public.whatsapp_templates",
         "public.whatsapp_contacts",
+        "public.whatsapp_history_inbox",
         "public.conversations",
         "public.messages",
         "public.conversation_state_events",
