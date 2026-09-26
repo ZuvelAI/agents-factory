@@ -98,6 +98,7 @@ TENANT_ISOLATION_REGISTRY = (
         delete_allowed=False,
     ),
     TenantIsolationRegistration("public.whatsapp_templates", delete_allowed=False),
+    TenantIsolationRegistration("public.whatsapp_sync_requests", delete_allowed=False),
     TenantIsolationRegistration("public.whatsapp_contacts", delete_allowed=False),
     TenantIsolationRegistration(
         "public.whatsapp_history_inbox", update_allowed=False, delete_allowed=False
@@ -563,6 +564,18 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
             )
             await connection.execute(
                 text(
+                    "INSERT INTO public.whatsapp_sync_requests "
+                    "(id,tenant_id,whatsapp_account_id,sync_type,state) "
+                    "VALUES (:id,:tenant_id,:account_id,'history','UNKNOWN')"
+                ),
+                {
+                    "id": rows["public.whatsapp_sync_requests"],
+                    "tenant_id": tenant_id,
+                    "account_id": rows["public.whatsapp_accounts"],
+                },
+            )
+            await connection.execute(
+                text(
                     "INSERT INTO public.whatsapp_history_inbox "
                     "(id, tenant_id, whatsapp_account_id, payload_digest, payload) "
                     "VALUES (:id, :tenant_id, :account_id, repeat('a',64), '{}'::jsonb)"
@@ -911,6 +924,11 @@ def _insert_statement(table_name: str) -> str:
             "(:id, :tenant_id, :whatsapp_account_id, :provider_template_id, "
             ":template_name, 'es_CO', 'APPROVED', 'UTILITY', '[]'::jsonb)"
         ),
+        "public.whatsapp_sync_requests": (
+            "INSERT INTO public.whatsapp_sync_requests "
+            "(id,tenant_id,whatsapp_account_id,sync_type,state) "
+            "VALUES (:id,:tenant_id,:whatsapp_account_id,'smb_app_state_sync','UNKNOWN')"
+        ),
         "public.whatsapp_contacts": (
             "INSERT INTO public.whatsapp_contacts "
             "(id, tenant_id, whatsapp_account_id, customer_wa_id, provider_timestamp) "
@@ -1081,6 +1099,7 @@ def _matching_update(table_name: str) -> str | None:
         "public.whatsapp_accounts": None,
         "public.whatsapp_webhook_events": None,
         "public.whatsapp_templates": "updated_at = now()",
+        "public.whatsapp_sync_requests": "updated_at = now()",
         "public.whatsapp_contacts": "full_name = 'Matrix updated'",
         "public.whatsapp_history_inbox": None,
         "public.whatsapp_history_messages": None,
@@ -1108,6 +1127,7 @@ def _insert_parent_id(
 ) -> UUID:
     if table_name in {
         "public.whatsapp_webhook_events",
+        "public.whatsapp_sync_requests",
         "public.whatsapp_contacts",
         "public.whatsapp_history_inbox",
         "public.whatsapp_history_messages",
@@ -1280,6 +1300,7 @@ async def assert_tenant_isolated(
         "public.job_attempts",
         "public.dead_letter_jobs",
         "public.whatsapp_webhook_events",
+        "public.whatsapp_sync_requests",
         "public.whatsapp_templates",
         "public.whatsapp_contacts",
         "public.whatsapp_history_inbox",

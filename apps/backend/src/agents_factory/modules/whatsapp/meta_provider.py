@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import AsyncIterator, Mapping, cast
+from typing import AsyncIterator, Literal, Mapping, cast
 from uuid import UUID
 
 import httpx
@@ -62,6 +62,45 @@ class MetaCloudApiProvider:
     access_tokens: MetaAccessTokenResolver | None = field(default=None, repr=False)
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
     graph_api_base_url: str | None = None
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
+        if self.http_client is not None:
+            yield self.http_client
+            return
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            yield client
+
+    async def request_app_data_sync(
+        self,
+        *,
+        phone_number_id: str,
+        sync_type: Literal["smb_app_state_sync", "history"],
+        access_token: ResolvedSecret,
+    ) -> str:
+        if not phone_number_id.isascii() or not phone_number_id.isdigit():
+            raise ValueError("Invalid Meta phone number ID")
+        if sync_type not in {"smb_app_state_sync", "history"}:
+            raise ValueError("Invalid Meta sync type")
+        try:
+            access_value = access_token.reveal().decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            raise RuntimeError("Meta credential is invalid") from None
+        async with self._client() as client:
+            response = await client.post(
+                f"{self.graph_api_base_url.rstrip('/')}/{phone_number_id}/smb_app_data",
+                headers={"Authorization": f"Bearer {access_value}"},
+                json={"messaging_product": "whatsapp", "sync_type": sync_type},
+            )
+        payload = _required_json_mapping(response)
+        request_id = payload.get("request_id")
+        if (
+            payload.get("messaging_product") != "whatsapp"
+            or not isinstance(request_id, str)
+            or not request_id
+        ):
+            raise RuntimeError("Meta sync did not return a request ID")
+        return request_id
 
     def verify_signature(self, *, raw_body: bytes, signature: str) -> bool:
         match = _SIGNATURE_PATTERN.fullmatch(signature)

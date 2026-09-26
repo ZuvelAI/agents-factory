@@ -199,3 +199,24 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   cases passed; Ruff F check passed. Full backend: 481 passed, 2 previously known
   failures (deferred Meta reviewer hardcoding and isolated database reset marker).
   No production database or Meta configuration changed; release gate CLOSED.
+
+## One-shot sync request checkpoint — 2026-09-26
+
+- Added the documented Meta SMB App Data request for contacts and history,
+  validating its `request_id`; contract tests observed RED/GREEN with an
+  isolated HTTP transport. No real Meta request has been made.
+- New durable, tenant-isolated request record reserves each sync type once per
+  eligible coexistence account. The reservation commits before HTTP. An
+  ambiguous outcome remains UNKNOWN and is not automatically retried. Meta's
+  accepted request ID is retained for support. New requests require the
+  verified signup timestamp to be within the 24-hour window.
+- The one-shot coordinator is not yet wired to the onboarding flow or a worker;
+  account token resolution, UI status, webhook completion and support handling
+  remain. The production gate is still CLOSED. Ruling: UNKNOWN is a manual
+  reconciliation state, because repeating Meta's one-time call after a timeout
+  could violate its documented once-only rule. Cost if wrong: a legitimately
+  unsent request needs support/manual review before the 24-hour window closes.
+- Migration applied only to disposable security DB. Fresh verification: 33
+  focused integration/security tests and 3 Meta contract tests passed; Ruff F
+  passed; full backend 488 passed with the same two known failures (deferred
+  reviewer-account conditional and test DB reset marker).
