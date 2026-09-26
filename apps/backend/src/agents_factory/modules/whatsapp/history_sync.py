@@ -123,12 +123,26 @@ async def import_history_inbox(
     if row is None:
         raise ValueError("History inbox not found for active coexistence account")
     projection = project_history(row["payload"])
-    if projection.media_updates:
-        raise ValueError(
-            "Historical media updates require reconciliation before import"
-        )
     if projection.errors and projection.messages:
         raise ValueError("Mixed history denial and message content")
+    batch_ids = {message.provider_id for message in projection.messages}
+    for media in projection.media_updates:
+        if media["id"] in batch_ids:
+            continue
+        exists = await session.scalar(
+            text(
+                "SELECT id FROM public.whatsapp_history_messages "
+                "WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                "AND provider_message_id=:provider"
+            ),
+            {
+                "tenant": context.tenant_id,
+                "account": row["whatsapp_account_id"],
+                "provider": media["id"],
+            },
+        )
+        if exists is None:
+            return 0  # The matching history chunk may arrive later.
     async with session.begin_nested():
         claimed = await session.scalar(
             text(
@@ -201,6 +215,49 @@ async def import_history_inbox(
                 or existing["provider_timestamp"] != message.occurred_at
             ):
                 raise ValueError("Conflicting historical message")
+        for media in projection.media_updates:
+            existing = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT content,provider_timestamp FROM public.whatsapp_history_messages "
+                            "WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                            "AND provider_message_id=:provider"
+                        ),
+                        {
+                            "tenant": context.tenant_id,
+                            "account": row["whatsapp_account_id"],
+                            "provider": media["id"],
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if existing["content"].get("from") != media["from"] or existing[
+                "provider_timestamp"
+            ] != datetime.fromtimestamp(int(media["timestamp"]), tz=UTC):
+                raise ValueError("Conflicting historical media identity")
+            if existing["content"] == media:
+                continue
+            if existing["content"].get("type") != "media_placeholder":
+                raise ValueError("Conflicting historical media content")
+            updated = await session.scalar(
+                text(
+                    "UPDATE public.whatsapp_history_messages SET content=CAST(:content AS jsonb) "
+                    "WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                    "AND provider_message_id=:provider AND content->>'type'='media_placeholder' "
+                    "RETURNING id"
+                ),
+                {
+                    "content": json.dumps(media, ensure_ascii=False, sort_keys=True),
+                    "tenant": context.tenant_id,
+                    "account": row["whatsapp_account_id"],
+                    "provider": media["id"],
+                },
+            )
+            if updated is None:
+                raise ValueError("Conflicting historical media content")
         return imported
 
 

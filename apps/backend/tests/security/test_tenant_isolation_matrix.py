@@ -104,7 +104,7 @@ TENANT_ISOLATION_REGISTRY = (
         "public.whatsapp_history_inbox", update_allowed=False, delete_allowed=False
     ),
     TenantIsolationRegistration(
-        "public.whatsapp_history_messages", update_allowed=False, delete_allowed=False
+        "public.whatsapp_history_messages", delete_allowed=False
     ),
     TenantIsolationRegistration(
         "public.whatsapp_history_import_receipts",
@@ -604,7 +604,7 @@ async def seeded_world(database_engine: AsyncEngine) -> AsyncIterator[SeededWorl
                     "(id,tenant_id,whatsapp_account_id,provider_message_id,customer_wa_id,"
                     "direction,content,provider_timestamp) "
                     "VALUES (:id,:tenant_id,:account_id,:message_id,'573000000001',"
-                    "'inbound','{}'::jsonb,now())"
+                    "'inbound',jsonb_build_object('id',CAST(:message_id AS text),'type','media_placeholder'),now())"
                 ),
                 {
                     "id": rows["public.whatsapp_history_messages"],
@@ -1102,7 +1102,7 @@ def _matching_update(table_name: str) -> str | None:
         "public.whatsapp_sync_requests": "updated_at = now()",
         "public.whatsapp_contacts": "full_name = 'Matrix updated'",
         "public.whatsapp_history_inbox": None,
-        "public.whatsapp_history_messages": None,
+        "public.whatsapp_history_messages": "content = jsonb_set(content, '{type}', '\"image\"'::jsonb)",
         "public.whatsapp_history_import_receipts": None,
         "public.conversations": "updated_at = now()",
         "public.messages": None,

@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from agents_factory.common.context import TenantContext
 from agents_factory.database import set_tenant_context
@@ -93,6 +94,139 @@ async def test_archived_history_is_idempotent_tenant_scoped_and_silent(session_f
         )
 
 
+async def test_delayed_media_fills_archived_placeholder_without_live_side_effects(
+    session_factory,
+):
+    tenant, account, chunk_inbox, media_inbox = uuid4(), uuid4(), uuid4(), uuid4()
+    placeholder = {
+        "chunks": [
+            {
+                "metadata": {"phase": 0, "chunk_order": 1, "progress": 55},
+                "threads": [
+                    {
+                        "id": "573000000001",
+                        "messages": [
+                            {
+                                "id": "old-media",
+                                "from": "business",
+                                "timestamp": "1739230970",
+                                "type": "media_placeholder",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+        "media_messages": [],
+    }
+    media = {
+        "chunks": [],
+        "media_messages": [
+            {
+                "id": "old-media",
+                "from": "business",
+                "timestamp": "1739230970",
+                "type": "image",
+                "image": {"id": "asset-123"},
+            }
+        ],
+    }
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.tenants (id,slug,name) VALUES (:id,:slug,'Media test')"
+            ),
+            {"id": tenant, "slug": str(tenant)},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_accounts (id,tenant_id,provider,waba_id,phone_number_id,status,mode,coexistence_eligibility) VALUES (:id,:tenant,'meta','media-waba','media-phone','active','COEXISTENCE','ELIGIBLE')"
+            ),
+            {"id": account, "tenant": tenant},
+        )
+        for inbox, digest, payload in (
+            (chunk_inbox, "e" * 64, placeholder),
+            (media_inbox, "f" * 64, media),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO public.whatsapp_history_inbox (id,tenant_id,whatsapp_account_id,payload_digest,payload) VALUES (:id,:tenant,:account,:digest,CAST(:payload AS jsonb))"
+                ),
+                {
+                    "id": inbox,
+                    "tenant": tenant,
+                    "account": account,
+                    "digest": digest,
+                    "payload": json.dumps(payload),
+                },
+            )
+    context = TenantContext(
+        tenant_id=tenant, actor_id=None, actor_type="system", correlation_id=uuid4()
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        assert (
+            await history_sync.import_history_inbox(
+                session, context=context, inbox_id=media_inbox
+            )
+            == 0
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        assert (
+            await history_sync.import_history_inbox(
+                session, context=context, inbox_id=chunk_inbox
+            )
+            == 1
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        assert (
+            await history_sync.import_history_inbox(
+                session, context=context, inbox_id=media_inbox
+            )
+            == 0
+        )
+        await set_tenant_context(session, tenant)
+        content = await session.scalar(
+            text(
+                "SELECT content FROM public.whatsapp_history_messages WHERE provider_message_id='old-media'"
+            )
+        )
+        assert content["type"] == "image"
+        assert content["image"] == {"id": "asset-123"}
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_history_import_receipts")
+            )
+            == 2
+        )
+        for table in ("messages", "conversations", "outbox_jobs"):
+            assert (
+                await session.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
+            )
+
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, tenant)
+        with pytest.raises(DBAPIError) as error:
+            await session.execute(
+                text(
+                    "UPDATE public.whatsapp_history_messages SET content=CAST(:content AS jsonb) WHERE provider_message_id='old-media'"
+                ),
+                {
+                    "content": json.dumps(
+                        {
+                            "id": "old-media",
+                            "type": "image",
+                            "image": {"id": "different"},
+                        }
+                    )
+                },
+            )
+        assert error.value.orig.sqlstate == "23514"
+
+
 async def test_archive_cannot_import_another_tenants_inbox(session_factory):
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
@@ -166,12 +300,12 @@ async def test_archive_records_denial_but_does_not_claim_unmatched_media(
             tenant_id=tenant, actor_id=None, actor_type="system", correlation_id=uuid4()
         )
         if outcome is None:
-            with pytest.raises(
-                ValueError, match="media updates require reconciliation"
-            ):
+            assert (
                 await history_sync.import_history_inbox(
                     session, context=context, inbox_id=inbox
                 )
+                == 0
+            )
         else:
             assert (
                 await history_sync.import_history_inbox(

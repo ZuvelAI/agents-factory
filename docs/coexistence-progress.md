@@ -220,3 +220,19 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   focused integration/security tests and 3 Meta contract tests passed; Ruff F
   passed; full backend 488 passed with the same two known failures (deferred
   reviewer-account conditional and test DB reset marker).
+
+## Delayed historical media checkpoint — 2026-09-26
+
+- Historical media arriving before its archived placeholder now remains pending
+  without a success receipt. Once the original chunk arrives, importing the
+  media batch fills that archived placeholder by provider message ID and
+  validates sender and timestamp. The live conversation/AI path is untouched.
+- A migration grants only content updates on archived messages, with a tenant
+  RLS policy and a trigger allowing only placeholder-to-media transitions while
+  preserving the provider message ID. Repeat overwrites are rejected.
+- RED observed an unsupported-media exception; GREEN verified media-before-
+  placeholder, reconciliation, two receipts, zero live messages/conversations/
+  AI jobs, and rejection of a later overwrite. Security matrix: 30 passed.
+- Fresh full backend: 489 passed, same two known failures only. Ruff F passed.
+  Worker scheduling/retry of pending local inboxes remains to be connected;
+  release gate CLOSED and pilot/Meta reviewer unchanged.
