@@ -8,10 +8,13 @@ from pydantic import SecretStr
 from sqlalchemy import text
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.errors import DomainError
 from agents_factory.common.queue import JobEnvelope
+from agents_factory.common.security import AdminPrincipal
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp import sync_once
+from agents_factory.modules.whatsapp import router as whatsapp_router
 from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
 from outbound_worker import jobs as outbound_jobs
 
@@ -266,3 +269,67 @@ async def test_sync_worker_records_meta_request_once_despite_job_replay(
             )
             == 0
         )
+
+
+async def test_sync_status_separates_unsent_uncertain_and_accepted(session_factory):
+    tenant, account = await seed_account(session_factory, verified_at=datetime.now(UTC))
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        initial = await sync_once.get_sync_status(
+            session, tenant_id=tenant, account_id=account
+        )
+    assert [(item.sync_type, item.state) for item in initial] == [
+        ("smb_app_state_sync", "NOT_REQUESTED"),
+        ("history", "NOT_REQUESTED"),
+    ]
+
+    async def uncertain(_phone, _kind):
+        raise TimeoutError("provider outcome unknown")
+
+    async def accepted(_phone, _kind):
+        return "history-support-id"
+
+    await sync_once.request_sync_once(
+        session_factory,
+        tenant_id=tenant,
+        account_id=account,
+        sync_type="smb_app_state_sync",
+        send=uncertain,
+    )
+    await sync_once.request_sync_once(
+        session_factory,
+        tenant_id=tenant,
+        account_id=account,
+        sync_type="history",
+        send=accepted,
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        statuses = await sync_once.get_sync_status(
+            session, tenant_id=tenant, account_id=account
+        )
+        assert [(item.sync_type, item.state, item.request_id) for item in statuses] == [
+            ("smb_app_state_sync", "UNKNOWN", None),
+            ("history", "ACCEPTED", "history-support-id"),
+        ]
+        with pytest.raises(ValueError, match="account"):
+            await sync_once.get_sync_status(
+                session, tenant_id=uuid4(), account_id=account
+            )
+
+
+async def test_sync_status_route_hides_another_tenants_account(session_factory):
+    _tenant, account = await seed_account(
+        session_factory, verified_at=datetime.now(UTC)
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        with pytest.raises(DomainError) as error:
+            await whatsapp_router.get_coexistence_sync_status(
+                tenant_id=uuid4(),
+                account_id=account,
+                request=SimpleNamespace(),
+                principal=AdminPrincipal(user_id=uuid4(), session_id=uuid4()),
+                session=session,
+            )
+        assert error.value.status == 404

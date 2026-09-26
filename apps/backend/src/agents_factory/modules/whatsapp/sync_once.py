@@ -1,6 +1,8 @@
 """One-shot WhatsApp Business app synchronization coordination."""
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, cast
 from uuid import UUID
 
@@ -15,6 +17,65 @@ from agents_factory.database import set_tenant_context
 SyncType = Literal["smb_app_state_sync", "history"]
 SyncState = Literal["UNKNOWN", "ACCEPTED"]
 SyncSender = Callable[[str, SyncType], Awaitable[str]]
+
+
+@dataclass(frozen=True, slots=True)
+class SyncStatus:
+    sync_type: SyncType
+    state: Literal["NOT_REQUESTED", "UNKNOWN", "ACCEPTED"]
+    request_id: str | None
+    reserved_at: datetime | None
+
+
+async def get_sync_status(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    account_id: UUID,
+) -> tuple[SyncStatus, SyncStatus]:
+    """Report request acceptance, not completion of Meta's async data delivery."""
+    await set_tenant_context(session, tenant_id)
+    exists = await session.scalar(
+        text(
+            "SELECT id FROM public.whatsapp_accounts WHERE tenant_id=:tenant "
+            "AND id=:account AND mode='COEXISTENCE'"
+        ),
+        {"tenant": tenant_id, "account": account_id},
+    )
+    if exists is None:
+        raise ValueError("Coexistence account not found")
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT sync_type,state,request_id,reserved_at "
+                    "FROM public.whatsapp_sync_requests "
+                    "WHERE tenant_id=:tenant AND whatsapp_account_id=:account"
+                ),
+                {"tenant": tenant_id, "account": account_id},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    by_type = {row["sync_type"]: row for row in rows}
+
+    def status_for(sync_type: SyncType) -> SyncStatus:
+        row = by_type.get(sync_type)
+        return SyncStatus(
+            sync_type=sync_type,
+            state=cast(
+                Literal["NOT_REQUESTED", "UNKNOWN", "ACCEPTED"],
+                row["state"] if row is not None else "NOT_REQUESTED",
+            ),
+            request_id=row["request_id"] if row is not None else None,
+            reserved_at=row["reserved_at"] if row is not None else None,
+        )
+
+    return (
+        status_for("smb_app_state_sync"),
+        status_for("history"),
+    )
 
 
 async def enqueue_initial_sync(

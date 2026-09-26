@@ -281,3 +281,17 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   backend: 495 passed, the same two existing failures (deferred Meta reviewer
   conditional and stale disposable-DB marker). Ruff F and targeted mypy passed.
   No live Meta request, production deployment or reviewer-account change.
+
+## Sync request visibility checkpoint — 2026-09-26
+
+- Added a read-only, platform-admin-only sync-status endpoint scoped to the
+  selected tenant and coexistence account. It reports each one-shot type as
+  NOT_REQUESTED, UNKNOWN, or ACCEPTED, with Meta's support request ID only
+  when accepted. A foreign-tenant/account lookup returns 404. No tokens appear.
+- Ruling: ACCEPTED means Meta accepted the request, not that all asynchronous
+  contacts/history were delivered or imported — the endpoint intentionally
+  does not claim completion. Cost if wrong: operators must inspect webhook
+  receipts separately until a completion model is added.
+- RED observed absent status reader and route; GREEN focused sync suite: 8
+  passed. Full backend after implementation: 497 passed, same two existing
+  failures. Ruff F and targeted mypy passed. Release gate remains CLOSED.

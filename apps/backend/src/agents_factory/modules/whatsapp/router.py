@@ -31,7 +31,11 @@ from agents_factory.modules.whatsapp.contracts import (
 )
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
 from agents_factory.modules.whatsapp.signup_service import WhatsAppSignupService
-from agents_factory.modules.whatsapp.sync_once import enqueue_initial_sync
+from agents_factory.modules.whatsapp.sync_once import (
+    SyncStatus,
+    enqueue_initial_sync,
+    get_sync_status,
+)
 from agents_factory.modules.whatsapp.template_service import TemplateService
 from agents_factory.modules.whatsapp.test_templates import simple_approved_templates
 
@@ -243,6 +247,22 @@ class WhatsAppAccountResponse(BaseModel):
         )
 
 
+class CoexistenceSyncStatusResponse(BaseModel):
+    sync_type: str
+    state: str
+    request_id: str | None
+    reserved_at: datetime | None
+
+    @classmethod
+    def from_status(cls, status: SyncStatus) -> CoexistenceSyncStatusResponse:
+        return cls(
+            sync_type=status.sync_type,
+            state=status.state,
+            request_id=status.request_id,
+            reserved_at=status.reserved_at,
+        )
+
+
 @router.post(
     "/signup/start",
     response_model=SignupStartResponse,
@@ -321,6 +341,34 @@ async def list_whatsapp_accounts(
         context=_context(request, principal, tenant_id)
     )
     return tuple(WhatsAppAccountResponse.from_summary(item) for item in summaries)
+
+
+@router.get(
+    "/{account_id}/sync-status",
+    response_model=tuple[CoexistenceSyncStatusResponse, ...],
+)
+async def get_coexistence_sync_status(
+    tenant_id: UUID,
+    account_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> tuple[CoexistenceSyncStatusResponse, ...]:
+    try:
+        statuses = await get_sync_status(
+            session,
+            tenant_id=tenant_id,
+            account_id=account_id,
+        )
+    except ValueError:
+        raise DomainError(
+            type="https://agents-factory.dev/problems/whatsapp-account-not-found",
+            title="WhatsApp Account Not Found",
+            status=404,
+            detail="No coexistence account was found for this tenant.",
+            code="whatsapp_account_not_found",
+        ) from None
+    return tuple(CoexistenceSyncStatusResponse.from_status(item) for item in statuses)
 
 
 @router.post(
