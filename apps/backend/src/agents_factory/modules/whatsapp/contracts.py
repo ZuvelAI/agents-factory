@@ -83,6 +83,14 @@ class WhatsAppDeliveryStatusEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppAccountUpdate:
+    waba_id: str
+    event: str
+    display_phone_digits: str | None
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class OutboundTextRequest:
     context: TenantContext
     whatsapp_account_id: UUID
@@ -176,6 +184,7 @@ class ProviderWebhookBatch:
     mobile_echoes: tuple[WhatsAppMobileEcho, ...] = ()
     contact_changes: tuple[WhatsAppContactChange, ...] = ()
     history_sync: tuple[WhatsAppHistorySync, ...] = ()
+    account_updates: tuple[WhatsAppAccountUpdate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -91,13 +91,19 @@ class MetaChangeValue(MetaWebhookModel):
     history: list[MetaHistoryChunk | MetaHistoryFailure] = Field(default_factory=list)
 
 
+class MetaAccountUpdateValue(MetaWebhookModel):
+    event: str = Field(min_length=1, max_length=100)
+    phone_number: str | None = Field(default=None, max_length=100)
+
+
 class MetaChange(MetaWebhookModel):
     field: str
-    value: MetaChangeValue
+    value: MetaChangeValue | MetaAccountUpdateValue
 
 
 class MetaEntry(MetaWebhookModel):
     id: str = Field(min_length=1, max_length=200)
+    time: int | None = Field(default=None, ge=0, strict=True)
     changes: list[MetaChange]
 
 

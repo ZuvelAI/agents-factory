@@ -14,6 +14,7 @@ from agents_factory.config import Settings
 from agents_factory.main import ReadinessChecks, create_app
 from agents_factory.modules.whatsapp.contracts import WebhookProcessingResult
 from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
+from agents_factory.modules.whatsapp.meta_provider import InvalidWebhookPayload
 from agents_factory.modules.whatsapp.webhook import (
     WebhookProcessor,
     get_meta_webhook_processor,
@@ -215,3 +216,88 @@ def test_provider_normalizes_delivery_status_without_treating_it_as_inbound() ->
         "category": "service",
         "pricing_model": "CBP",
     }
+
+
+def test_provider_parses_partner_removed_by_display_phone_not_phone_id() -> None:
+    provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
+    batch = provider.parse_webhook(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": "waba-1",
+                    "time": 1739212624,
+                    "changes": [
+                        {
+                            "field": "account_update",
+                            "value": {
+                                "event": "PARTNER_REMOVED",
+                                "phone_number": "+57 312 400 9568",
+                                "disconnection_info": {
+                                    "reason": "PRIMARY_INACTIVITY",
+                                    "initiated_by": "SYSTEM",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert len(batch.account_updates) == 1
+    update = batch.account_updates[0]
+    assert update.waba_id == "waba-1"
+    assert update.display_phone_digits == "573124009568"
+    assert update.event == "PARTNER_REMOVED"
+    assert update.occurred_at.isoformat() == "2025-02-10T18:37:04+00:00"
+
+
+@pytest.mark.parametrize("phone", ["", "１２３４５６７８９", "555abc999", "123"])
+def test_provider_rejects_unmatchable_partner_removed_number(phone: str) -> None:
+    provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
+    with pytest.raises(InvalidWebhookPayload):
+        provider.parse_webhook(
+            {
+                "object": "whatsapp_business_account",
+                "entry": [
+                    {
+                        "id": "waba-1",
+                        "time": 1739212624,
+                        "changes": [
+                            {
+                                "field": "account_update",
+                                "value": {
+                                    "event": "PARTNER_REMOVED",
+                                    "phone_number": phone,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_provider_requires_account_update_timestamp() -> None:
+    provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
+    with pytest.raises(InvalidWebhookPayload):
+        provider.parse_webhook(
+            {
+                "object": "whatsapp_business_account",
+                "entry": [
+                    {
+                        "id": "waba-1",
+                        "changes": [
+                            {
+                                "field": "account_update",
+                                "value": {
+                                    "event": "PARTNER_REMOVED",
+                                    "phone_number": "573124009568",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )

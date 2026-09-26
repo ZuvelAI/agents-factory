@@ -31,9 +31,14 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppMobileEcho,
     WhatsAppContactChange,
     WhatsAppHistorySync,
+    WhatsAppAccountUpdate,
 )
 from agents_factory.modules.secrets.redaction import ResolvedSecret
-from agents_factory.modules.whatsapp.schemas import MetaWebhookPayload
+from agents_factory.modules.whatsapp.schemas import (
+    MetaAccountUpdateValue,
+    MetaChangeValue,
+    MetaWebhookPayload,
+)
 
 
 _SIGNATURE_PATTERN = re.compile(r"sha256=([0-9a-f]{64})")
@@ -130,8 +135,28 @@ class MetaCloudApiProvider:
         mobile_echoes: list[WhatsAppMobileEcho] = []
         contact_changes: list[WhatsAppContactChange] = []
         history_sync: list[WhatsAppHistorySync] = []
+        account_updates: list[WhatsAppAccountUpdate] = []
         for entry in parsed.entry:
             for change in entry.changes:
+                if change.field == "account_update":
+                    if not isinstance(change.value, MetaAccountUpdateValue):
+                        raise InvalidWebhookPayload
+                    if entry.time is None:
+                        raise InvalidWebhookPayload
+                    digits = _display_phone_digits(change.value.phone_number)
+                    if change.value.event == "PARTNER_REMOVED" and digits is None:
+                        raise InvalidWebhookPayload
+                    account_updates.append(
+                        WhatsAppAccountUpdate(
+                            waba_id=entry.id,
+                            event=change.value.event,
+                            display_phone_digits=digits,
+                            occurred_at=_provider_timestamp(str(entry.time)),
+                        )
+                    )
+                    continue
+                if not isinstance(change.value, MetaChangeValue):
+                    raise InvalidWebhookPayload
                 if change.field == "history":
                     chunks = tuple(
                         item.model_dump(by_alias=True, exclude_unset=True)
@@ -231,6 +256,7 @@ class MetaCloudApiProvider:
             mobile_echoes=tuple(mobile_echoes),
             contact_changes=tuple(contact_changes),
             history_sync=tuple(history_sync),
+            account_updates=tuple(account_updates),
         )
 
     async def send_text(

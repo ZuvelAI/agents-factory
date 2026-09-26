@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -28,6 +29,28 @@ class PersistedWebhookEvent:
 class WhatsAppWebhookRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def apply_partner_removed(
+        self,
+        *,
+        waba_id: str,
+        display_phone_digits: str,
+        occurred_at: datetime,
+    ) -> str:
+        result = await self._session.scalar(
+            text(
+                "SELECT agents_factory_private.apply_whatsapp_partner_removed("
+                ":waba_id, :display_phone_digits, :occurred_at)"
+            ),
+            {
+                "waba_id": waba_id,
+                "display_phone_digits": display_phone_digits,
+                "occurred_at": occurred_at,
+            },
+        )
+        if not isinstance(result, str):
+            raise RuntimeError("Meta disconnect result is unavailable")
+        return result
 
     async def resolve_active_mapping(
         self,

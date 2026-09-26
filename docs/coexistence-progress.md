@@ -340,3 +340,30 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   reviewer-account conditional and stale isolated-DB marker). Ruff F and
   targeted mypy passed. Account_update parsing/quarantine is NOT yet wired;
   the release gate stays CLOSED. No live Meta request or Zuvel number change.
+
+## Exact-number Meta disconnect checkpoint — 2026-09-26
+
+- Added typed `account_update` parsing, including Meta's entry timestamp and
+  normalized display phone. `PARTNER_REMOVED` without a valid phone or event
+  time is rejected. After signature verification, a private database function
+  atomically deactivates only the active COEXISTENCE account matching both
+  WABA and verified display phone. Replayed events are harmless; events older
+  than the current registration do not deactivate it. No credential is exposed
+  or automatically revoked; inactive status blocks subsequent outbound work.
+- Ruling: WABA-only `ACCOUNT_OFFBOARDED` and `ACCOUNT_RECONNECTED`, other
+  account-update types, and unmatched `PARTNER_REMOVED` return a retryable 503
+  rather than silently acknowledging or changing an unrelated account.
+  `ACCOUNT_RECONNECTED` never automatically reactivates an account. Cost if
+  wrong: Meta may retry these ambiguous events repeatedly and an operator
+  still lacks a durable quarantine/alert queue. This must be resolved and
+  tested before the COEXISTENCE release gate opens.
+- RED observed unsupported `account_update` and silent processing. GREEN:
+  parser and real-database integration tests for exact match, replay, stale
+  registration, WABA isolation and ambiguous updates (21 focused tests).
+  Full backend: 508 passed, the same two existing failures (deferred reviewer
+  account conditional and stale disposable-DB marker). Two temporary security
+  test failures were caused by a synthetic test fixture named `SECRET`; the
+  fixture was renamed without changing the security detector, and those tests
+  now pass. Ruff F and targeted mypy pass. The migration was applied only to
+  the disposable local PostgreSQL container. No live Meta call, account
+  change, production deployment or reviewer-account correction.

@@ -58,6 +58,17 @@ class UnknownAccountMapping(DomainError):
         )
 
 
+class UnprocessedAccountUpdate(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            type="https://agents-factory.dev/problems/unprocessed-account-update",
+            title="Unprocessed Account Update",
+            status=503,
+            detail="The Meta account update could not be matched safely.",
+            code="unprocessed_account_update",
+        )
+
+
 class WebhookVerificationDenied(DomainError):
     def __init__(self) -> None:
         super().__init__(
@@ -120,19 +131,22 @@ class MetaWebhookProcessor:
         batch = self._provider.parse_webhook(payload)
         # Acquire every affected conversation fence before any row lock. Sorting
         # only echoes is insufficient for batches mixing echoes and statuses.
-        targets = (
-            {
-                (event.waba_id, event.phone_number_id, event.recipient_wa_id)
-                for event in (*batch.mobile_echoes, *batch.delivery_statuses)
-            }
-            | {
-                (event.waba_id, event.phone_number_id, event.sender_wa_id)
-                for event in batch.inbound_events
-            }
-            | {
-                (event.waba_id, event.phone_number_id, event.customer_wa_id)
-                for event in batch.contact_changes
-            }
+        targets: set[tuple[str, str, str]] = set()
+        targets.update(
+            (echo.waba_id, echo.phone_number_id, echo.recipient_wa_id)
+            for echo in batch.mobile_echoes
+        )
+        targets.update(
+            (status.waba_id, status.phone_number_id, status.recipient_wa_id)
+            for status in batch.delivery_statuses
+        )
+        targets.update(
+            (inbound.waba_id, inbound.phone_number_id, inbound.sender_wa_id)
+            for inbound in batch.inbound_events
+        )
+        targets.update(
+            (contact.waba_id, contact.phone_number_id, contact.customer_wa_id)
+            for contact in batch.contact_changes
         )
         for waba_id, phone_number_id, customer_wa_id in sorted(targets):
             mapping = await self._repository.resolve_active_mapping(
@@ -149,10 +163,10 @@ class MetaWebhookProcessor:
             )
         accepted_messages = 0
         duplicate_messages = 0
-        for event in batch.history_sync:
+        for history_event in batch.history_sync:
             mapping = await self._repository.resolve_active_mapping(
-                waba_id=event.waba_id,
-                phone_number_id=event.phone_number_id,
+                waba_id=history_event.waba_id,
+                phone_number_id=history_event.phone_number_id,
             )
             if mapping is None:
                 raise UnknownAccountMapping
@@ -163,7 +177,7 @@ class MetaWebhookProcessor:
                 correlation_id=correlation_id,
             )
             inbox_id = await persist_history(
-                self._session, context=context, mapping=mapping, event=event
+                self._session, context=context, mapping=mapping, event=history_event
             )
             if inbox_id is not None:
                 await self._outbox.enqueue(
@@ -176,10 +190,10 @@ class MetaWebhookProcessor:
                         "whatsapp_account_id": str(mapping.account_id),
                     },
                 )
-        for event in batch.contact_changes:
+        for contact_event in batch.contact_changes:
             mapping = await self._repository.resolve_active_mapping(
-                waba_id=event.waba_id,
-                phone_number_id=event.phone_number_id,
+                waba_id=contact_event.waba_id,
+                phone_number_id=contact_event.phone_number_id,
             )
             if mapping is None:
                 raise UnknownAccountMapping
@@ -190,13 +204,13 @@ class MetaWebhookProcessor:
                 correlation_id=correlation_id,
             )
             await ingest_contact_change(
-                self._session, context=context, mapping=mapping, event=event
+                self._session, context=context, mapping=mapping, event=contact_event
             )
         # Apply human control before any customer messages in the same batch.
-        for event in batch.mobile_echoes:
+        for echo_event in batch.mobile_echoes:
             mapping = await self._repository.resolve_active_mapping(
-                waba_id=event.waba_id,
-                phone_number_id=event.phone_number_id,
+                waba_id=echo_event.waba_id,
+                phone_number_id=echo_event.phone_number_id,
             )
             if mapping is None:
                 raise UnknownAccountMapping
@@ -207,16 +221,16 @@ class MetaWebhookProcessor:
                 correlation_id=correlation_id,
             )
             created = await ingest_mobile_echo(
-                self._session, context=context, mapping=mapping, event=event
+                self._session, context=context, mapping=mapping, event=echo_event
             )
             if created:
                 accepted_messages += 1
             else:
                 duplicate_messages += 1
-        for event in batch.inbound_events:
+        for inbound_event in batch.inbound_events:
             mapping = await self._repository.resolve_active_mapping(
-                waba_id=event.waba_id,
-                phone_number_id=event.phone_number_id,
+                waba_id=inbound_event.waba_id,
+                phone_number_id=inbound_event.phone_number_id,
             )
             if mapping is None:
                 raise UnknownAccountMapping
@@ -229,20 +243,20 @@ class MetaWebhookProcessor:
             persisted = await self._repository.persist_inbound(
                 context=context,
                 mapping=mapping,
-                event=event,
+                event=inbound_event,
             )
             if not persisted.created:
                 duplicate_messages += 1
                 continue
             await self._outbox.enqueue(
                 context=context,
-                idempotency_key=f"whatsapp.inbound:{event.whatsapp_message_id}",
+                idempotency_key=f"whatsapp.inbound:{inbound_event.whatsapp_message_id}",
                 topic="whatsapp.inbound.received",
                 payload={
                     "aggregate_id": str(persisted.event_id),
                     "event_id": str(persisted.event_id),
                     "whatsapp_account_id": str(mapping.account_id),
-                    "whatsapp_message_id": event.whatsapp_message_id,
+                    "whatsapp_message_id": inbound_event.whatsapp_message_id,
                 },
             )
             accepted_messages += 1
@@ -265,6 +279,17 @@ class MetaWebhookProcessor:
                 whatsapp_account_id=mapping.account_id,
                 event=status,
             )
+
+        for update in batch.account_updates:
+            if update.event != "PARTNER_REMOVED" or update.display_phone_digits is None:
+                raise UnprocessedAccountUpdate
+            result = await self._repository.apply_partner_removed(
+                waba_id=update.waba_id,
+                display_phone_digits=update.display_phone_digits,
+                occurred_at=update.occurred_at,
+            )
+            if result not in {"deactivated", "already_inactive", "stale"}:
+                raise UnprocessedAccountUpdate
 
         return WebhookProcessingResult(
             accepted_messages=accepted_messages,
