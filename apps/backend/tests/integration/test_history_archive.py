@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -6,8 +7,225 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.outbox import OutboxService
+from agents_factory.common.queue import JobEnvelope
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.whatsapp import history_sync
+from agent_worker.jobs import handle_whatsapp_history_import
+
+
+async def _enqueue_archive_job(session_factory, tenant, account, inbox):
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        job = await OutboxService(session).enqueue(
+            context=TenantContext(
+                tenant_id=tenant,
+                actor_id=None,
+                actor_type="system",
+                correlation_id=uuid4(),
+            ),
+            idempotency_key=f"whatsapp.history.import:{inbox}",
+            topic="whatsapp.history.import",
+            payload={
+                "aggregate_id": str(inbox),
+                "inbox_id": str(inbox),
+                "whatsapp_account_id": str(account),
+            },
+        )
+    return JobEnvelope(
+        job_id=job.id,
+        tenant_id=tenant,
+        kind="whatsapp.history.import",
+        aggregate_id=inbox,
+    )
+
+
+async def test_archive_worker_imports_without_starting_live_conversations(
+    session_factory,
+):
+    tenant, account, inbox = uuid4(), uuid4(), uuid4()
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.tenants (id,slug,name) VALUES (:id,:slug,'Archive worker')"
+            ),
+            {"id": tenant, "slug": str(tenant)},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_accounts (id,tenant_id,provider,waba_id,phone_number_id,status,mode,coexistence_eligibility) VALUES (:id,:tenant,'meta','worker-waba','worker-phone','active','COEXISTENCE','ELIGIBLE')"
+            ),
+            {"id": account, "tenant": tenant},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_history_inbox (id,tenant_id,whatsapp_account_id,payload_digest,payload) VALUES (:id,:tenant,:account,repeat('a',64),CAST(:payload AS jsonb))"
+            ),
+            {
+                "id": inbox,
+                "tenant": tenant,
+                "account": account,
+                "payload": json.dumps(
+                    {
+                        "chunks": [
+                            {
+                                "metadata": {
+                                    "phase": 0,
+                                    "chunk_order": 1,
+                                    "progress": 100,
+                                },
+                                "threads": [
+                                    {
+                                        "id": "573000000001",
+                                        "messages": [
+                                            {
+                                                "id": "worker-old",
+                                                "from": "573000000001",
+                                                "timestamp": "1739230970",
+                                                "type": "text",
+                                                "text": {"body": "Old question"},
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                        "media_messages": [],
+                    }
+                ),
+            },
+        )
+    envelope = await _enqueue_archive_job(session_factory, tenant, account, inbox)
+    database = SimpleNamespace(session_factory=session_factory)
+    await handle_whatsapp_history_import(envelope=envelope, database=database)
+    await handle_whatsapp_history_import(envelope=envelope, database=database)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, tenant)
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_history_messages")
+            )
+            == 1
+        )
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_history_import_receipts")
+            )
+            == 1
+        )
+        for table in ("messages", "conversations"):
+            assert (
+                await session.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
+            )
+        assert (
+            await session.scalar(text("SELECT topic FROM public.outbox_jobs"))
+        ) == "whatsapp.history.import"
+
+
+async def test_archive_worker_reconciles_media_that_arrived_before_chunk(
+    session_factory,
+):
+    tenant, account, media_inbox, chunk_inbox = uuid4(), uuid4(), uuid4(), uuid4()
+    media = {
+        "chunks": [],
+        "media_messages": [
+            {
+                "id": "worker-media",
+                "from": "business",
+                "timestamp": "1739230970",
+                "type": "image",
+                "image": {"id": "asset-123"},
+            }
+        ],
+    }
+    chunk = {
+        "chunks": [
+            {
+                "metadata": {"phase": 0, "chunk_order": 1, "progress": 100},
+                "threads": [
+                    {
+                        "id": "573000000001",
+                        "messages": [
+                            {
+                                "id": "worker-media",
+                                "from": "business",
+                                "timestamp": "1739230970",
+                                "type": "media_placeholder",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+        "media_messages": [],
+    }
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.tenants (id,slug,name) VALUES (:id,:slug,'Archive delayed media')"
+            ),
+            {"id": tenant, "slug": str(tenant)},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_accounts (id,tenant_id,provider,waba_id,phone_number_id,status,mode,coexistence_eligibility) VALUES (:id,:tenant,'meta','worker-media-waba','worker-media-phone','active','COEXISTENCE','ELIGIBLE')"
+            ),
+            {"id": account, "tenant": tenant},
+        )
+        for inbox, digest, payload in (
+            (media_inbox, "b" * 64, media),
+            (chunk_inbox, "c" * 64, chunk),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO public.whatsapp_history_inbox (id,tenant_id,whatsapp_account_id,payload_digest,payload) VALUES (:id,:tenant,:account,:digest,CAST(:payload AS jsonb))"
+                ),
+                {
+                    "id": inbox,
+                    "tenant": tenant,
+                    "account": account,
+                    "digest": digest,
+                    "payload": json.dumps(payload),
+                },
+            )
+    database = SimpleNamespace(session_factory=session_factory)
+    media_job = await _enqueue_archive_job(
+        session_factory, tenant, account, media_inbox
+    )
+    chunk_job = await _enqueue_archive_job(
+        session_factory, tenant, account, chunk_inbox
+    )
+    await handle_whatsapp_history_import(envelope=media_job, database=database)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, tenant)
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_history_import_receipts")
+            )
+            == 0
+        )
+    await handle_whatsapp_history_import(envelope=chunk_job, database=database)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, tenant)
+        content = await session.scalar(
+            text(
+                "SELECT content FROM public.whatsapp_history_messages WHERE provider_message_id='worker-media'"
+            )
+        )
+        assert content["type"] == "image"
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.whatsapp_history_import_receipts")
+            )
+            == 2
+        )
+        for table in ("messages", "conversations"):
+            assert (
+                await session.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
+            )
 
 
 async def test_archived_history_is_idempotent_tenant_scoped_and_silent(session_factory):

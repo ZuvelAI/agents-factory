@@ -236,3 +236,24 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - Fresh full backend: 489 passed, same two known failures only. Ruff F passed.
   Worker scheduling/retry of pending local inboxes remains to be connected;
   release gate CLOSED and pilot/Meta reviewer unchanged.
+
+## Asynchronous history importer checkpoint — 2026-09-26
+
+- Signed, deduplicated history webhook batches now enqueue exactly one
+  `whatsapp.history.import` outbox job in the same transaction as the inbox row.
+  The scheduler routes it to a dedicated archive handler, separate from the
+  live inbound/agent-turn handlers. Duplicate webhooks create no extra job.
+- The worker validates tenant, job payload, inbox and account identity before
+  importing. A media-only batch that arrives first stays without a receipt;
+  subsequent chunk import revisits eligible pending media batches in the same
+  tenant/account until reconciled. No live conversation/message or AI turn is
+  created. This is local replay, not a repeated one-shot Meta sync request.
+- RED observed missing archive job and missing worker handler. GREEN verified
+  deduplication, repeat worker delivery, media-before-chunk reconciliation and
+  zero live/AI side effects. Fresh focused tests: 12 passed. Fresh full backend:
+  491 passed, the same two existing failures (deferred reviewer-account
+  conditional and stale marker in disposable DB). Ruff F passed.
+- Still pending: wire one-shot sync to verified onboarding/token resolution,
+  status and disconnect controls, delayed echo/resume policy, browser flow,
+  final security review and rollout gates. No Meta request, pilot onboarding,
+  production deployment or reviewer-account changes. Release gate CLOSED.

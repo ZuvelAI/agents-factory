@@ -162,9 +162,20 @@ class MetaWebhookProcessor:
                 actor_type="system",
                 correlation_id=correlation_id,
             )
-            await persist_history(
+            inbox_id = await persist_history(
                 self._session, context=context, mapping=mapping, event=event
             )
+            if inbox_id is not None:
+                await self._outbox.enqueue(
+                    context=context,
+                    idempotency_key=f"whatsapp.history.import:{inbox_id}",
+                    topic="whatsapp.history.import",
+                    payload={
+                        "aggregate_id": str(inbox_id),
+                        "inbox_id": str(inbox_id),
+                        "whatsapp_account_id": str(mapping.account_id),
+                    },
+                )
         for event in batch.contact_changes:
             mapping = await self._repository.resolve_active_mapping(
                 waba_id=event.waba_id,

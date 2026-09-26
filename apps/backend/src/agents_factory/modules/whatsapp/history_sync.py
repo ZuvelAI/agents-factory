@@ -267,7 +267,7 @@ async def persist_history(
     context: TenantContext,
     mapping: WhatsAppAccountMapping,
     event: WhatsAppHistorySync,
-) -> bool:
+) -> UUID | None:
     """Durably accept history without running the live-message pipeline."""
     await set_tenant_context(session, context.tenant_id)
     account = await session.scalar(
@@ -312,4 +312,4 @@ async def persist_history(
             "payload": payload,
         },
     )
-    return inserted is not None
+    return inserted

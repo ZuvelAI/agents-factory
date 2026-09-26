@@ -17,7 +17,9 @@ from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
 from agents_factory.modules.whatsapp.webhook import MetaWebhookProcessor
 
 
-async def test_history_is_durable_deduplicated_and_never_queues_ai(session_factory):
+async def test_history_is_durable_deduplicated_and_queues_only_archive_import(
+    session_factory,
+):
     tenant, account = uuid4(), uuid4()
     async with session_factory.begin() as session:
         await session.execute(
@@ -91,10 +93,24 @@ async def test_history_is_durable_deduplicated_and_never_queues_ai(session_facto
         assert len(rows) == 1
         assert rows[0]["whatsapp_account_id"] == account
         assert rows[0]["payload"]["chunks"] == value["history"]
-        for table in ("messages", "conversations", "outbox_jobs"):
+        for table in ("messages", "conversations"):
             assert (
                 await session.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
             )
+        jobs = (
+            (
+                await session.execute(
+                    text("SELECT topic,payload FROM public.outbox_jobs")
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert len(jobs) == 1
+        assert jobs[0]["topic"] == "whatsapp.history.import"
+        assert jobs[0]["payload"]["aggregate_id"] == str(
+            await session.scalar(text("SELECT id FROM public.whatsapp_history_inbox"))
+        )
         await set_tenant_context(session, uuid4())
         assert (
             await session.scalar(

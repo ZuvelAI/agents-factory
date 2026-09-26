@@ -28,6 +28,7 @@ async def startup(context: dict[Any, Any]) -> None:
         queue=redis,
         queue_by_kind={
             "whatsapp.inbound.received": "agent",
+            "whatsapp.history.import": "agent",
             "agent.turn": "agent",
             "outbound.text": "outbound",
             "whatsapp.outbound.send": "outbound",

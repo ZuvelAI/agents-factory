@@ -23,6 +23,7 @@ from agents_factory.modules.runtime.turn_service import (
     AgentTurnService,
     Milestone2AgentSpecProvider,
 )
+from agents_factory.modules.whatsapp.history_sync import import_history_inbox
 
 
 class InvalidAgentTurnJob(ValueError):
@@ -57,9 +58,91 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
     async def whatsapp_inbound_handler(envelope: JobEnvelope) -> None:
         await handle_whatsapp_inbound(envelope=envelope, database=database)
 
+    async def whatsapp_history_handler(envelope: JobEnvelope) -> None:
+        await handle_whatsapp_history_import(envelope=envelope, database=database)
+
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
     handlers["whatsapp.inbound.received"] = whatsapp_inbound_handler
+    handlers["whatsapp.history.import"] = whatsapp_history_handler
     handlers["agent.turn"] = agent_turn_handler
+
+
+async def handle_whatsapp_history_import(
+    *,
+    envelope: JobEnvelope,
+    database: Database,
+) -> None:
+    if envelope.kind != "whatsapp.history.import":
+        raise InvalidAgentTurnJob("unexpected history import job kind")
+    async with database.session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await set_tenant_context(session, envelope.tenant_id)
+        payload = await session.scalar(
+            text(
+                "SELECT payload FROM public.outbox_jobs "
+                "WHERE tenant_id=:tenant AND id=:job AND topic='whatsapp.history.import'"
+            ),
+            {"tenant": envelope.tenant_id, "job": envelope.job_id},
+        )
+        if not isinstance(payload, Mapping):
+            raise InvalidAgentTurnJob("history import payload is unavailable")
+        try:
+            inbox_id = UUID(str(payload["inbox_id"]))
+            account_id = UUID(str(payload["whatsapp_account_id"]))
+        except (KeyError, TypeError, ValueError):
+            raise InvalidAgentTurnJob("history import payload is invalid") from None
+        if inbox_id != envelope.aggregate_id or str(inbox_id) != payload.get(
+            "aggregate_id"
+        ):
+            raise InvalidAgentTurnJob("history import aggregate does not match payload")
+        actual_account = await session.scalar(
+            text(
+                "SELECT whatsapp_account_id FROM public.whatsapp_history_inbox "
+                "WHERE tenant_id=:tenant AND id=:inbox"
+            ),
+            {"tenant": envelope.tenant_id, "inbox": inbox_id},
+        )
+        if actual_account != account_id:
+            raise InvalidAgentTurnJob("history import account does not match inbox")
+        context = TenantContext(
+            tenant_id=envelope.tenant_id,
+            actor_id=None,
+            actor_type="system",
+            correlation_id=envelope.job_id,
+        )
+        await import_history_inbox(session, context=context, inbox_id=inbox_id)
+        # Media-only batches may have arrived before their archived placeholder.
+        # Revisit only batches whose every media ID is now in this account's
+        # archive. Receipts make repeat deliveries harmless.
+        while True:
+            ready = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT inbox.id FROM public.whatsapp_history_inbox AS inbox "
+                            "WHERE inbox.tenant_id=:tenant AND inbox.whatsapp_account_id=:account "
+                            "AND jsonb_array_length(inbox.payload->'media_messages') > 0 "
+                            "AND NOT EXISTS (SELECT 1 FROM public.whatsapp_history_import_receipts AS receipt "
+                            "WHERE receipt.tenant_id=inbox.tenant_id AND receipt.inbox_id=inbox.id) "
+                            "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(inbox.payload->'media_messages') AS media "
+                            "WHERE NOT EXISTS (SELECT 1 FROM public.whatsapp_history_messages AS message "
+                            "WHERE message.tenant_id=inbox.tenant_id "
+                            "AND message.whatsapp_account_id=inbox.whatsapp_account_id "
+                            "AND message.provider_message_id=media->>'id')) "
+                            "ORDER BY inbox.received_at,inbox.id LIMIT 100"
+                        ),
+                        {"tenant": envelope.tenant_id, "account": account_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not ready:
+                break
+            for pending_id in ready:
+                await import_history_inbox(
+                    session, context=context, inbox_id=pending_id
+                )
 
 
 async def handle_whatsapp_inbound(
