@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -99,6 +100,7 @@ class SignupRepository(Protocol):
         business_id: str,
         waba_id: str,
         phone_number_id: str,
+        display_phone_digits: str | None,
         access_token_secret_ref: SecretRef,
         mode: WhatsAppMode,
         coexistence_eligibility: CoexistenceEligibility,
@@ -145,7 +147,10 @@ class WhatsAppSignupService:
         self._state_ttl = state_ttl
 
     async def start(
-        self, *, context: TenantContext, admin_session_id: UUID,
+        self,
+        *,
+        context: TenantContext,
+        admin_session_id: UUID,
         requested_mode: WhatsAppMode = "API_ONLY",
     ) -> EmbeddedSignupStart:
         admin_user_id = _admin_user_id(context)
@@ -206,7 +211,10 @@ class WhatsAppSignupService:
         if (
             (business_id is not None and authorization.business_id != business_id)
             or authorization.waba_id != waba_id
-            or (phone_number_id is not None and authorization.phone_number_id != phone_number_id)
+            or (
+                phone_number_id is not None
+                and authorization.phone_number_id != phone_number_id
+            )
             or not authorization.owns_waba
             or not authorization.owns_phone_number
         ):
@@ -226,6 +234,14 @@ class WhatsAppSignupService:
             raise WhatsAppSignupError(
                 code="whatsapp_coexistence_ineligible",
                 detail="Meta has not marked this number as eligible for Coexistence.",
+            )
+        if requested_mode == "COEXISTENCE" and (
+            not isinstance(authorization.display_phone_digits, str)
+            or re.fullmatch(r"[0-9]{7,20}", authorization.display_phone_digits) is None
+        ):
+            raise WhatsAppSignupError(
+                code="whatsapp_coexistence_identity_unverified",
+                detail="Meta did not verify the displayed WhatsApp phone number.",
             )
 
         business_id = authorization.business_id
@@ -254,6 +270,7 @@ class WhatsAppSignupService:
             business_id=business_id,
             waba_id=waba_id,
             phone_number_id=phone_number_id,
+            display_phone_digits=authorization.display_phone_digits,
             access_token_secret_ref=token_ref,
             mode=requested_mode,
             coexistence_eligibility=authorization.coexistence_eligibility,

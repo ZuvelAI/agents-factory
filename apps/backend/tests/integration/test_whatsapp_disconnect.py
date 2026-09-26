@@ -155,6 +155,38 @@ async def _denial_count(
     return count
 
 
+async def test_reconnected_coexistence_account_persists_verified_display_identity(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    context, account_id, secret_ref = await _seed_account(
+        session_factory, key_provider=_key_provider(6)
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await WhatsAppAccountRepository(session).connect_account(
+            account_id=account_id,
+            context=context,
+            business_id="business-1",
+            waba_id="waba-1",
+            phone_number_id="phone-1",
+            display_phone_digits="15550783881",
+            access_token_secret_ref=secret_ref,
+            mode="COEXISTENCE",
+            coexistence_eligibility="ELIGIBLE",
+            granted_scopes=(),
+            token_expires_at=None,
+            verified_at=NOW,
+        )
+        digits = await session.scalar(
+            text(
+                "SELECT display_phone_digits FROM public.whatsapp_accounts "
+                "WHERE tenant_id=:tenant AND id=:account"
+            ),
+            {"tenant": context.tenant_id, "account": account_id},
+        )
+    assert digits == "15550783881"
+
+
 @pytest.mark.asyncio
 async def test_disconnect_keeps_inactive_cleared_mapping_when_vault_operations_fail(
     session_factory: async_sessionmaker[AsyncSession],

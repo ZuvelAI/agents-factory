@@ -448,7 +448,9 @@ class MetaEmbeddedSignupClient:
                 phone_number_id = candidate_id
             phone_status_response = await client.get(
                 f"{self.graph_api_base_url.rstrip('/')}/{phone_number_id}",
-                params={"fields": "id,is_on_biz_app,platform_type"},
+                params={
+                    "fields": "id,is_on_biz_app,platform_type,display_phone_number"
+                },
                 headers=authorization_header,
             )
             phone_status = _required_json_mapping(phone_status_response)
@@ -473,6 +475,11 @@ class MetaEmbeddedSignupClient:
             token_expires_at=expires_at,
             owns_waba=owns_waba,
             owns_phone_number=owns_phone,
+            display_phone_digits=(
+                _display_phone_digits(phone_status.get("display_phone_number"))
+                if phone_status.get("id") == phone_number_id and owns_phone
+                else None
+            ),
             coexistence_eligibility=(
                 _coexistence_status(phone_status, phone_number_id)
                 if owns_waba and owns_phone
@@ -669,6 +676,13 @@ def _contains_asset(value: object, asset_id: str) -> bool:
     return isinstance(value, list) and any(
         isinstance(item, Mapping) and item.get("id") == asset_id for item in value
     )
+
+
+def _display_phone_digits(value: object) -> str | None:
+    if not isinstance(value, str) or re.fullmatch(r"[+().\- 0-9]+", value) is None:
+        return None
+    digits = re.sub(r"[^0-9]", "", value)
+    return digits if 7 <= len(digits) <= 20 else None
 
 
 def _delivery_error_code(errors: Sequence[object]) -> str | None:

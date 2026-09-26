@@ -55,6 +55,7 @@ def snapshot(
     owns_waba: bool = True,
     owns_phone_number: bool = True,
     eligibility: str = "UNKNOWN",
+    display_phone_digits: str | None = "15550783881",
 ) -> MetaAuthorizationSnapshot:
     return MetaAuthorizationSnapshot(
         access_token=ResolvedSecret(b"client-owned-meta-token"),
@@ -66,6 +67,7 @@ def snapshot(
         owns_waba=owns_waba,
         owns_phone_number=owns_phone_number,
         coexistence_eligibility=eligibility,  # type: ignore[arg-type]
+        display_phone_digits=display_phone_digits,
     )
 
 
@@ -308,6 +310,30 @@ async def test_coexistence_service_uses_verified_asset_ids_when_callback_omits_t
     assert connected["business_id"] == "business-client-1"
     assert connected["phone_number_id"] == "phone-client-1"
     assert connected["mode"] == "COEXISTENCE"
+    assert connected["display_phone_digits"] == "15550783881"
+
+
+@pytest.mark.asyncio
+async def test_coexistence_refuses_signup_without_verified_display_number() -> None:
+    signup, repository, _provider, vault = service(
+        authorization=snapshot(eligibility="ELIGIBLE", display_phone_digits=None)
+    )
+
+    with pytest.raises(WhatsAppSignupError) as error:
+        await signup.complete(
+            context=context(),
+            admin_session_id=SESSION_ID,
+            state="valid-state",
+            code="code",
+            business_id="business-client-1",
+            waba_id="waba-client-1",
+            phone_number_id="phone-client-1",
+            requested_mode="COEXISTENCE",
+        )
+
+    assert error.value.code == "whatsapp_coexistence_identity_unverified"
+    vault.store.assert_not_awaited()
+    repository.connect_account.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -342,6 +368,7 @@ async def test_coexistence_requires_explicit_provider_eligibility() -> None:
                 "id": "phone-client-1",
                 "is_on_biz_app": True,
                 "platform_type": "CLOUD_API",
+                "display_phone_number": "+1 (555) 078-3881",
             },
             "ELIGIBLE",
         ),
@@ -371,7 +398,12 @@ async def test_coexistence_requires_explicit_provider_eligibility() -> None:
             "UNKNOWN",
         ),
         (
-            {"id": "other-phone", "is_on_biz_app": True, "platform_type": "CLOUD_API"},
+            {
+                "id": "other-phone",
+                "is_on_biz_app": True,
+                "platform_type": "CLOUD_API",
+                "display_phone_number": "+1 (555) 078-3881",
+            },
             "UNKNOWN",
         ),
     ],
@@ -406,7 +438,10 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone(
         if path.endswith("/waba-client-1/phone_numbers"):
             return httpx.Response(200, json={"data": [{"id": "phone-client-1"}]})
         if path.endswith("/phone-client-1"):
-            assert request.url.params["fields"] == "id,is_on_biz_app,platform_type"
+            assert (
+                request.url.params["fields"]
+                == "id,is_on_biz_app,platform_type,display_phone_number"
+            )
             return httpx.Response(200, json=phone_status)
         return httpx.Response(404)
 
@@ -428,6 +463,10 @@ async def test_concrete_meta_client_verifies_app_business_waba_and_phone(
     assert authorization.owns_phone_number is True
     assert authorization.business_id == "business-client-1"
     assert authorization.coexistence_eligibility == expected_eligibility
+    if expected_eligibility == "ELIGIBLE":
+        assert authorization.display_phone_digits == "15550783881"
+    else:
+        assert authorization.display_phone_digits is None
     assert "verified-token" not in repr(authorization)
 
 

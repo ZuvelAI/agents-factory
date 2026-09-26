@@ -169,6 +169,7 @@ class WhatsAppAccountRepository:
         business_id: str,
         waba_id: str,
         phone_number_id: str,
+        display_phone_digits: str | None = None,
         access_token_secret_ref: SecretRef,
         mode: WhatsAppMode,
         coexistence_eligibility: CoexistenceEligibility,
@@ -179,15 +180,17 @@ class WhatsAppAccountRepository:
         statement = text(
             "INSERT INTO public.whatsapp_accounts "
             "(id, tenant_id, provider, business_id, waba_id, phone_number_id, "
+            "display_phone_digits, "
             "status, "
             "access_token_secret_id, mode, coexistence_eligibility, granted_scopes, "
             "health_status, last_health_checked_at, token_expires_at, verified_at) "
             "VALUES (:id, :tenant_id, 'meta', :business_id, :waba_id, "
-            ":phone_number_id, 'active', "
+            ":phone_number_id, :display_phone_digits, 'active', "
             ":secret_id, :mode, :eligibility, :scopes, 'HEALTHY', :verified_at, "
             ":token_expires_at, :verified_at) "
             "ON CONFLICT (provider, phone_number_id) DO UPDATE SET "
             "business_id = EXCLUDED.business_id, waba_id = EXCLUDED.waba_id, "
+            "display_phone_digits = EXCLUDED.display_phone_digits, "
             "status = 'active', "
             "access_token_secret_id = EXCLUDED.access_token_secret_id, "
             "mode = EXCLUDED.mode, "
@@ -207,6 +210,7 @@ class WhatsAppAccountRepository:
                 "business_id": business_id,
                 "waba_id": waba_id,
                 "phone_number_id": phone_number_id,
+                "display_phone_digits": display_phone_digits,
                 "secret_id": access_token_secret_ref.id,
                 "mode": mode,
                 "eligibility": coexistence_eligibility,

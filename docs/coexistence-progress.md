@@ -310,3 +310,33 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   and targeted mypy passed. Full backend: 498 passed, same two known failures
   (deferred Meta reviewer conditional and stale marker in the isolated database).
   No live Meta activity, reviewer-account change, or production deployment.
+
+## Verified display-number identity checkpoint — 2026-09-26
+
+- Meta's documented PARTNER_REMOVED account_update identifies the displayed
+  business phone number rather than AI Workers' stored phone-number ID. The
+  signup provider now fetches the display number with the exact selected
+  phone ID, normalizes it to ASCII digits, and refuses COEXISTENCE signup if
+  the verified identity is absent or malformed. API_ONLY remains compatible.
+- Added a constrained nullable account column and an active-coexistence
+  WABA/display-number uniqueness index. The account repository persists the
+  verified digits on insert and reconnection. Existing accounts remain NULL;
+  no inference is made from phone IDs or customer messages.
+- RED observed the missing provider field, the missing service refusal and
+  repository argument, wrong-ID identity acceptance, and absent DB column.
+  GREEN: provider contract, service contract and real-database persistence.
+- Ruling: do not map a disconnect by WABA alone when its phone number cannot
+  be matched exactly — a WABA may contain several phones. Cost if wrong:
+  unmatched disconnects must remain pending for investigation rather than
+  immediately suppressing one account; keep release gate CLOSED until an
+  event handling strategy is implemented and tested.
+- Ruling: Supabase CLI is unavailable in this isolated worktree (the available
+  pnpm version is incompatible and the checkout's optional CLI binary is
+  missing), so the migration file was added in the repository's established
+  format and applied with psql ONLY to the disposable test container. Cost if
+  wrong: migration metadata/format needs confirmation in final review before
+  production use. No remote Supabase project or production schema was changed.
+- Full backend regression: 500 passed, the same two known failures (deferred
+  reviewer-account conditional and stale isolated-DB marker). Ruff F and
+  targeted mypy passed. Account_update parsing/quarantine is NOT yet wired;
+  the release gate stays CLOSED. No live Meta request or Zuvel number change.

@@ -139,6 +139,7 @@ class MetaAuthorizationSnapshot:
     owns_waba: bool
     owns_phone_number: bool
     coexistence_eligibility: CoexistenceEligibility = "UNKNOWN"
+    display_phone_digits: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
