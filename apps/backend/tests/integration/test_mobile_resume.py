@@ -1,5 +1,6 @@
-from uuid import uuid4
+import asyncio
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -306,6 +307,66 @@ async def test_admin_resume_route_requires_fresh_version_and_exact_account(
         "state_version": 4,
     }
     assert duplicate.status_code == 409
+
+
+async def test_two_administrators_cannot_both_resume_one_human_conversation(
+    session_factory,
+):
+    context, account, conversation = await _seed_scoped_human_conversation(
+        session_factory
+    )
+    second_admin = TenantContext(
+        tenant_id=context.tenant_id,
+        actor_id=uuid4(),
+        actor_type="platform_admin",
+        correlation_id=uuid4(),
+    )
+    ready = 0
+    start = asyncio.Event()
+
+    async def resume(as_admin: TenantContext):
+        nonlocal ready
+        async with session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+            ready += 1
+            if ready == 2:
+                start.set()
+            await asyncio.wait_for(start.wait(), timeout=5)
+            return await mobile_echo.resume_ai_from_mobile(
+                session,
+                context=as_admin,
+                account_id=account,
+                conversation_id=conversation,
+                expected_version=3,
+            )
+
+    results = await asyncio.gather(
+        resume(context), resume(second_admin), return_exceptions=True
+    )
+    successes = [result for result in results if not isinstance(result, BaseException)]
+    failures = [result for result in results if isinstance(result, BaseException)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], DomainError)
+    assert failures[0].status == 409
+
+    async with session_factory.begin() as session:
+        events = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT actor_id FROM public.conversation_state_events "
+                        "WHERE tenant_id=:tenant AND conversation_id=:conversation "
+                        "AND version=4"
+                    ),
+                    {"tenant": context.tenant_id, "conversation": conversation},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(events) == 1
+    assert events[0] in {context.actor_id, second_admin.actor_id}
 
 
 async def test_resume_route_rejects_missing_admin_credentials(session_factory):

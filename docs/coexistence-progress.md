@@ -479,9 +479,15 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   disposable test-only master key; targeted Ruff and mypy passed. The broad
   supported backend matrix yielded 523 passes and one pre-existing architecture
   failure for the deferred Meta reviewer-account conditional.
+- A follow-up real-database race test started two administrator sessions
+  together against the same human conversation and same expected version.
+  Exactly one resume succeeded, the other received 409, and only one audited
+  state event was created. The test passed; the refreshed broad matrix yielded
+  524 passes and the same pre-existing architecture failure. Ruff lint/format
+  of the follow-up test passed.
 - The complete backend matrix remains unverified: its initial collection
   failed because the isolated offline image lacks `arq`. The broad matrix
   therefore excluded the outbox-dispatch module, Redis conversation-lock
-  tests and database reset gates. Browser E2E and two-operator concurrency
+  tests and database reset gates. Browser E2E and concurrent browser-request
   verification remain pending. Release gate CLOSED; no live Meta call, Zuvel
   number onboarding, reviewer-account change or production deployment.
