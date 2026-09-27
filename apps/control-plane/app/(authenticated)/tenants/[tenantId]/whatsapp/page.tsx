@@ -3,6 +3,7 @@ import {
   revokeWhatsAppAccount,
 } from "../../../../actions";
 import { callAuthenticatedBackend } from "../../../../../lib/api";
+import { CoexistenceSync } from "./coexistence-sync";
 import { EmbeddedSignup } from "./embedded-signup";
 import { TestMessage } from "./test-message";
 
@@ -50,8 +51,9 @@ export default async function WhatsAppSetupPage({
         <div>
           <h2>Connection</h2>
           <p>
-            Elige entre un número exclusivo o conservar la aplicación del celular.
-            La coexistencia está pendiente de habilitación y validación; elegirla no conecta ni migra tu número.
+            Elige entre un número exclusivo o conservar la aplicación del
+            celular. La coexistencia está pendiente de habilitación y
+            validación; elegirla no conecta ni migra tu número.
           </p>
         </div>
         <EmbeddedSignup tenantId={tenantId} />
@@ -100,6 +102,9 @@ export default async function WhatsAppSetupPage({
                 <dd>{formatDate(account.last_health_checked_at)}</dd>
               </div>
             </dl>
+            {account.mode === "COEXISTENCE" && (
+              <CoexistenceSync tenantId={tenantId} accountId={account.id} />
+            )}
             <div className="account-actions">
               <form action={refreshWhatsAppHealth}>
                 <input type="hidden" name="tenantId" value={tenantId} />

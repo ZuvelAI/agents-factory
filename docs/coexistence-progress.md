@@ -410,3 +410,30 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   against Meta was not run. The COEXISTENCE signup gate remains CLOSED; no
   live number, reviewer account, remote Meta setting, or production deployment
   changed.
+
+## Admin sync visibility and local browser checkpoint — 2026-09-27
+
+- With disposable local authentication and no backend or live Meta connection,
+  the WhatsApp page showed the coexistence option, its pending-habilitation
+  warning and a disabled Meta connection button. No credential fields were
+  exposed. The first browser pass showed no console errors. A later reload
+  lost the fake session because the disposable auth server does not implement
+  token refresh; it returned to login and logged `AuthApiError: not_found`.
+  This does not validate a connected-account browser flow.
+- The platform-admin account page now reads existing per-account one-shot
+  request status and persisted observations for COEXISTENCE accounts only.
+  It distinguishes NOT_REQUESTED, UNKNOWN/manual review and ACCEPTED; lists
+  local contact/history counts; and explicitly says Meta acceptance or local
+  counts do not prove synchronization completion. It does not show request IDs,
+  credentials or contact details. Incomplete/malformed responses show an
+  unavailable notice instead of an apparently complete report.
+- Ruling: keep this view read-only and never label accepted requests as
+  completed — Meta's asynchronous delivery has no completion evidence here.
+  Cost if wrong: administrators must investigate delivery outside this view
+  until a durable completion model and end-to-end test exist.
+- RED observed missing display, then omitted-status and partial-count
+  regressions; GREEN 4 focused tests. Fresh full control-plane unit suite:
+  39 passed. TypeScript, targeted ESLint, Prettier and diff check pass.
+  Connected-account browser E2E and backend/full-branch security gates remain
+  pending. Release gate CLOSED; no live Meta request, Zuvel number onboarding,
+  reviewer-account edit, production deployment or migration.
