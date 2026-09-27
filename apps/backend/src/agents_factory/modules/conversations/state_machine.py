@@ -43,6 +43,14 @@ class ConversationStateMachine:
         return ConversationControlState.HUMAN_ACTIVE
 
     @staticmethod
+    def resume_ai(
+        state: ConversationControlState,
+    ) -> ConversationControlState:
+        if state != ConversationControlState.HUMAN_ACTIVE:
+            raise InvalidConversationTransition("AI resume requires HUMAN_ACTIVE")
+        return ConversationControlState.AI_ACTIVE
+
+    @staticmethod
     def close_conversation(
         state: ConversationControlState,
     ) -> ConversationControlState:

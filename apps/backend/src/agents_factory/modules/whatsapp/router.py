@@ -30,6 +30,7 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppMode,
 )
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
+from agents_factory.modules.whatsapp.mobile_echo import resume_ai_from_mobile
 from agents_factory.modules.whatsapp.signup_service import WhatsAppSignupService
 from agents_factory.modules.whatsapp.sync_once import (
     SyncObservations,
@@ -53,6 +54,43 @@ class TestMessageRequest(BaseModel):
     template_name: str = Field(pattern=r"^[a-z0-9_]{1,512}$")
     language: str = Field(pattern=r"^[a-zA-Z_]{2,20}$")
     idempotency_key: UUID
+
+
+class ResumeAiRequest(BaseModel):
+    expected_version: int = Field(gt=0)
+
+
+class ResumeAiResponse(BaseModel):
+    conversation_id: UUID
+    control_state: str
+    state_version: int
+
+
+@router.post(
+    "/{account_id}/conversations/{conversation_id}/resume-ai",
+    response_model=ResumeAiResponse,
+)
+async def resume_coexistence_conversation(
+    tenant_id: UUID,
+    account_id: UUID,
+    conversation_id: UUID,
+    payload: ResumeAiRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> ResumeAiResponse:
+    resumed = await resume_ai_from_mobile(
+        session,
+        context=_context(request, principal, tenant_id),
+        account_id=account_id,
+        conversation_id=conversation_id,
+        expected_version=payload.expected_version,
+    )
+    return ResumeAiResponse(
+        conversation_id=resumed.id,
+        control_state=resumed.control_state.value,
+        state_version=resumed.state_version,
+    )
 
 
 def _test_error(detail: str) -> DomainError:

@@ -437,3 +437,26 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   Connected-account browser E2E and backend/full-branch security gates remain
   pending. Release gate CLOSED; no live Meta request, Zuvel number onboarding,
   reviewer-account edit, production deployment or migration.
+
+## Explicit return from mobile human control — 2026-09-27
+
+- Added an admin-only route for one conversation on one WhatsApp account to
+  return from HUMAN_ACTIVE to AI_ACTIVE with an expected state version. The
+  route rejects a wrong account, stale version, inactive/API_ONLY/ineligible
+  account and missing administrator credentials. It records the identified
+  administrator and reason in the state-event and audit trail; it does not
+  generate an AI reply merely by resuming control.
+- The database transition obtains the same per-conversation dispatch fence as
+  mobile echoes/outbound delivery, then rechecks the active eligible account
+  under row locks. A direct application-role call that spoofs a platform-admin
+  actor is rejected. RED was observed for the absent route and this spoofed
+  transition; GREEN after the implementation.
+- Focused state/route/security tests: 23 passed. Related conversation,
+  takeover and outbound integration tests: 33 passed. Backend unit suite:
+  225 passed. Targeted Ruff lint/format and mypy passed; diff check passed.
+  A new migration was applied only to disposable local PostgreSQL.
+- This is an API checkpoint, not a complete operator workflow. A conversation
+  list/control UI, concurrent operator/browser verification, full-branch
+  security gates and the previously recorded environment/reviewer-account
+  baseline issues remain. Release gate CLOSED. No live Meta call, Zuvel
+  number onboarding, reviewer-account change or production deployment.

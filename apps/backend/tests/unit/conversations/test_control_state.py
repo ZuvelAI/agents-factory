@@ -56,6 +56,9 @@ def test_only_explicit_control_commands_change_state() -> None:
     assert machine.close_conversation(ConversationControlState.HUMAN_ACTIVE) == (
         ConversationControlState.CLOSED
     )
+    assert machine.resume_ai(ConversationControlState.HUMAN_ACTIVE) == (
+        ConversationControlState.AI_ACTIVE
+    )
     assert (
         machine.reopen_for_inbound(
             ConversationControlState.CLOSED,
@@ -78,6 +81,9 @@ def test_only_explicit_control_commands_change_state() -> None:
         ("request_handoff", ConversationControlState.HUMAN_ACTIVE),
         ("activate_human", ConversationControlState.AI_ACTIVE),
         ("close_conversation", ConversationControlState.CLOSED),
+        ("resume_ai", ConversationControlState.AI_ACTIVE),
+        ("resume_ai", ConversationControlState.AWAITING_HUMAN),
+        ("resume_ai", ConversationControlState.CLOSED),
         ("reopen_for_inbound", ConversationControlState.AI_ACTIVE),
     ],
 )
