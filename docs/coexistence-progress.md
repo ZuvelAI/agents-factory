@@ -392,3 +392,21 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   Ruff lint, format and mypy pass. The migration was applied only to disposable
   local PostgreSQL; no remote/project schema, live Meta number, credentials,
   reviewer access, or production deployment changed. Release gate remains CLOSED.
+
+## Meta SDK loading lifetime checkpoint — 2026-09-27
+
+- The existing click-to-connect browser flow now passes its attempt's abort
+  signal into a bounded Meta SDK loader. A failed script can be retried; a
+  script that never loads times out after 15 seconds; cancellation removes an
+  unshared script and clears listeners/timers. If two attempts are waiting on
+  the same script, cancelling either one preserves the other's load.
+- Ruling: retain on-demand script insertion for this SDK because loading is
+  initiated by a user attempt and must share that attempt's cancellation and
+  retry lifecycle. Cost if wrong: this bypasses Next's generic script manager;
+  browser-level verification of the actual Meta script remains necessary.
+- RED: absent loader behavior, then both shared-cancellation cases failed
+  before the fix. GREEN: 5 focused loader tests; full control-plane unit suite
+  35 passed, TypeScript check and targeted ESLint/Prettier passed. Browser E2E
+  against Meta was not run. The COEXISTENCE signup gate remains CLOSED; no
+  live number, reviewer account, remote Meta setting, or production deployment
+  changed.

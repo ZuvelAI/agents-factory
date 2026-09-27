@@ -8,27 +8,8 @@ import {
   signupBlockReason,
   type WhatsAppMode,
 } from "../../../../../lib/whatsapp-mode";
+import { loadMetaSdk } from "../../../../../lib/meta-sdk-loader";
 import { runSignupSession } from "../../../../../lib/whatsapp-signup-session";
-
-type MetaLoginResponse = { authResponse?: { code?: string } };
-type MetaSdk = {
-  init(options: {
-    appId: string;
-    cookie: boolean;
-    xfbml: boolean;
-    version: string;
-  }): void;
-  login(
-    callback: (response: MetaLoginResponse) => void,
-    options: Record<string, unknown>,
-  ): void;
-};
-
-declare global {
-  interface Window {
-    FB?: MetaSdk;
-  }
-}
 
 export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
   const router = useRouter();
@@ -55,7 +36,7 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
       const started = await beginWhatsAppSignup(tenantId, mode);
       if (attempt.signal.aborted) return;
       if (!started.ok) throw new Error(started.message);
-      const sdk = await loadMetaSdk(started.data.app_id);
+      const sdk = await loadMetaSdk(started.data.app_id, attempt.signal);
       const { code, assets } = await runSignupSession(
         sdk,
         window,
@@ -154,34 +135,4 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
       ) : null}
     </div>
   );
-}
-
-async function loadMetaSdk(appId: string): Promise<MetaSdk> {
-  if (!window.FB) {
-    await new Promise<void>((resolve, reject) => {
-      const existing = document.getElementById("facebook-jssdk");
-      if (existing) {
-        existing.addEventListener("load", () => resolve(), { once: true });
-        existing.addEventListener(
-          "error",
-          () => reject(new Error("Meta SDK failed to load")),
-          {
-            once: true,
-          },
-        );
-        return;
-      }
-      const script = document.createElement("script");
-      script.id = "facebook-jssdk";
-      script.src = "https://connect.facebook.net/en_US/sdk.js";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Meta SDK failed to load"));
-      document.head.appendChild(script);
-    });
-  }
-  if (!window.FB) throw new Error("Meta SDK is unavailable");
-  window.FB.init({ appId, cookie: true, xfbml: false, version: "v25.0" });
-  return window.FB;
 }
