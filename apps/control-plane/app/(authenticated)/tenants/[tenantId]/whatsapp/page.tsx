@@ -5,6 +5,7 @@ import {
 import { callAuthenticatedBackend } from "../../../../../lib/api";
 import { CoexistenceSync } from "./coexistence-sync";
 import { EmbeddedSignup } from "./embedded-signup";
+import { HumanControl, type HumanConversation } from "./human-control";
 import { TestMessage } from "./test-message";
 
 type WhatsAppAccount = {
@@ -24,10 +25,13 @@ type WhatsAppAccount = {
 
 export default async function WhatsAppSetupPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tenantId: string }>;
+  searchParams?: Promise<{ humanControl?: string }>;
 }) {
   const { tenantId } = await params;
+  const notice = (await searchParams)?.humanControl;
   let accounts: WhatsAppAccount[] = [];
   let backendAvailable = true;
   try {
@@ -37,6 +41,27 @@ export default async function WhatsAppSetupPage({
   } catch {
     backendAvailable = false;
   }
+  const humanConversations = await Promise.all(
+    accounts.map(async (account): Promise<HumanConversation[] | null> => {
+      if (
+        account.status !== "active" ||
+        account.mode !== "COEXISTENCE" ||
+        account.coexistence_eligibility !== "ELIGIBLE"
+      ) {
+        return null;
+      }
+      try {
+        const result = await callAuthenticatedBackend<unknown>(
+          `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp/${encodeURIComponent(account.id)}/human-active-conversations`,
+        );
+        if (!isHumanConversationList(result))
+          throw new Error("Invalid conversation list");
+        return result;
+      } catch {
+        return null;
+      }
+    }),
+  );
 
   return (
     <section className="whatsapp-setup" aria-labelledby="whatsapp-title">
@@ -65,8 +90,23 @@ export default async function WhatsAppSetupPage({
         </p>
       ) : null}
 
+      {notice === "resumed" ? (
+        <p className="save-notice" role="status">
+          El agente quedó habilitado para responder a futuros mensajes.
+        </p>
+      ) : notice === "stale" ? (
+        <p className="error-notice" role="alert">
+          La conversación cambió. Actualiza la página antes de reintentar.
+        </p>
+      ) : notice === "error" ? (
+        <p className="error-notice" role="alert">
+          No se pudo reactivar el agente. Verifica la cuenta y vuelve a
+          intentarlo.
+        </p>
+      ) : null}
+
       <div className="account-grid">
-        {accounts.map((account) => (
+        {accounts.map((account, index) => (
           <article className="account-card" key={account.id}>
             <div className="account-card-heading">
               <h2>{account.phone_number_id}</h2>
@@ -105,6 +145,15 @@ export default async function WhatsAppSetupPage({
             {account.mode === "COEXISTENCE" && (
               <CoexistenceSync tenantId={tenantId} accountId={account.id} />
             )}
+            {account.status === "active" &&
+              account.mode === "COEXISTENCE" &&
+              account.coexistence_eligibility === "ELIGIBLE" && (
+                <HumanControl
+                  tenantId={tenantId}
+                  accountId={account.id}
+                  conversations={humanConversations[index]}
+                />
+              )}
             <div className="account-actions">
               <form action={refreshWhatsAppHealth}>
                 <input type="hidden" name="tenantId" value={tenantId} />
@@ -132,6 +181,26 @@ export default async function WhatsAppSetupPage({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function isHumanConversationList(value: unknown): value is HumanConversation[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 20 &&
+    value.every(
+      (item) =>
+        item !== null &&
+        typeof item === "object" &&
+        typeof item.conversation_id === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          item.conversation_id,
+        ) &&
+        typeof item.customer_hint === "string" &&
+        /^\*\*\*[0-9]{4}$/.test(item.customer_hint) &&
+        Number.isSafeInteger(item.state_version) &&
+        item.state_version > 0,
+    )
   );
 }
 

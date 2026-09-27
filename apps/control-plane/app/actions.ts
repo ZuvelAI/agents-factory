@@ -115,7 +115,11 @@ export async function beginWhatsAppSignup(
   try {
     const data = await callAuthenticatedBackend<SignupStart>(
       `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp/signup/start`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      },
     );
     return { ok: true, data };
   } catch (error) {
@@ -175,6 +179,48 @@ export async function revokeWhatsAppAccount(formData: FormData): Promise<void> {
     { method: "POST" },
   );
   revalidatePath(`/tenants/${tenantId}/whatsapp`);
+}
+
+export async function resumeCoexistenceConversation(
+  formData: FormData,
+): Promise<void> {
+  const tenantId = formData.get("tenantId");
+  const accountId = formData.get("accountId");
+  const conversationId = formData.get("conversationId");
+  const confirmed = formData.get("confirmed");
+  const expectedVersion = Number(formData.get("expectedVersion"));
+  const isUuid = (value: FormDataEntryValue | null): value is string =>
+    typeof value === "string" &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+  if (
+    !isUuid(tenantId) ||
+    !isUuid(accountId) ||
+    !isUuid(conversationId) ||
+    confirmed !== "resume" ||
+    !Number.isSafeInteger(expectedVersion) ||
+    expectedVersion <= 0
+  ) {
+    redirect("/?error=invalid-whatsapp-request");
+  }
+
+  let outcome: "resumed" | "stale" | "error" = "resumed";
+  try {
+    await callAuthenticatedBackend(
+      `/admin/tenants/${tenantId}/whatsapp/${accountId}/conversations/${conversationId}/resume-ai`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_version: expectedVersion }),
+      },
+    );
+  } catch (error) {
+    outcome =
+      error instanceof BackendProblem && error.status === 409
+        ? "stale"
+        : "error";
+  }
+  revalidatePath(`/tenants/${tenantId}/whatsapp`);
+  redirect(`/tenants/${tenantId}/whatsapp?humanControl=${outcome}`);
 }
 
 export async function saveOnboardingStep(formData: FormData): Promise<void> {

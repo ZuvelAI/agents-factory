@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -143,6 +144,69 @@ async def ingest_mobile_echo(
         },
     )
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class HumanActiveConversation:
+    conversation_id: UUID
+    customer_hint: str
+    state_version: int
+
+
+async def list_human_active_mobile_conversations(
+    session: AsyncSession,
+    *,
+    context: TenantContext,
+    account_id: UUID,
+) -> list[HumanActiveConversation]:
+    """Return a bounded, masked admin view for one eligible coexistence account."""
+    if context.actor_type != "platform_admin" or context.actor_id is None:
+        raise PermissionError(
+            "Human control visibility requires an identified administrator"
+        )
+    await set_tenant_context(session, context.tenant_id)
+    binding = {"tenant": context.tenant_id, "account": account_id}
+    account = await session.scalar(
+        text(
+            "SELECT id FROM public.whatsapp_accounts "
+            "WHERE tenant_id=:tenant AND id=:account AND status='active' "
+            "AND mode='COEXISTENCE' AND coexistence_eligibility='ELIGIBLE'"
+        ),
+        binding,
+    )
+    if account is None:
+        raise DomainError(
+            type="https://agents-factory.dev/problems/whatsapp-account-not-found",
+            title="WhatsApp Account Not Found",
+            status=404,
+            detail="No active coexistence account was found.",
+            code="whatsapp_account_not_found",
+        )
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT id AS conversation_id, "
+                    "'***' || right(customer_wa_id, 4) AS customer_hint, state_version "
+                    "FROM public.conversations "
+                    "WHERE tenant_id=:tenant AND whatsapp_account_id=:account "
+                    "AND control_state='HUMAN_ACTIVE' "
+                    "ORDER BY updated_at DESC, id DESC LIMIT 20"
+                ),
+                binding,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        HumanActiveConversation(
+            conversation_id=row["conversation_id"],
+            customer_hint=row["customer_hint"],
+            state_version=row["state_version"],
+        )
+        for row in rows
+    ]
 
 
 async def resume_ai_from_mobile(

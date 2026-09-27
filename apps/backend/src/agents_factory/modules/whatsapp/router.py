@@ -30,7 +30,10 @@ from agents_factory.modules.whatsapp.contracts import (
     WhatsAppMode,
 )
 from agents_factory.modules.whatsapp.meta_provider import MetaEmbeddedSignupClient
-from agents_factory.modules.whatsapp.mobile_echo import resume_ai_from_mobile
+from agents_factory.modules.whatsapp.mobile_echo import (
+    list_human_active_mobile_conversations,
+    resume_ai_from_mobile,
+)
 from agents_factory.modules.whatsapp.signup_service import WhatsAppSignupService
 from agents_factory.modules.whatsapp.sync_once import (
     SyncObservations,
@@ -64,6 +67,38 @@ class ResumeAiResponse(BaseModel):
     conversation_id: UUID
     control_state: str
     state_version: int
+
+
+class HumanActiveConversationResponse(BaseModel):
+    conversation_id: UUID
+    customer_hint: str
+    state_version: int
+
+
+@router.get(
+    "/{account_id}/human-active-conversations",
+    response_model=list[HumanActiveConversationResponse],
+)
+async def human_active_conversations(
+    tenant_id: UUID,
+    account_id: UUID,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+) -> list[HumanActiveConversationResponse]:
+    conversations = await list_human_active_mobile_conversations(
+        session,
+        context=_context(request, principal, tenant_id),
+        account_id=account_id,
+    )
+    return [
+        HumanActiveConversationResponse(
+            conversation_id=conversation.conversation_id,
+            customer_hint=conversation.customer_hint,
+            state_version=conversation.state_version,
+        )
+        for conversation in conversations
+    ]
 
 
 @router.post(

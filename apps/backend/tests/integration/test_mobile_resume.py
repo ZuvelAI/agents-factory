@@ -329,5 +329,60 @@ async def test_resume_route_rejects_missing_admin_credentials(session_factory):
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(path, json={"expected_version": 3})
+        list_response = await client.get(
+            f"/admin/tenants/{uuid4()}/whatsapp/{uuid4()}/human-active-conversations"
+        )
 
     assert response.status_code == 401
+    assert list_response.status_code == 401
+
+
+async def test_human_control_list_is_account_scoped_and_masks_customer(session_factory):
+    context, account, conversation = await _seed_scoped_human_conversation(
+        session_factory
+    )
+    app = create_app()
+
+    async def transaction() -> AsyncIterator[AsyncSession]:
+        async with session_factory.begin() as session:
+            yield session
+
+    async def admin(session: TransactionSession) -> AdminPrincipal:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        assert context.actor_id is not None
+        return AdminPrincipal(user_id=context.actor_id, session_id=uuid4())
+
+    app.dependency_overrides[get_transaction] = transaction
+    app.dependency_overrides[require_platform_admin] = admin
+    base = f"/admin/tenants/{context.tenant_id}/whatsapp"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"{base}/{account}/human-active-conversations")
+        wrong_account = await client.get(f"{base}/{uuid4()}/human-active-conversations")
+        wrong_tenant = await client.get(
+            f"/admin/tenants/{uuid4()}/whatsapp/{account}/human-active-conversations"
+        )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "conversation_id": str(conversation),
+            "customer_hint": "***0002",
+            "state_version": 3,
+        }
+    ]
+    assert "573000000002" not in response.text
+    assert wrong_account.status_code == 404
+    assert wrong_tenant.status_code == 404
+
+    async with session_factory.begin() as session:
+        await session.execute(
+            text("UPDATE public.whatsapp_accounts SET status='inactive' WHERE id=:id"),
+            {"id": account},
+        )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        inactive = await client.get(f"{base}/{account}/human-active-conversations")
+    assert inactive.status_code == 404

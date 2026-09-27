@@ -460,3 +460,28 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   security gates and the previously recorded environment/reviewer-account
   baseline issues remain. Release gate CLOSED. No live Meta call, Zuvel
   number onboarding, reviewer-account change or production deployment.
+
+## Human-control operator view — 2026-09-27
+
+- Added a platform-admin-only, account-scoped list of up to 20 recent
+  HUMAN_ACTIVE conversations for active, eligible COEXISTENCE accounts. It
+  exposes only the conversation UUID, masked final four customer digits and
+  state version. Wrong tenant/account and inactive accounts fail closed.
+- The WhatsApp administration page distinguishes an empty list from a failed
+  lookup, never displays the full customer ID and requires an explicit
+  confirmation to return one conversation to AI. The action sends the visible
+  version to the guarded resume route, reports stale state separately, and
+  does not send an immediate AI message.
+- RED/GREEN tests cover account/tenant isolation, masking, malformed response
+  rejection, confirmation, exact request and conflict handling. Fresh checks:
+  46 control-plane unit tests, TypeScript, ESLint and Prettier passed; 34
+  related database integration tests passed; 96 security tests passed with a
+  disposable test-only master key; targeted Ruff and mypy passed. The broad
+  supported backend matrix yielded 523 passes and one pre-existing architecture
+  failure for the deferred Meta reviewer-account conditional.
+- The complete backend matrix remains unverified: its initial collection
+  failed because the isolated offline image lacks `arq`. The broad matrix
+  therefore excluded the outbox-dispatch module, Redis conversation-lock
+  tests and database reset gates. Browser E2E and two-operator concurrency
+  verification remain pending. Release gate CLOSED; no live Meta call, Zuvel
+  number onboarding, reviewer-account change or production deployment.

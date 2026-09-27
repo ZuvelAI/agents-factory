@@ -1050,6 +1050,52 @@ textarea::placeholder {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.human-control {
+  margin: 22px 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.human-control h3 {
+  margin: 0 0 8px;
+}
+.human-control p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.human-control-list {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+.human-control-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.human-control-list strong,
+.human-control-list small {
+  display: block;
+}
+.human-control-list small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.human-control-list details {
+  max-width: 320px;
+}
+.human-control-list summary {
+  cursor: pointer;
+  color: var(--accent-light);
+}
+.human-control-list form {
+  margin-top: 10px;
+}
 .connection-notice {
   margin-top: 16px;
 }
