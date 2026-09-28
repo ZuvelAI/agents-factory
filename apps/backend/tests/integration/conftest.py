@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import (
 
 async def _truncate_foundation_tables(connection: AsyncConnection) -> None:
     await connection.execute(
-        text("TRUNCATE TABLE agents_factory_private.whatsapp_account_update_alerts")
+        text(
+            "TRUNCATE TABLE "
+            "agents_factory_private.whatsapp_account_update_alert_resolutions, "
+            "agents_factory_private.whatsapp_account_update_alerts"
+        )
     )
     await connection.execute(
         text(
