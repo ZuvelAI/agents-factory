@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const authPort = 54321;
-const appPort = 3100;
+const authPort = 3131;
+const appPort = 3130;
+const backendPort = 3132;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -18,6 +19,13 @@ export default defineConfig({
       command: "node tests/e2e/fake-supabase.mjs",
       port: authPort,
       reuseExistingServer: false,
+      env: { FAKE_SUPABASE_PORT: String(authPort) },
+    },
+    {
+      command: "node tests/e2e/fake-whatsapp-backend.mjs",
+      port: backendPort,
+      reuseExistingServer: false,
+      env: { FAKE_WHATSAPP_BACKEND_PORT: String(backendPort) },
     },
     {
       command: `node_modules/.bin/next dev --hostname 127.0.0.1 --port ${appPort}`,
@@ -26,7 +34,7 @@ export default defineConfig({
       env: {
         NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${authPort}`,
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_local_e2e",
-        BACKEND_API_URL: "http://127.0.0.1:8000",
+        BACKEND_API_URL: `http://127.0.0.1:${backendPort}`,
       },
     },
   ],

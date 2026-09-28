@@ -522,3 +522,22 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   Targeted Ruff lint/format, mypy, ESLint, Prettier and diff check passed.
   No production service, Meta setting or Zuvel number was changed. Release
   gate CLOSED; browser E2E and the isolated database-reset gate remain pending.
+
+## Isolated connected-account browser flow — 2026-09-27
+
+- Added a localhost-only backend fixture for Playwright. It supplies a complete
+  eligible coexistence account, initial-sync status and masked HUMAN_ACTIVE
+  conversation, then records a version-checked resume response. The browser
+  exercises the real server-rendered account page and resume server action;
+  it sees the verified number, Meta ID, sync caveat and human-control notice.
+- RED was observed when the connected-account browser test had no backend;
+  GREEN followed with the isolated fixture. All seven browser tests now pass.
+  The existing authentication smoke expected a removed dashboard heading and
+  unlabelled navigation items; its assertions were aligned with the current
+  page while preserving access and logout checks. Unit tests: 48 passed;
+  TypeScript and targeted ESLint passed.
+- Ruling: browser tests use a local backend double, not the active backend or
+  Meta, because this checkpoint must not touch live services. Cost if wrong:
+  the browser pass does not prove live provider authorization, actual sync
+  delivery or a deployed end-to-end flow. Those remain separate release gates.
+  The local database-reset gate also remains pending. Release gate CLOSED.

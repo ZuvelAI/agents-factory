@@ -54,9 +54,7 @@ test("a platform admin reaches the shell, then server logout clears access", asy
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(
-    page.getByRole("heading", { name: "Platform foundation" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clientes" })).toBeVisible();
   const labels = [
     "Dashboard",
     "Tenants",
@@ -72,7 +70,7 @@ test("a platform admin reaches the shell, then server logout clears access", asy
     "Settings",
   ];
   const navigation = page.getByRole("navigation", { name: "Control Plane" });
-  await expect(navigation.getByRole("listitem")).toHaveText(labels);
+  await expect(navigation.getByRole("link")).toHaveText(labels);
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
