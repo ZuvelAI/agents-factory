@@ -620,3 +620,30 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   design/implementation decision, final security review, supervised live pilot
   with explicit authorization, and production migration/release decision.
   Release gate CLOSED.
+
+## Isolated migration-reset check — 2026-09-28
+
+- Created a temporary Supabase CLI project with a unique local project ID and
+  database/shadow ports 55322/55320; the active local project remains on
+  port 54322. The pinned CLI 2.115.0 started only the temporary database and
+  applied all 25 branch migrations.
+- Inserted `public.task3_review_stale_marker` into that temporary database,
+  ran `supabase db reset --local --no-seed` against its explicit workdir, and
+  confirmed the marker disappeared while all 25 migrations remained applied.
+  The active local database container was separately confirmed healthy.
+- Copied the unmodified `ensure_local_database.sh` into the temporary project
+  and verified it byte-for-byte against the repository original. With the
+  pinned pnpm 11.24.0 and Supabase CLI 2.115.0, it detected only the temporary
+  database at 127.0.0.1:55322, reset it, and passed its own post-reset check.
+  A fresh stale marker was removed, and the 25 migrations were present again.
+- Ruling: do not invoke `test_database_gates.py` from the original checkout —
+  it resolves that checkout's active Supabase project. The exact shell script
+  and the test's observable database assertions were exercised in isolation;
+  the original pytest invocation itself was deliberately not run. Cost if
+  wrong: the pytest fixture/subprocess wiring remains unverified, though the
+  destructive reset path and schema outcome were verified. The temporary
+  project was stopped with its volume preserved. No production database or
+  Meta asset was touched.
+- Release gate CLOSED. Operational alert design, the final security review,
+  a separately authorized live pilot and a production migration/release
+  decision remain pending.
