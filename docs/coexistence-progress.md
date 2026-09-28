@@ -491,3 +491,19 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   tests and database reset gates. Browser E2E and concurrent browser-request
   verification remain pending. Release gate CLOSED; no live Meta call, Zuvel
   number onboarding, reviewer-account change or production deployment.
+
+## Isolated gate recheck — 2026-09-27
+
+- Confirmed the already-running disposable Redis container shares the
+  disposable PostgreSQL network namespace. Its two conversation-lock tests
+  passed. Installed the lockfile-pinned `arq` test dependency in the isolated
+  worktree environment, allowing the outbox-dispatch module to be collected.
+- Fresh backend run with disposable PostgreSQL, Redis and a test-only key:
+  528 passed, one pre-existing architecture failure in the deferred Meta
+  reviewer-account conditionals. Fresh control-plane run: 46 unit tests and
+  TypeScript passed. No production services or Meta settings were changed.
+- Ruling: do not run `test_database_gate_removes_stale_schema_state` here —
+  its reset script invokes the local Supabase CLI and could reset the active
+  local stack, not just the disposable test database. Cost if wrong: that
+  database-reset gate remains unverified until it has a dedicated isolated
+  Supabase instance. Browser E2E also remains pending. Release gate CLOSED.
