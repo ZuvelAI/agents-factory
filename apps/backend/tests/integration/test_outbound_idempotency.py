@@ -188,6 +188,81 @@ async def test_queued_ai_reply_before_mobile_takeover_cannot_send_after_resume(
     assert provider.text_requests == []
 
 
+async def test_late_materialized_older_inbound_cannot_prepare_ai_after_resume(
+    session_factory,
+):
+    inbound_at = datetime.now(UTC) - timedelta(minutes=1)
+    tenant, account, conversation, assistant = await _seed_text_reply(
+        session_factory, inbound_at=inbound_at
+    )
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', "
+                "coexistence_eligibility='ELIGIBLE' WHERE id=:id"
+            ),
+            {"id": account},
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await ingest_mobile_echo(
+            session,
+            context=_context(tenant),
+            mapping=WhatsAppAccountMapping(account_id=account, tenant_id=tenant),
+            event=WhatsAppMobileEcho(
+                waba_id=f"waba-{account.hex}",
+                phone_number_id=f"phone-{account.hex}",
+                whatsapp_message_id="wamid.takeover.late-inbound",
+                recipient_wa_id="573000000001",
+                message_type="text",
+                content={"text": "Ya lo atiendo"},
+                occurred_at=inbound_at + timedelta(seconds=10),
+            ),
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        version = await session.scalar(
+            text("SELECT state_version FROM public.conversations WHERE id=:id"),
+            {"id": conversation},
+        )
+        await resume_ai_from_mobile(
+            session,
+            context=TenantContext(
+                tenant_id=tenant,
+                actor_id=new_uuid7(),
+                actor_type="platform_admin",
+                correlation_id=new_uuid7(),
+            ),
+            account_id=account,
+            conversation_id=conversation,
+            expected_version=version,
+        )
+    async with session_factory.begin() as session:
+        inbound_update = await session.execute(
+            text(
+                "UPDATE public.messages SET arrival_sequence=4 "
+                "WHERE conversation_id=:conversation AND direction='inbound'"
+            ),
+            {"conversation": conversation},
+        )
+        assert inbound_update.rowcount == 1
+        assistant_update = await session.execute(
+            text("UPDATE public.messages SET arrival_sequence=5 WHERE id=:assistant"),
+            {"assistant": assistant},
+        )
+        assert assistant_update.rowcount == 1
+
+    provider = RecordingProvider([])
+    service = OutboundMessageService(
+        session_factory=session_factory,
+        context=_context(tenant),
+        provider=provider,
+    )
+    with pytest.raises(LookupError):
+        await service.prepare_text(message_id=assistant)
+    assert provider.text_requests == []
+
+
 async def test_cancelled_dispatch_releases_fence_and_retains_unknown_outcome(
     session_factory,
 ):

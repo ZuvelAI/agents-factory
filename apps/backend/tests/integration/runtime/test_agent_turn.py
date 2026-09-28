@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -335,6 +335,7 @@ async def test_mobile_takeover_and_resume_do_not_revive_old_inbound_turn(
         )
     assert result.status == "blocked_by_conversation_control"
     assert runtime.turns == []
+
     async with session_factory.begin() as session:
         assert (
             await session.scalar(
@@ -344,6 +345,163 @@ async def test_mobile_takeover_and_resume_do_not_revive_old_inbound_turn(
             )
             == 0
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seconds_after_inbound", [0, 10])
+async def test_delayed_older_inbound_cannot_run_after_mobile_echo_and_resume(
+    session_factory: async_sessionmaker[AsyncSession],
+    seconds_after_inbound: int,
+) -> None:
+    context, conversation_id, inbound_message_id = await _seed_inbound(session_factory)
+    async with session_factory.begin() as session:
+        event_id = await session.scalar(
+            text("SELECT source_event_id FROM public.messages WHERE id=:id"),
+            {"id": inbound_message_id},
+        )
+        await session.execute(
+            text("DELETE FROM public.messages WHERE id=:id"),
+            {"id": inbound_message_id},
+        )
+        account = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', "
+                        "coexistence_eligibility='ELIGIBLE' "
+                        "WHERE tenant_id=:tenant RETURNING id,waba_id,phone_number_id"
+                    ),
+                    {"tenant": context.tenant_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await ingest_mobile_echo(
+            session,
+            context=context,
+            mapping=WhatsAppAccountMapping(
+                account_id=account["id"], tenant_id=context.tenant_id
+            ),
+            event=WhatsAppMobileEcho(
+                waba_id=account["waba_id"],
+                phone_number_id=account["phone_number_id"],
+                whatsapp_message_id="wamid.runtime.delayed-mobile",
+                recipient_wa_id="573000000003",
+                message_type="text",
+                content={"text": "Ya lo atiendo"},
+                occurred_at=datetime(2026, 8, 27, tzinfo=UTC)
+                + timedelta(seconds=seconds_after_inbound),
+            ),
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        version = await session.scalar(
+            text("SELECT state_version FROM public.conversations WHERE id=:id"),
+            {"id": conversation_id},
+        )
+        await resume_ai_from_mobile(
+            session,
+            context=TenantContext(
+                tenant_id=context.tenant_id,
+                actor_id=new_uuid7(),
+                actor_type="platform_admin",
+                correlation_id=new_uuid7(),
+            ),
+            account_id=account["id"],
+            conversation_id=conversation_id,
+            expected_version=version,
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        late = await ConversationService(
+            session=session,
+            context=context,
+            awaiting_human_policy=AwaitingHumanPolicy.SILENT,
+        ).ingest(event_id)
+
+    async with session_factory.begin() as session:
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT sender_type, arrival_sequence, provider_timestamp "
+                        "FROM public.messages WHERE conversation_id=:conversation "
+                        "ORDER BY arrival_sequence"
+                    ),
+                    {"conversation": conversation_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+    assert [row["sender_type"] for row in rows] == ["human", "customer"]
+    assert rows[0]["provider_timestamp"] >= rows[1]["provider_timestamp"]
+
+    runtime = _FakeRuntime()
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        result = await AgentTurnService(
+            session=session,
+            context=context,
+            runtime=runtime,
+            agent_specs=_SpecProvider(_spec(context.tenant_id)),
+            tools=RuntimeToolRegistry(()),
+        ).process(
+            conversation_id=conversation_id,
+            inbound_message_id=late.message_id,
+        )
+    assert result.status == "blocked_by_conversation_control"
+    assert runtime.turns == []
+
+    fresh_event_id = new_uuid7()
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_webhook_events "
+                "(id, tenant_id, whatsapp_account_id, whatsapp_message_id, "
+                "sender_wa_id, message_type, provider_timestamp, raw_payload, "
+                "normalized_content) VALUES (:id, :tenant, :account, :provider_id, "
+                "'573000000003', 'text', :occurred_at, :payload, :content)"
+            ).bindparams(
+                bindparam("payload", type_=JSONB),
+                bindparam("content", type_=JSONB),
+            ),
+            {
+                "id": fresh_event_id,
+                "tenant": context.tenant_id,
+                "account": account["id"],
+                "provider_id": f"wamid.runtime.fresh.{fresh_event_id}",
+                "occurred_at": datetime(2026, 8, 27, tzinfo=UTC)
+                + timedelta(seconds=11),
+                "payload": {"fixture": "after_resume"},
+                "content": {"text": "Una consulta nueva"},
+            },
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        fresh = await ConversationService(
+            session=session,
+            context=context,
+            awaiting_human_policy=AwaitingHumanPolicy.SILENT,
+        ).ingest(fresh_event_id)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        fresh_result = await AgentTurnService(
+            session=session,
+            context=context,
+            runtime=runtime,
+            agent_specs=_SpecProvider(_spec(context.tenant_id)),
+            tools=RuntimeToolRegistry(()),
+        ).process(
+            conversation_id=conversation_id,
+            inbound_message_id=fresh.message_id,
+        )
+    assert fresh_result.status == "completed"
+    assert len(runtime.turns) == 1
 
 
 @pytest.mark.asyncio

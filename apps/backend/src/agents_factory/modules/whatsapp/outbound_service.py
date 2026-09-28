@@ -130,11 +130,17 @@ class OutboundMessageService:
                             "conversation.customer_wa_id, conversation.control_state, "
                             "account.phone_number_id, account.mode, "
                             "inbound_reply.arrival_sequence AS reply_to_sequence, "
+                            "inbound_reply.provider_timestamp AS reply_to_at, "
                             "(SELECT max(human.arrival_sequence) FROM public.messages AS human "
                             " WHERE human.tenant_id=message.tenant_id "
                             " AND human.conversation_id=message.conversation_id "
                             " AND human.direction='outbound' AND human.sender_type='human') "
                             " AS last_human_sequence, "
+                            "(SELECT max(human.provider_timestamp) FROM public.messages AS human "
+                            " WHERE human.tenant_id=message.tenant_id "
+                            " AND human.conversation_id=message.conversation_id "
+                            " AND human.direction='outbound' AND human.sender_type='human') "
+                            " AS last_human_at, "
                             "(SELECT max(inbound.provider_timestamp) "
                             " FROM public.messages AS inbound "
                             " WHERE inbound.tenant_id = message.tenant_id "
@@ -171,11 +177,18 @@ class OutboundMessageService:
                 raise OutboundMessageNotFound(message_id)
             if row["control_state"] != "AI_ACTIVE":
                 raise ApprovedTemplateRequired
+            # A delayed inbound worker can assign a newer arrival sequence to
+            # a message that Meta timestamped before the mobile human reply.
             if row["mode"] == "COEXISTENCE" and (
                 row["reply_to_sequence"] is None
                 or (
                     row["last_human_sequence"] is not None
                     and row["last_human_sequence"] > row["reply_to_sequence"]
+                )
+                or (
+                    row["last_human_at"] is not None
+                    and row["reply_to_at"] is not None
+                    and row["last_human_at"] >= row["reply_to_at"]
                 )
             ):
                 raise OutboundMessageNotFound(message_id)

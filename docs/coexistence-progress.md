@@ -572,3 +572,29 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   live coexistence pilot after explicit authorization. The reviewer account
   stays untouched for future Meta checks. Release gate CLOSED; no Meta setting,
   Zuvel number, production data or deployment was changed.
+
+## Delayed inbound ordering review follow-up — 2026-09-28
+
+- A second read-only review found that arrival order alone cannot prove a
+  customer inbound preceded a human mobile reply: the webhook stores inbound
+  events first and a separate worker may materialize the message only after
+  the echo and administrator resume. The previous guards could then revive
+  that older inbound.
+- Runtime loading, persistence, and outbound preparation now also compare the
+  provider event timestamps. An AI reply is superseded when any human reply
+  has a later arrival sequence or an equal/later provider timestamp. Equal
+  timestamps fail closed because Meta timestamps have limited precision.
+- A real-database regression delayed inbound materialization until after the
+  human echo and resume; it first completed an AI turn, then blocked it. A
+  separate outbound regression inverted the stored arrival order to exercise
+  the preparation guard; it first allowed preparation, then rejected it.
+  Equal-timestamp echoes also block the stale inbound, while a genuinely new
+  customer message after resume still completes an AI turn. Related focused
+  tests: 19 passed. Fresh safe backend matrix: 538 passed,
+  one unchanged reviewer-account architecture failure. Ruff lint and mypy
+  passed; formatting was applied to the two new tests.
+- The reviewer also noted a lower-priority test gap: the pool-size-one provider
+  test uses a database-backed test token resolver rather than the production
+  encrypted-secret resolver. That path remains for a later isolated test.
+  The database-reset gate, operational alert decisions, supervised live pilot
+  and production migration remain pending. Release gate CLOSED.
