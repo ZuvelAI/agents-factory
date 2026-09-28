@@ -61,6 +61,7 @@ class ConnectedWhatsAppAccount:
     token_expires_at: datetime | None
     verified_at: datetime | None
     access_token_secret_ref: SecretRef | None = field(repr=False)
+    display_phone_digits: str | None = None
 
 
 class SignupRepository(Protocol):

@@ -13,6 +13,7 @@ type WhatsAppAccount = {
   business_id: string | null;
   waba_id: string;
   phone_number_id: string;
+  display_phone_digits: string | null;
   status: string;
   mode: "API_ONLY" | "COEXISTENCE";
   coexistence_eligibility: "ELIGIBLE" | "INELIGIBLE" | "UNKNOWN";
@@ -109,7 +110,11 @@ export default async function WhatsAppSetupPage({
         {accounts.map((account, index) => (
           <article className="account-card" key={account.id}>
             <div className="account-card-heading">
-              <h2>{account.phone_number_id}</h2>
+              <h2>
+                {account.display_phone_digits
+                  ? `+${account.display_phone_digits}`
+                  : "Número no disponible"}
+              </h2>
               <span
                 className={`health health-${account.health_status.toLowerCase()}`}
               >
@@ -117,6 +122,10 @@ export default async function WhatsAppSetupPage({
               </span>
             </div>
             <dl>
+              <div>
+                <dt>ID de Meta</dt>
+                <dd>{account.phone_number_id}</dd>
+              </div>
               <div>
                 <dt>Mode</dt>
                 <dd>{account.mode.replace("_", " ")}</dd>

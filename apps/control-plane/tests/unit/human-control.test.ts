@@ -35,6 +35,7 @@ const eligibleAccount = {
   business_id: null,
   waba_id: "waba-123",
   phone_number_id: "phone-123",
+  display_phone_digits: "15550783881",
   status: "active",
   mode: "COEXISTENCE",
   coexistence_eligibility: "ELIGIBLE",
@@ -50,6 +51,38 @@ beforeEach(() => {
 });
 
 describe("human control in the WhatsApp account", () => {
+  it("identifies the connected account by verified business number", async () => {
+    getBackend.mockImplementation(async (path) => {
+      if (path.endsWith("/whatsapp")) return [eligibleAccount];
+      if (path.endsWith("/human-active-conversations")) return [];
+      throw new Error(`Unexpected endpoint: ${path}`);
+    });
+
+    const markup = renderToStaticMarkup(
+      await WhatsAppSetupPage({ params: Promise.resolve({ tenantId }) }),
+    );
+
+    expect(markup).toContain("+15550783881");
+    expect(markup).toContain("<dt>ID de Meta</dt><dd>phone-123</dd>");
+  });
+
+  it("labels the Meta ID when a legacy account has no verified number", async () => {
+    getBackend.mockImplementation(async (path) => {
+      if (path.endsWith("/whatsapp")) {
+        return [{ ...eligibleAccount, display_phone_digits: null }];
+      }
+      if (path.endsWith("/human-active-conversations")) return [];
+      throw new Error(`Unexpected endpoint: ${path}`);
+    });
+
+    const markup = renderToStaticMarkup(
+      await WhatsAppSetupPage({ params: Promise.resolve({ tenantId }) }),
+    );
+
+    expect(markup).toContain("Número no disponible");
+    expect(markup).toContain("<dt>ID de Meta</dt><dd>phone-123</dd>");
+  });
+
   it("shows only a masked human conversation with an explicit resume confirmation", async () => {
     getBackend.mockImplementation(async (path) => {
       if (path.endsWith("/whatsapp")) {

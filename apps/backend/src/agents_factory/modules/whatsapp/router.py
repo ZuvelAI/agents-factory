@@ -295,6 +295,7 @@ class WhatsAppAccountResponse(BaseModel):
     business_id: str | None
     waba_id: str
     phone_number_id: str
+    display_phone_digits: str | None
     status: str
     mode: WhatsAppMode
     coexistence_eligibility: CoexistenceEligibility
@@ -311,6 +312,7 @@ class WhatsAppAccountResponse(BaseModel):
             business_id=summary.business_id,
             waba_id=summary.waba_id,
             phone_number_id=summary.phone_number_id,
+            display_phone_digits=summary.display_phone_digits,
             status=summary.status,
             mode=summary.mode,
             coexistence_eligibility=summary.coexistence_eligibility,

@@ -53,6 +53,7 @@ class WhatsAppAccountSummary:
     last_health_checked_at: datetime | None
     token_expires_at: datetime | None
     verified_at: datetime | None
+    display_phone_digits: str | None = None
 
     @classmethod
     def from_account(cls, account: ConnectedWhatsAppAccount) -> WhatsAppAccountSummary:
@@ -69,6 +70,7 @@ class WhatsAppAccountSummary:
             last_health_checked_at=account.last_health_checked_at,
             token_expires_at=account.token_expires_at,
             verified_at=account.verified_at,
+            display_phone_digits=account.display_phone_digits,
         )
 
 
@@ -676,7 +678,8 @@ class WhatsAppAccountService:
 
 
 _ACCOUNT_SELECT = (
-    "SELECT id, tenant_id, business_id, waba_id, phone_number_id, status, mode, "
+    "SELECT id, tenant_id, business_id, waba_id, phone_number_id, "
+    "display_phone_digits, status, mode, "
     "coexistence_eligibility, granted_scopes, health_status, "
     "last_health_checked_at, token_expires_at, verified_at, "
     "access_token_secret_id, created_at FROM public.whatsapp_accounts"
@@ -691,6 +694,7 @@ def _account_from_row(row: RowMapping) -> ConnectedWhatsAppAccount:
         business_id=row["business_id"],
         waba_id=row["waba_id"],
         phone_number_id=row["phone_number_id"],
+        display_phone_digits=row["display_phone_digits"],
         status=row["status"],
         mode=cast(WhatsAppMode, row["mode"]),
         coexistence_eligibility=cast(

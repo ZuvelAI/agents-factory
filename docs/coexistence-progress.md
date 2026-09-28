@@ -507,3 +507,18 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   local stack, not just the disposable test database. Cost if wrong: that
   database-reset gate remains unverified until it has a dedicated isolated
   Supabase instance. Browser E2E also remains pending. Release gate CLOSED.
+
+## Verified phone identity in operator account view — 2026-09-27
+
+- The account page now labels each account by the phone number verified during
+  Meta authorization, when available, while retaining the separate Meta phone
+  ID for diagnosis. Legacy accounts without that stored number say "Número no
+  disponible" rather than presenting an opaque ID as a telephone number.
+- A real-database test checks tenant-scoped account retrieval through the
+  admin response, and page tests cover both the verified-number and legacy
+  fallback states. RED was observed before the change; focused tests are GREEN.
+- Fresh checks: 529 backend tests passed with the same pre-existing reviewer
+  architecture failure; 48 control-plane unit tests and TypeScript passed.
+  Targeted Ruff lint/format, mypy, ESLint, Prettier and diff check passed.
+  No production service, Meta setting or Zuvel number was changed. Release
+  gate CLOSED; browser E2E and the isolated database-reset gate remain pending.
