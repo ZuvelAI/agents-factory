@@ -237,6 +237,64 @@ async def test_partner_removed_cannot_cross_waba_boundary(
 
 
 @pytest.mark.asyncio
+async def test_application_role_cannot_disconnect_another_tenant_via_function(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    own = await _seed(
+        session_factory,
+        phone_id=f"phone-{new_uuid7()}",
+        display="573124009572",
+        verified_at=datetime(2025, 2, 9, tzinfo=UTC),
+    )
+    foreign = await _seed(
+        session_factory,
+        phone_id=f"phone-{new_uuid7()}",
+        display="573124009573",
+        verified_at=datetime(2025, 2, 9, tzinfo=UTC),
+    )
+    async with session_factory.begin() as session:
+        own_tenant = await session.scalar(
+            text("SELECT tenant_id FROM public.whatsapp_accounts WHERE id=:id"),
+            {"id": own},
+        )
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', :tenant, true)"),
+            {"tenant": str(own_tenant)},
+        )
+        result = await session.scalar(
+            text(
+                "SELECT agents_factory_private.apply_whatsapp_partner_removed("
+                "'waba-shared', '573124009573', now())"
+            )
+        )
+    assert result == "unmatched"
+    assert await _status(session_factory, foreign) == "active"
+
+
+@pytest.mark.asyncio
+async def test_partner_removed_function_requires_tenant_context(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    foreign = await _seed(
+        session_factory,
+        phone_id=f"phone-{new_uuid7()}",
+        display="573124009574",
+        verified_at=datetime(2025, 2, 9, tzinfo=UTC),
+    )
+    with pytest.raises(DBAPIError):
+        async with session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+            await session.scalar(
+                text(
+                    "SELECT agents_factory_private.apply_whatsapp_partner_removed("
+                    "'waba-shared', '573124009574', now())"
+                )
+            )
+    assert await _status(session_factory, foreign) == "active"
+
+
+@pytest.mark.asyncio
 async def test_invalid_signature_never_creates_an_account_update_alert(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

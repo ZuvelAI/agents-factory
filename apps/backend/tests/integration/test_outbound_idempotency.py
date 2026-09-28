@@ -1,27 +1,38 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
+import httpx
+from pydantic import SecretStr
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
+from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.contracts import (
     OutboundTemplateRequest,
     OutboundTextRequest,
     ProviderMessageResult,
     WhatsAppDeliveryStatusEvent,
+    WhatsAppMobileEcho,
 )
 from agents_factory.modules.whatsapp.outbound_service import (
     OutboundMessageService,
     OutboundStatusReconciler,
 )
+from agents_factory.modules.whatsapp.meta_provider import MetaCloudApiProvider
+from agents_factory.modules.whatsapp.mobile_echo import (
+    ingest_mobile_echo,
+    resume_ai_from_mobile,
+)
+from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
 
 
 class RecordingProvider:
@@ -63,6 +74,118 @@ async def test_dispatch_fence_does_not_exhaust_connection_pool(
         assert (await service.send(prepared)).status == "ACCEPTED"
     finally:
         await engine.dispose()
+
+
+async def test_production_style_token_lookup_uses_reserved_dispatch_connection(
+    session_factory, local_database_url
+):
+    tenant, _, _, assistant = await _seed_text_reply(session_factory)
+    engine = create_async_engine(
+        local_database_url, pool_size=1, max_overflow=0, pool_timeout=0.2
+    )
+
+    class DatabaseTokenResolver:
+        def __init__(self, factory):
+            self.factory = factory
+
+        async def resolve(self, *, context, whatsapp_account_id):
+            async with self.factory.begin() as session:
+                await session.scalar(text("SELECT 1"))
+            return ResolvedSecret(b"test-only-token")
+
+    sent: list[httpx.Request] = []
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={"messages": [{"id": "wamid.pool-one"}]})
+
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(accept)) as client:
+            provider = MetaCloudApiProvider(
+                app_secret=SecretStr("test-only-app-secret"),
+                access_tokens=DatabaseTokenResolver(factory),
+                http_client=client,
+                graph_api_base_url="https://graph.facebook.com/v25.0",
+            )
+            service = OutboundMessageService(
+                session_factory=factory,
+                context=_context(tenant),
+                provider=provider,
+                provider_for_session=lambda bound_factory: replace(
+                    provider,
+                    access_tokens=DatabaseTokenResolver(bound_factory),
+                ),
+            )
+            prepared = await service.prepare_text(message_id=assistant)
+            result = await service.send(prepared)
+        assert result.status == "ACCEPTED"
+        assert len(sent) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_queued_ai_reply_before_mobile_takeover_cannot_send_after_resume(
+    session_factory,
+):
+    tenant, account, conversation, assistant = await _seed_text_reply(session_factory)
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', "
+                "coexistence_eligibility='ELIGIBLE' WHERE id=:id"
+            ),
+            {"id": account},
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await ingest_mobile_echo(
+            session,
+            context=_context(tenant),
+            mapping=WhatsAppAccountMapping(account_id=account, tenant_id=tenant),
+            event=WhatsAppMobileEcho(
+                waba_id=f"waba-{account.hex}",
+                phone_number_id=f"phone-{account.hex}",
+                whatsapp_message_id="wamid.takeover.before-prepare",
+                recipient_wa_id="573000000001",
+                message_type="text",
+                content={"text": "Yo atiendo ahora"},
+                occurred_at=datetime.now(UTC),
+            ),
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        version = await session.scalar(
+            text("SELECT state_version FROM public.conversations WHERE id=:id"),
+            {"id": conversation},
+        )
+        await resume_ai_from_mobile(
+            session,
+            context=TenantContext(
+                tenant_id=tenant,
+                actor_id=new_uuid7(),
+                actor_type="platform_admin",
+                correlation_id=new_uuid7(),
+            ),
+            account_id=account,
+            conversation_id=conversation,
+            expected_version=version,
+        )
+
+    provider = RecordingProvider([])
+    service = OutboundMessageService(
+        session_factory=session_factory,
+        context=_context(tenant),
+        provider=provider,
+    )
+    with pytest.raises(LookupError):
+        await service.prepare_text(message_id=assistant)
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(text("SELECT count(*) FROM public.outbound_messages"))
+            == 0
+        )
+    assert provider.text_requests == []
 
 
 async def test_cancelled_dispatch_releases_fence_and_retains_unknown_outcome(

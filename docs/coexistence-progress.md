@@ -541,3 +541,34 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   the browser pass does not prove live provider authorization, actual sync
   delivery or a deployed end-to-end flow. Those remain separate release gates.
   The local database-reset gate also remains pending. Release gate CLOSED.
+
+## Whole-branch security review follow-up — 2026-09-28
+
+- An independent read-only review found three high-priority gaps: outbound
+  dispatch could exhaust a one-connection pool while resolving the Meta token;
+  a queued or in-flight AI reply could survive a mobile takeover followed by
+  administrator resume; and the partner-removal database function could mutate
+  an account outside the current tenant context.
+- Production outbound dispatch now resolves the account token through its
+  reserved connection. A pool-size-one provider test first observed UNCERTAIN
+  without an HTTP request and then ACCEPTED with exactly one request.
+- Coexistence AI preparation rejects replies to an inbound that predates a
+  human mobile reply, even after resume. Runtime loading and persistence also
+  check this ordering so a turn in progress cannot persist a stale reply.
+  Focused queued-reply and stale-turn tests observed RED/GREEN; a separate
+  in-flight takeover/resume regression passed after the persistence guard.
+- A new migration resolves the exact WABA/display-phone tenant for verified
+  account-update webhooks, then requires tenant context for the mutating
+  partner-removal function. Direct application-role cross-tenant and
+  missing-context attacks observed RED/GREEN. The migration was applied only
+  to the disposable security database, not to production.
+- Fresh safe backend matrix: 535 passed, one known architecture failure for
+  the deferred Meta reviewer-account conditionals. The database-reset gate was
+  deliberately excluded because it targets the active local Supabase stack.
+  Targeted Ruff lint/format, mypy and diff checks passed. This does not verify
+  a live Meta provider request or the deployed end-to-end path.
+- Remaining before a release decision: isolated database-reset gate, final
+  operational/security review, alert notification/resolution and a supervised
+  live coexistence pilot after explicit authorization. The reviewer account
+  stays untouched for future Meta checks. Release gate CLOSED; no Meta setting,
+  Zuvel number, production data or deployment was changed.

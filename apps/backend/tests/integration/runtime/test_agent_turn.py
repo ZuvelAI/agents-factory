@@ -27,6 +27,12 @@ from agents_factory.modules.runtime.turn_service import (
     AgentSpecProvider,
     AgentTurnService,
 )
+from agents_factory.modules.whatsapp.contracts import WhatsAppMobileEcho
+from agents_factory.modules.whatsapp.mobile_echo import (
+    ingest_mobile_echo,
+    resume_ai_from_mobile,
+)
+from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
 
 
 @dataclass
@@ -255,3 +261,175 @@ async def test_turn_short_circuits_before_runtime_when_authority_is_absent(
         else "inactive_agent_spec"
     )
     assert runtime.turns == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_takeover_and_resume_do_not_revive_old_inbound_turn(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    context, conversation_id, inbound_message_id = await _seed_inbound(session_factory)
+    async with session_factory.begin() as session:
+        row = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', "
+                        "coexistence_eligibility='ELIGIBLE' "
+                        "WHERE tenant_id=:tenant RETURNING id,waba_id,phone_number_id"
+                    ),
+                    {"tenant": context.tenant_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        await ingest_mobile_echo(
+            session,
+            context=context,
+            mapping=WhatsAppAccountMapping(
+                account_id=row["id"], tenant_id=context.tenant_id
+            ),
+            event=WhatsAppMobileEcho(
+                waba_id=row["waba_id"],
+                phone_number_id=row["phone_number_id"],
+                whatsapp_message_id="wamid.runtime.mobile",
+                recipient_wa_id="573000000003",
+                message_type="text",
+                content={"text": "Atendido por una persona"},
+                occurred_at=datetime.now(UTC),
+            ),
+        )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        version = await session.scalar(
+            text("SELECT state_version FROM public.conversations WHERE id=:id"),
+            {"id": conversation_id},
+        )
+        await resume_ai_from_mobile(
+            session,
+            context=TenantContext(
+                tenant_id=context.tenant_id,
+                actor_id=new_uuid7(),
+                actor_type="platform_admin",
+                correlation_id=new_uuid7(),
+            ),
+            account_id=row["id"],
+            conversation_id=conversation_id,
+            expected_version=version,
+        )
+
+    runtime = _FakeRuntime()
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        result = await AgentTurnService(
+            session=session,
+            context=context,
+            runtime=runtime,
+            agent_specs=_SpecProvider(_spec(context.tenant_id)),
+            tools=RuntimeToolRegistry(()),
+        ).process(
+            conversation_id=conversation_id,
+            inbound_message_id=inbound_message_id,
+        )
+    assert result.status == "blocked_by_conversation_control"
+    assert runtime.turns == []
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.outbox_jobs WHERE topic='outbound.text'"
+                )
+            )
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+async def test_takeover_and_resume_during_runtime_cannot_persist_stale_reply(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    context, conversation_id, inbound_message_id = await _seed_inbound(session_factory)
+    async with session_factory.begin() as session:
+        account = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE public.whatsapp_accounts SET mode='COEXISTENCE', "
+                        "coexistence_eligibility='ELIGIBLE' "
+                        "WHERE tenant_id=:tenant RETURNING id,waba_id,phone_number_id"
+                    ),
+                    {"tenant": context.tenant_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    class InterveningRuntime(_FakeRuntime):
+        async def run(self, turn: AgentTurnInput) -> AgentTurnResult:
+            async with session_factory.begin() as session:
+                await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+                await ingest_mobile_echo(
+                    session,
+                    context=context,
+                    mapping=WhatsAppAccountMapping(
+                        account_id=account["id"], tenant_id=context.tenant_id
+                    ),
+                    event=WhatsAppMobileEcho(
+                        waba_id=account["waba_id"],
+                        phone_number_id=account["phone_number_id"],
+                        whatsapp_message_id="wamid.runtime.inflight-mobile",
+                        recipient_wa_id="573000000003",
+                        message_type="text",
+                        content={"text": "Ya atiendo personalmente"},
+                        occurred_at=datetime.now(UTC),
+                    ),
+                )
+            async with session_factory.begin() as session:
+                await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+                version = await session.scalar(
+                    text("SELECT state_version FROM public.conversations WHERE id=:id"),
+                    {"id": conversation_id},
+                )
+                await resume_ai_from_mobile(
+                    session,
+                    context=TenantContext(
+                        tenant_id=context.tenant_id,
+                        actor_id=new_uuid7(),
+                        actor_type="platform_admin",
+                        correlation_id=new_uuid7(),
+                    ),
+                    account_id=account["id"],
+                    conversation_id=conversation_id,
+                    expected_version=version,
+                )
+            return await super().run(turn)
+
+    runtime = InterveningRuntime()
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        result = await AgentTurnService(
+            session=session,
+            context=context,
+            runtime=runtime,
+            agent_specs=_SpecProvider(_spec(context.tenant_id)),
+            tools=RuntimeToolRegistry(()),
+        ).process(
+            conversation_id=conversation_id,
+            inbound_message_id=inbound_message_id,
+        )
+    assert result.status == "blocked_by_conversation_control"
+    assert len(runtime.turns) == 1
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.messages "
+                    "WHERE in_reply_to_message_id=:inbound"
+                ),
+                {"inbound": inbound_message_id},
+            )
+            == 0
+        )

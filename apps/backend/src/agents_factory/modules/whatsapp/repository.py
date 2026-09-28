@@ -73,6 +73,16 @@ class WhatsAppWebhookRepository:
         display_phone_digits: str,
         occurred_at: datetime,
     ) -> str:
+        tenant_id = await self._session.scalar(
+            text(
+                "SELECT agents_factory_private.resolve_whatsapp_update_tenant("
+                ":waba_id, :display_phone_digits)"
+            ),
+            {"waba_id": waba_id, "display_phone_digits": display_phone_digits},
+        )
+        if not isinstance(tenant_id, UUID):
+            return "unmatched"
+        await set_tenant_context(self._session, tenant_id)
         result = await self._session.scalar(
             text(
                 "SELECT agents_factory_private.apply_whatsapp_partner_removed("

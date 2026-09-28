@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol, cast
+from typing import Callable, Literal, Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -94,10 +94,15 @@ class OutboundMessageService:
         session_factory: async_sessionmaker[AsyncSession],
         context: TenantContext,
         provider: OutboundProvider,
+        provider_for_session: Callable[
+            [async_sessionmaker[AsyncSession]], OutboundProvider
+        ]
+        | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._context = context
         self._provider = provider
+        self._provider_for_session = provider_for_session
 
     async def prepare_text(self, *, message_id: UUID) -> UUID:
         now = datetime.now(UTC)
@@ -123,7 +128,13 @@ class OutboundMessageService:
                             "SELECT message.id, message.conversation_id, "
                             "message.content, conversation.whatsapp_account_id, "
                             "conversation.customer_wa_id, conversation.control_state, "
-                            "account.phone_number_id, "
+                            "account.phone_number_id, account.mode, "
+                            "inbound_reply.arrival_sequence AS reply_to_sequence, "
+                            "(SELECT max(human.arrival_sequence) FROM public.messages AS human "
+                            " WHERE human.tenant_id=message.tenant_id "
+                            " AND human.conversation_id=message.conversation_id "
+                            " AND human.direction='outbound' AND human.sender_type='human') "
+                            " AS last_human_sequence, "
                             "(SELECT max(inbound.provider_timestamp) "
                             " FROM public.messages AS inbound "
                             " WHERE inbound.tenant_id = message.tenant_id "
@@ -137,6 +148,9 @@ class OutboundMessageService:
                             "JOIN public.whatsapp_accounts AS account "
                             "ON account.tenant_id = conversation.tenant_id "
                             "AND account.id = conversation.whatsapp_account_id "
+                            "LEFT JOIN public.messages AS inbound_reply "
+                            "ON inbound_reply.tenant_id=message.tenant_id "
+                            "AND inbound_reply.id=message.in_reply_to_message_id "
                             "WHERE message.tenant_id = :tenant_id "
                             "AND message.id = :message_id "
                             "AND message.direction = 'outbound' "
@@ -157,6 +171,14 @@ class OutboundMessageService:
                 raise OutboundMessageNotFound(message_id)
             if row["control_state"] != "AI_ACTIVE":
                 raise ApprovedTemplateRequired
+            if row["mode"] == "COEXISTENCE" and (
+                row["reply_to_sequence"] is None
+                or (
+                    row["last_human_sequence"] is not None
+                    and row["last_human_sequence"] > row["reply_to_sequence"]
+                )
+            ):
+                raise OutboundMessageNotFound(message_id)
             last_inbound = row["last_inbound_at"]
             if (
                 not isinstance(last_inbound, datetime)
@@ -235,7 +257,11 @@ class OutboundMessageService:
                 bound_service = OutboundMessageService(
                     session_factory=factory,
                     context=self._context,
-                    provider=self._provider,
+                    provider=(
+                        self._provider_for_session(factory)
+                        if self._provider_for_session is not None
+                        else self._provider
+                    ),
                 )
                 result = await bound_service._send_under_fence(message_id)
                 if key is not None:

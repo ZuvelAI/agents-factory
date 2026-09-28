@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.queue import (
@@ -38,18 +39,30 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
     key_provider = EnvironmentMasterKeyProvider(
         environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
     )
+
+    def meta_provider_for_session(
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> OutboundProvider:
+        return MetaCloudApiProvider(
+            app_secret=settings.meta_app_secret,
+            access_tokens=SessionFactoryMetaAccessTokenResolver(
+                session_factory=session_factory,
+                key_provider=key_provider,
+            ),
+            graph_api_base_url=settings.meta_graph_api_base_url,
+        )
+
     token_resolver = SessionFactoryMetaAccessTokenResolver(
         session_factory=database.session_factory,
         key_provider=key_provider,
     )
+    injected_provider = context.get("whatsapp_provider")
     provider = cast(
         OutboundProvider,
-        context.get("whatsapp_provider")
-        or MetaCloudApiProvider(
-            app_secret=settings.meta_app_secret,
-            access_tokens=token_resolver,
-            graph_api_base_url=settings.meta_graph_api_base_url,
-        ),
+        injected_provider or meta_provider_for_session(database.session_factory),
+    )
+    provider_for_session = (
+        None if injected_provider is not None else meta_provider_for_session
     )
     sync_provider = cast(
         MetaCloudApiProvider,
@@ -72,6 +85,7 @@ async def configure_outbound_worker(context: dict[Any, Any]) -> None:
             envelope=envelope,
             database=database,
             provider=provider,
+            provider_for_session=provider_for_session,
         )
 
     async def request_sync_handler(envelope: JobEnvelope) -> None:
@@ -180,6 +194,8 @@ async def handle_send(
     envelope: JobEnvelope,
     database: Database,
     provider: OutboundProvider,
+    provider_for_session: Callable[[async_sessionmaker[AsyncSession]], OutboundProvider]
+    | None = None,
 ) -> None:
     if envelope.kind != "whatsapp.outbound.send":
         raise InvalidOutboundJob("unexpected outbound send job kind")
@@ -188,6 +204,7 @@ async def handle_send(
         session_factory=database.session_factory,
         context=_context(envelope),
         provider=provider,
+        provider_for_session=provider_for_session,
     ).send(message_id)
 
 

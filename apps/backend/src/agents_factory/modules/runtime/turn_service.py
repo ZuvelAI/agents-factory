@@ -116,6 +116,7 @@ class _LoadedTurn:
     control_state: ConversationControlState
     messages: tuple[TurnMessage, ...]
     inbound_message: TurnMessage
+    superseded_by_human: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +174,7 @@ class AgentTurnService:
         if loaded is None:
             raise AgentTurnNotFound
 
-        if not self._may_ai_respond(loaded.control_state):
+        if loaded.superseded_by_human or not self._may_ai_respond(loaded.control_state):
             return AgentTurnExecution(status="blocked_by_conversation_control")
 
         agent_spec = await self._agent_specs.get_active(
@@ -292,12 +293,27 @@ class _RuntimeTurnRepository:
             (
                 await self._session.execute(
                     text(
-                        "SELECT id, direction, sender_type, message_type, content, "
-                        "arrival_sequence FROM public.messages "
-                        "WHERE tenant_id = :tenant_id "
-                        "AND conversation_id = :conversation_id "
-                        "AND id = :inbound_message_id "
-                        "AND direction = 'inbound' AND sender_type = 'customer'"
+                        "SELECT inbound.id, inbound.direction, inbound.sender_type, "
+                        "inbound.message_type, inbound.content, inbound.arrival_sequence, "
+                        "account.mode='COEXISTENCE' AND EXISTS ("
+                        "SELECT 1 FROM public.messages AS human "
+                        "WHERE human.tenant_id=inbound.tenant_id "
+                        "AND human.conversation_id=inbound.conversation_id "
+                        "AND human.direction='outbound' AND human.sender_type='human' "
+                        "AND human.arrival_sequence > inbound.arrival_sequence"
+                        ") AS superseded_by_human "
+                        "FROM public.messages AS inbound "
+                        "JOIN public.conversations AS conversation "
+                        "ON conversation.tenant_id=inbound.tenant_id "
+                        "AND conversation.id=inbound.conversation_id "
+                        "JOIN public.whatsapp_accounts AS account "
+                        "ON account.tenant_id=conversation.tenant_id "
+                        "AND account.id=conversation.whatsapp_account_id "
+                        "WHERE inbound.tenant_id = :tenant_id "
+                        "AND inbound.conversation_id = :conversation_id "
+                        "AND inbound.id = :inbound_message_id "
+                        "AND inbound.direction = 'inbound' "
+                        "AND inbound.sender_type = 'customer'"
                     ),
                     {
                         "tenant_id": context.tenant_id,
@@ -337,6 +353,7 @@ class _RuntimeTurnRepository:
             control_state=ConversationControlState(state),
             messages=messages,
             inbound_message=inbound,
+            superseded_by_human=bool(inbound_row["superseded_by_human"]),
         )
 
     async def find_assistant_reply(
@@ -377,21 +394,45 @@ class _RuntimeTurnRepository:
         awaiting_human_policy: AwaitingHumanPolicy,
     ) -> _PersistedAssistant:
         await set_tenant_context(self._session, context.tenant_id)
-        state = await self._session.scalar(
-            text(
-                "SELECT control_state FROM public.conversations "
-                "WHERE tenant_id = :tenant_id AND id = :conversation_id "
-                "FOR UPDATE"
-            ),
-            {
-                "tenant_id": context.tenant_id,
-                "conversation_id": conversation_id,
-            },
+        authority = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT conversation.control_state, "
+                        "account.mode='COEXISTENCE' AND EXISTS ("
+                        "SELECT 1 FROM public.messages AS inbound "
+                        "JOIN public.messages AS human "
+                        "ON human.tenant_id=inbound.tenant_id "
+                        "AND human.conversation_id=inbound.conversation_id "
+                        "AND human.direction='outbound' AND human.sender_type='human' "
+                        "AND human.arrival_sequence > inbound.arrival_sequence "
+                        "WHERE inbound.tenant_id=:tenant_id "
+                        "AND inbound.conversation_id=:conversation_id "
+                        "AND inbound.id=:inbound_message_id"
+                        ") AS superseded_by_human "
+                        "FROM public.conversations AS conversation "
+                        "JOIN public.whatsapp_accounts AS account "
+                        "ON account.tenant_id=conversation.tenant_id "
+                        "AND account.id=conversation.whatsapp_account_id "
+                        "WHERE conversation.tenant_id=:tenant_id "
+                        "AND conversation.id=:conversation_id FOR UPDATE OF conversation"
+                    ),
+                    {
+                        "tenant_id": context.tenant_id,
+                        "conversation_id": conversation_id,
+                        "inbound_message_id": inbound_message_id,
+                    },
+                )
+            )
+            .mappings()
+            .one_or_none()
         )
-        if not isinstance(state, str):
+        if authority is None:
             raise AgentTurnNotFound
-        if not ConversationStateMachine.may_ai_respond(
-            state=ConversationControlState(state),
+        if authority[
+            "superseded_by_human"
+        ] or not ConversationStateMachine.may_ai_respond(
+            state=ConversationControlState(authority["control_state"]),
             awaiting_human_policy=awaiting_human_policy,
         ):
             return _PersistedAssistant(
