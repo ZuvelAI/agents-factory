@@ -598,3 +598,25 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   encrypted-secret resolver. That path remains for a later isolated test.
   The database-reset gate, operational alert decisions, supervised live pilot
   and production migration remain pending. Release gate CLOSED.
+
+## Encrypted-token dispatch verification — 2026-09-28
+
+- Closed the remaining pool-size-one test gap with the production
+  `SessionFactoryMetaAccessTokenResolver`, a real encrypted secret envelope,
+  and an HTTP-only Meta mock. The first run reached `UNCERTAIN` without an HTTP
+  request: the vault rejected the reserved connection's session type.
+- The reserved-connection resolver now reads and audits through that same
+  connection. For a denied secret, it commits the denial audit before raising;
+  engine-bound vault callers retain their separate committed-denial recorder.
+  An invalid account/secret binding first raised the wrong error, then raised
+  `SecretAccessDenied` with one persisted denial audit and no second connection.
+- Both new cases passed; related outbound, disconnect, secret-isolation and
+  worker-identity checks passed (22 tests). Fresh safe backend matrix: 540
+  passed, one unchanged architecture failure for the deferred Meta reviewer
+  account exception. Targeted Ruff and mypy passed. The database-reset gate
+  remains excluded because it can reset the active local stack. No live Meta
+  request, production migration, deployment or number onboarding occurred.
+- Remaining release gates: isolated database-reset test, operational alert
+  design/implementation decision, final security review, supervised live pilot
+  with explicit authorization, and production migration/release decision.
+  Release gate CLOSED.

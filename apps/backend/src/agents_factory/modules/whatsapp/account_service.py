@@ -8,12 +8,16 @@ from uuid import UUID
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import RowMapping
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.errors import DomainError
 from agents_factory.database import set_tenant_context
-from agents_factory.modules.secrets.contracts import KeyEncryptionProvider, SecretRef
+from agents_factory.modules.secrets.contracts import (
+    KeyEncryptionProvider,
+    SecretAccessDenied,
+    SecretRef,
+)
 from agents_factory.modules.secrets.repository import SecretVault
 from agents_factory.modules.secrets.redaction import ResolvedSecret
 from agents_factory.modules.whatsapp.contracts import (
@@ -381,9 +385,15 @@ class DatabaseMetaAccessTokenResolver:
         *,
         session: AsyncSession,
         key_provider: KeyEncryptionProvider,
+        reserved_connection: bool = False,
     ) -> None:
         self._repository = WhatsAppAccountRepository(session)
-        self._vault = SecretVault.for_session(session, key_provider=key_provider)
+        if reserved_connection:
+            self._vault = SecretVault.for_reserved_connection_session(
+                session, key_provider=key_provider
+            )
+        else:
+            self._vault = SecretVault.for_session(session, key_provider=key_provider)
 
     async def resolve(
         self,
@@ -426,15 +436,29 @@ class SessionFactoryMetaAccessTokenResolver:
         context: TenantContext,
         whatsapp_account_id: UUID,
     ) -> ResolvedSecret:
+        reserved_connection = isinstance(
+            self._session_factory.kw.get("bind"), AsyncConnection
+        )
+        denied: SecretAccessDenied | None = None
         async with self._session_factory.begin() as session:
             await session.execute(text("SET LOCAL ROLE agents_factory_app"))
-            return await DatabaseMetaAccessTokenResolver(
-                session=session,
-                key_provider=self._key_provider,
-            ).resolve(
-                context=context,
-                whatsapp_account_id=whatsapp_account_id,
-            )
+            try:
+                return await DatabaseMetaAccessTokenResolver(
+                    session=session,
+                    key_provider=self._key_provider,
+                    reserved_connection=reserved_connection,
+                ).resolve(
+                    context=context,
+                    whatsapp_account_id=whatsapp_account_id,
+                )
+            except SecretAccessDenied as exc:
+                if not reserved_connection:
+                    raise
+                # The denial audit shares the reserved connection. Let the
+                # context manager commit it before propagating the refusal.
+                denied = exc
+        assert denied is not None
+        raise denied
 
 
 class WhatsAppDisconnectExecutor(Protocol):

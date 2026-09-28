@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import replace
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -15,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
+from agents_factory.modules.secrets.contracts import SecretAccessDenied
+from agents_factory.modules.secrets.envelope import EnvironmentMasterKeyProvider
 from agents_factory.modules.secrets.redaction import ResolvedSecret
+from agents_factory.modules.secrets.repository import SecretVault
+from agents_factory.modules.whatsapp.account_service import (
+    SessionFactoryMetaAccessTokenResolver,
+)
 from agents_factory.modules.whatsapp.contracts import (
     OutboundTemplateRequest,
     OutboundTextRequest,
@@ -33,6 +40,7 @@ from agents_factory.modules.whatsapp.mobile_echo import (
     resume_ai_from_mobile,
 )
 from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
+from agents_factory.modules.whatsapp.signup_service import ACCESS_TOKEN_PURPOSE
 
 
 class RecordingProvider:
@@ -121,6 +129,136 @@ async def test_production_style_token_lookup_uses_reserved_dispatch_connection(
             result = await service.send(prepared)
         assert result.status == "ACCEPTED"
         assert len(sent) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_encrypted_meta_token_lookup_uses_reserved_dispatch_connection(
+    session_factory, local_database_url
+):
+    tenant, account, _, assistant = await _seed_text_reply(session_factory)
+    context = TenantContext(
+        tenant_id=tenant,
+        actor_id=new_uuid7(),
+        actor_type="platform_admin",
+        correlation_id=new_uuid7(),
+    )
+    encoded_key = base64.urlsafe_b64encode(b"\x07" * 32).rstrip(b"=").decode()
+    key_provider = EnvironmentMasterKeyProvider(
+        environment={"APP_MASTER_KEY": encoded_key}
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        secret_ref = await SecretVault.for_session(
+            session, key_provider=key_provider
+        ).store(
+            context=context,
+            purpose=ACCESS_TOKEN_PURPOSE,
+            record_context=f"whatsapp_account:{account}",
+            plaintext=b"test-only-encrypted-meta-token",
+        )
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts "
+                "SET access_token_secret_id=:secret_id WHERE id=:account_id"
+            ),
+            {"secret_id": secret_ref.id, "account_id": account},
+        )
+
+    engine = create_async_engine(
+        local_database_url, pool_size=1, max_overflow=0, pool_timeout=0.2
+    )
+    sent: list[httpx.Request] = []
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        assert (
+            request.headers["Authorization"] == "Bearer test-only-encrypted-meta-token"
+        )
+        return httpx.Response(200, json={"messages": [{"id": "wamid.vault-pool-one"}]})
+
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(accept)) as client:
+            provider = MetaCloudApiProvider(
+                app_secret=SecretStr("test-only-app-secret"),
+                access_tokens=SessionFactoryMetaAccessTokenResolver(
+                    session_factory=factory, key_provider=key_provider
+                ),
+                http_client=client,
+                graph_api_base_url="https://graph.facebook.com/v25.0",
+            )
+            service = OutboundMessageService(
+                session_factory=factory,
+                context=context,
+                provider=provider,
+                provider_for_session=lambda bound_factory: replace(
+                    provider,
+                    access_tokens=SessionFactoryMetaAccessTokenResolver(
+                        session_factory=bound_factory, key_provider=key_provider
+                    ),
+                ),
+            )
+            prepared = await service.prepare_text(message_id=assistant)
+            result = await service.send(prepared)
+        assert result.status == "ACCEPTED"
+        assert len(sent) == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_reserved_token_lookup_denial_is_committed_without_second_connection(
+    session_factory, local_database_url
+):
+    tenant, account, _, _ = await _seed_text_reply(session_factory)
+    context = TenantContext(
+        tenant_id=tenant,
+        actor_id=new_uuid7(),
+        actor_type="system",
+        correlation_id=new_uuid7(),
+    )
+    encoded_key = base64.urlsafe_b64encode(b"\x08" * 32).rstrip(b"=").decode()
+    key_provider = EnvironmentMasterKeyProvider(
+        environment={"APP_MASTER_KEY": encoded_key}
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        secret_ref = await SecretVault.for_session(
+            session, key_provider=key_provider
+        ).store(
+            context=context,
+            purpose=ACCESS_TOKEN_PURPOSE,
+            record_context="whatsapp_account:a-different-account",
+            plaintext=b"test-only-inaccessible-token",
+        )
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts "
+                "SET access_token_secret_id=:secret_id WHERE id=:account_id"
+            ),
+            {"secret_id": secret_ref.id, "account_id": account},
+        )
+
+    engine = create_async_engine(
+        local_database_url, pool_size=1, max_overflow=0, pool_timeout=0.2
+    )
+    try:
+        async with engine.connect() as connection:
+            factory = async_sessionmaker(connection, expire_on_commit=False)
+            resolver = SessionFactoryMetaAccessTokenResolver(
+                session_factory=factory, key_provider=key_provider
+            )
+            with pytest.raises(SecretAccessDenied):
+                await resolver.resolve(context=context, whatsapp_account_id=account)
+        async with engine.connect() as connection:
+            count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM public.audit_events "
+                    "WHERE tenant_id=:tenant_id AND event_type='secret.access_denied'"
+                ),
+                {"tenant_id": tenant},
+            )
+        assert count == 1
     finally:
         await engine.dispose()
 

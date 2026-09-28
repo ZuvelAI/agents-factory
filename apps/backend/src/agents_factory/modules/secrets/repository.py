@@ -6,7 +6,12 @@ from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.engine import RowMapping
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+)
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
@@ -134,6 +139,24 @@ class SecretVault:
             repository=SecretEnvelopeRepository(session),
             audit=AuditService(session),
             denial_audit=_CommittedAuditRecorder(bind),
+            key_provider=key_provider,
+        )
+
+    @classmethod
+    def for_reserved_connection_session(
+        cls,
+        session: AsyncSession,
+        *,
+        key_provider: KeyEncryptionProvider,
+    ) -> SecretVault:
+        """Audit on the reserved connection; caller must commit a denial before raising."""
+        if not isinstance(session.bind, AsyncConnection):
+            raise RuntimeError("secret vault requires a connection-bound session")
+        audit = AuditService(session)
+        return cls(
+            repository=SecretEnvelopeRepository(session),
+            audit=audit,
+            denial_audit=audit,
             key_provider=key_provider,
         )
 
