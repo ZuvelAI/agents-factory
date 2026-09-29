@@ -4,8 +4,12 @@ const port = Number(process.env.FAKE_WHATSAPP_BACKEND_PORT ?? "3132");
 const tenantId = "019c2000-0000-7000-8000-000000000102";
 const accountId = "019c2000-0000-7000-8000-000000000202";
 const conversationId = "019c2000-0000-7000-8000-000000000303";
+const alertId = "019c2000-0000-7000-8000-000000000777";
+const adminId = "019c2000-0000-7000-8000-000000000111";
 const accountPath = `/admin/tenants/${tenantId}/whatsapp`;
+const alertsPath = "/admin/whatsapp/account-update-alerts";
 let resumed = false;
+let resolution = null;
 
 function json(response, status, body) {
   response.writeHead(status, {
@@ -39,8 +43,64 @@ createServer(async (request, response) => {
     json(response, 401, { error: "unauthorized" });
     return;
   }
-  const pathname = new URL(request.url ?? "/", `http://127.0.0.1:${port}`)
-    .pathname;
+  const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  const pathname = url.pathname;
+  if (request.method === "GET" && pathname === `${alertsPath}/summary`) {
+    json(response, 200, { open_count: resolution ? 0 : 1 });
+    return;
+  }
+  if (request.method === "GET" && pathname === alertsPath) {
+    const status = url.searchParams.get("status");
+    const offset = Number(url.searchParams.get("offset") ?? "0");
+    const include =
+      offset === 0 &&
+      (status === null ||
+        (status === "open" && !resolution) ||
+        (status === "resolved" && resolution));
+    json(
+      response,
+      200,
+      include
+        ? [
+            {
+              id: alertId,
+              waba_id: "waba-ambiguous",
+              event: "ACCOUNT_OFFBOARDED",
+              display_phone_digits: "15550123456",
+              occurred_at: "2026-09-28T10:00:00Z",
+              reason: "unmatched",
+              received_at: "2026-09-28T10:01:00Z",
+              resolved_at: resolution?.resolved_at ?? null,
+              resolved_by: resolution?.resolved_by ?? null,
+              resolution_note: resolution?.resolution_note ?? null,
+            },
+          ]
+        : [],
+    );
+    return;
+  }
+  if (
+    request.method === "POST" &&
+    pathname === `${alertsPath}/${alertId}/resolve`
+  ) {
+    const body = await readJson(request);
+    if (resolution) {
+      json(response, 409, { error: "already_resolved" });
+      return;
+    }
+    if (typeof body.note !== "string" || !body.note.trim()) {
+      json(response, 422, { error: "invalid_note" });
+      return;
+    }
+    resolution = {
+      alert_id: alertId,
+      resolved_by: adminId,
+      resolution_note: body.note.trim(),
+      resolved_at: "2026-09-28T11:00:00Z",
+    };
+    json(response, 200, resolution);
+    return;
+  }
   if (request.method === "GET" && pathname === accountPath) {
     json(response, 200, [
       {

@@ -647,3 +647,31 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - Release gate CLOSED. Operational alert design, the final security review,
   a separately authorized live pilot and a production migration/release
   decision remain pending.
+
+## Operations alert triage — 2026-09-28
+
+- Added a private, forced-RLS resolution table with one insert-only record per
+  ambiguous account-update alert. The note is trimmed and limited to 1–500
+  characters; only the backend administrator role can read or insert. The
+  migration was applied only to the disposable Supabase project on database
+  port 55322, not to the active local or production database. Its schema tests
+  and local database advisors passed with no new error-level finding.
+- Added platform-admin alert filters, an open-count endpoint and an atomic
+  manual-resolution endpoint. Concurrent closures yield one winner and one
+  conflict; retries do not reopen a closed alert. Resolution is bookkeeping
+  only: it does not change a WhatsApp account, agent control or dispatch.
+- Replaced the Operations placeholder with open and resolved views, bounded
+  pagination, a required review note, loading/unavailable states and distinct
+  success/conflict/error notices. The server action validates the form and
+  authenticates through the existing administrator backend path. No secret,
+  webhook payload or event fingerprint is rendered in the panel.
+- Fresh verification: 11 targeted database integration tests, 321 backend
+  unit/contract tests, 56 frontend unit tests and 8 local-browser tests
+  passed. Frontend typecheck, scoped ESLint/Prettier and git diff checks
+  passed. Full frontend lint still reports two existing
+  `react/no-unescaped-entities` findings at `app/review/panel.tsx:25` in the
+  Meta reviewer surface that the user deferred; no new lint finding was added.
+- The browser test used a local fake backend, not Meta. Final whole-branch
+  review remains; a supervised live coexistence pilot, production migration
+  and deployment each require a separate decision. The Meta reviewer account
+  stays available and unchanged. Release gate CLOSED.
