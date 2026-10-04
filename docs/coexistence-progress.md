@@ -853,3 +853,35 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   provider request, worker activation or number onboarding was performed. A
   separate staging environment has not been confirmed, and no remote SSH target
   was guessed from the VPS hostname.
+- Independent final review of `ce58f3f..c0760f8`: no Critical, Important or
+  actionable Minor finding. The reviewer independently reran all six real
+  Compose configuration cases and diff checks, and read the broader saved
+  backend/SQL logs; it did not independently rerun those broader suites.
+- Final Ruling: the reviewer set aside the older reviewer-account implementation
+  beyond configuration compatibility — retain its already completed scoped
+  review, do not pay for another review of unchanged code. Cost if wrong: the
+  present review cannot substitute for the earlier auth/recipient test evidence.
+- Final Ruling: the reviewer set aside live reviewer availability, credentials,
+  role and expiry — preserve them and require authorized remote smoke/parity
+  checks before rollout. Cost if wrong: a correctly wired candidate can still
+  leave the deployed reviewer unavailable.
+- Final Ruling: the reviewer set aside production readiness, fresh installation
+  and aggregate CI — this stage proves regression/configuration behavior, not
+  complete release readiness. Cost if wrong: clean-build or deployment gates
+  may still expose a blocker; no release authorization is inferred.
+- Final Ruling: the reviewer set aside live Meta acceptance, eligibility,
+  delivery, sync and mobile takeover — keep those in the supervised pilot.
+  Cost if wrong: local evidence cannot establish behavior for the real number.
+- Final Ruling: the reviewer set aside remote migration compatibility, real
+  backup recovery and isolated staging existence — identify the actual target
+  and verify these before external changes. Cost if wrong: shared queues/data
+  or an incompatible recovery version could harm the current deployment.
+- Final Ruling: the reviewer set aside future tenant-scoped activation code —
+  it is not implemented or authorized by this scoped preparation change; both
+  current signup gates stay closed. Cost if wrong: the real pilot cannot yet
+  be started; never remove the gate globally as a workaround.
+- Cleanup: stopped and removed only `aiworkers-coex-gates-redis-8lsnb9`, the
+  tmpfs-backed Redis created for this run; no durable application data existed
+  there. Test logs remain in the temporary snapshot. The active Supabase project
+  remained healthy with its pre-run start time, and the original checkout
+  remained clean at `4e85b3d`. The disposable database also remains healthy.
