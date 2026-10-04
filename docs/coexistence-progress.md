@@ -751,7 +751,8 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   The architecture test now passes without deselection. The safe backend run
   still excludes the original-stack reset test, unavailable Redis lock test,
   and the two canonical-port security suites; those are not waived or claimed
-  freshly verified. Independent review and browser check are in progress.
+  freshly verified. All 8 local-browser tests also passed with fake Auth/backend
+  servers; no real Meta or reviewer credentials were used.
 - Ruling: deploy this correction only together with the unchanged five-value
   reviewer profile on both servers — avoids a customer-specific default in
   reusable code while retaining the approved review scope. Cost if omitted
@@ -759,3 +760,32 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   the authorized operator verifies configuration parity and reviewer login.
 - Release gate CLOSED. No push, merge, deployment, production migration, live
   provider request, credential change or Zuvel number onboarding occurred.
+- Final review: independent read-only review of `9412798..a3d7974` found no
+  Critical or Important regression. It confirmed the exact backend scope,
+  recipient, API_ONLY and current-metadata checks and server/client boundary.
+- Final: minor (deferred): narrow the prior ruling's configuration-mismatch
+  claim. Missing/partial configuration denies access, but a control-plane-only
+  WABA/phone mismatch can still allow login and submissions. Five-value parity
+  requires the documented operator check; successful login is not proof of
+  parity. This qualifier supersedes the blanket mismatch claim above; the
+  deployment checklist already explicitly requires the parity check.
+- Final Ruling: the reviewer set aside live Auth account, scope/expiry and
+  deployed configuration — keep remote mutation/readiness outside this local
+  correction. Cost if wrong: live availability remains unproved; authorized
+  configuration parity and reviewer smoke checks are required before rollout.
+- Final Ruling: the reviewer set aside live Meta templates, delivery and asset
+  acceptance — no provider call or worker was authorized. Cost if wrong: mocks
+  cannot establish actual provider behavior or eligibility for Zuvel's number.
+- Final Ruling: the reviewer set aside the supervised pilot and production
+  rollout — preserve their separate authorization gates. Cost if wrong: the
+  implementation does not yet establish safe live coexistence operation.
+- Final Ruling: the reviewer set aside excluded reset, Redis and canonical-
+  port suites — do not weaken their safety guards or touch the active stack.
+  Cost if wrong: those complete-environment regressions remain unverified in
+  this run; prior evidence is retained, not a fresh full-suite claim.
+- Final Ruling: the reviewer set aside browser smoke results — the author
+  separately ran and read all 8 passing local-browser cases. Cost if wrong:
+  mocked local smoke is not an independent review of the live deployed path.
+- Final Ruling: the reviewer set aside full-repository/production readiness —
+  this is a scoped correction, not release approval. Cost if wrong: additional
+  environment/pilot/deployment checks may still uncover release blockers.
