@@ -22,6 +22,12 @@ configuration validation with field names only. There is no fallback customer
 profile in application code. A mismatch between servers must block rollout,
 not be repaired by trusting the caller's tenant/account values.
 
+The local and VPS Compose manifests pass these five identifiers to both server
+environments from the same interpolation source, including host overrides. Do
+not give the panel the full backend `.env` file: it would also receive the
+encryption master key and provider secrets. For independent deployments, verify
+all five values explicitly; a successful login alone does not prove parity.
+
 ## Authorized environment checks before rollout
 
 1. Confirm the reviewer profile and API_ONLY test assets match on both servers.

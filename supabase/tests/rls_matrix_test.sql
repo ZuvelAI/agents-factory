@@ -13,6 +13,7 @@ create temp table task5_tenant_isolation_registry (
 insert into task5_tenant_isolation_registry (table_name, owner_column)
 values
   ('public.tenants', 'id'),
+  ('public.tenant_onboarding_configs', 'tenant_id'),
   ('public.audit_events', 'tenant_id'),
   ('public.outbox_jobs', 'tenant_id'),
   ('public.job_attempts', 'tenant_id'),
@@ -21,6 +22,11 @@ values
   ('public.whatsapp_accounts', 'tenant_id'),
   ('public.whatsapp_webhook_events', 'tenant_id'),
   ('public.whatsapp_templates', 'tenant_id'),
+  ('public.whatsapp_contacts', 'tenant_id'),
+  ('public.whatsapp_history_inbox', 'tenant_id'),
+  ('public.whatsapp_history_messages', 'tenant_id'),
+  ('public.whatsapp_history_import_receipts', 'tenant_id'),
+  ('public.whatsapp_sync_requests', 'tenant_id'),
   ('public.conversations', 'tenant_id'),
   ('public.messages', 'tenant_id'),
   ('public.conversation_state_events', 'tenant_id'),

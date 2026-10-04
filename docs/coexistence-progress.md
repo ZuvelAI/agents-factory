@@ -789,3 +789,67 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - Final Ruling: the reviewer set aside full-repository/production readiness —
   this is a scoped correction, not release approval. Cost if wrong: additional
   environment/pilot/deployment checks may still uncover release blockers.
+
+## Environment regression gates and rollout preparation — 2026-10-04
+
+- Continued after `ce58f3f`, without repeating the reviewer implementation or
+  its review. All test data/services remain local and disposable; no remote
+  database, Meta setting, account metadata or real number changed.
+- Built a temporary source snapshot at
+  `/private/tmp/aiworkers-coex-gates-8LSNB9` from the saved branch, with only its
+  Supabase configuration pointing to the existing disposable project on
+  55322/55320. The reset script and database/security test files were copied
+  byte-for-byte. A dedicated Redis container used loopback port 56379 and tmpfs
+  storage, not the active application's Redis.
+- Ruling: use actual cached pnpm 11.24.0 and Supabase CLI 2.115.0 with the
+  already-installed locked dependencies; disable pnpm's automatic reinstall
+  only in the temporary snapshot — avoids rewriting the worktree's symlinked
+  dependency directory. Version, no-linked-project and loopback/canonical-port
+  guards remain unchanged. Cost if wrong: this does not prove a fresh dependency
+  installation or the complete CI aggregate command; those are not claimed.
+- Initial all-in-one pytest run: 574 passed, one failed because the unit
+  runner double returns port 54322 while the disposable project's configured
+  port is 55322. The actual reset, Redis, tenant and secret integration suites
+  passed in that run.
+- Ruling: run unit/contract tests in the unchanged isolated worktree and
+  integration/security/architecture tests in its temporary snapshot — preserves
+  the canonical-port rejection instead of relaxing it or resetting the active
+  54322 project. Cost if wrong: the proof is a partitioned complete pytest
+  collection, not a single all-in-one run; no test is permanently deselected.
+- Fresh final backend evidence: 344 unit/contract tests and 237 integration/
+  security/architecture tests passed (581 total, including the six new deployment
+  cases). The previously excluded original-stack reset, Redis conversation lock,
+  canonical tenant matrix and encrypted-secret isolation suites are now exercised
+  safely. The reset removes the stale marker and reconstructs all 27 migrations.
+- Deployment validation found both Compose manifests omitted the panel's new
+  reviewer binding; local backend wiring was also missing, and VPS host overrides
+  could diverge from its backend env_file. Four populated/override regressions
+  failed before the fix. A shared server-only environment mapping now passes
+  the same five interpolated identifiers to both servers without giving the panel
+  the backend's master key, Meta secret or OpenAI key. All six populated,
+  overridden and absent-binding cases pass after the fix and YAML formatting.
+- SQL release matrix initially failed tests 190 and 192: six public tenant-owned
+  tables were absent from its registry. Added onboarding configs, contacts,
+  history inbox/messages/import receipts and sync requests, keeping every
+  existing policy/catalog assertion. RED: 191/193; GREEN: 247/247 pgTAP assertions
+  passed on the disposable project. No migration or database privilege was
+  changed to make the gate pass.
+- All 74 panel unit tests pass fresh. New Python test Ruff/format, modified
+  YAML/Markdown Prettier and diff checks pass. SQL lint found no error-level
+  issue in public or agents_factory_private on the disposable project.
+- Public read-only observation: `https://aiworkers.zuvel.ai/health/ready`
+  returned `{"status":"ready"}`. Ruling: treat this only as panel liveness —
+  the route is static and cannot prove backend/database readiness, deployed
+  reviewer configuration, version or Meta eligibility. Cost if wrong: a live
+  deployment could still be incompatible or unavailable; remote preflight and
+  reviewer checks remain required.
+- Added `docs/coexistence-rollout-checklist.md`: exact-environment approval,
+  separate data/queues, backup/restore proof, migration comparison, restricted
+  reviewer preservation, webhook/worker ownership, a future Zuvel-only activation
+  gate, owner-operated Meta pilot and compatible-version rollback. It explicitly
+  forbids global gate removal, API_ONLY fallback, number deregistration, blind
+  one-shot retries, remote resets and automatic schema rollback.
+- Release gate CLOSED. No staging/production deployment, push, merge, live
+  provider request, worker activation or number onboarding was performed. A
+  separate staging environment has not been confirmed, and no remote SSH target
+  was guessed from the VPS hostname.

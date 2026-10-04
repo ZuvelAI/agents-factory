@@ -1,5 +1,14 @@
 name: aiworkers
 
+# Use the same interpolation source on both servers; never expose this binding
+# through NEXT_PUBLIC_ or pass the backend's full secret environment to the panel.
+x-review-binding: &review-binding
+  META_REVIEW_TENANT_ID: ${META_REVIEW_TENANT_ID:-}
+  META_REVIEW_ACCOUNT_ID: ${META_REVIEW_ACCOUNT_ID:-}
+  META_REVIEW_WABA_ID: ${META_REVIEW_WABA_ID:-}
+  META_REVIEW_PHONE_NUMBER_ID: ${META_REVIEW_PHONE_NUMBER_ID:-}
+  META_REVIEW_RECIPIENT: ${META_REVIEW_RECIPIENT:-}
+
 x-runtime: &runtime
   image: aiworkers-runtime:local
   build:
@@ -7,6 +16,7 @@ x-runtime: &runtime
     dockerfile: infrastructure/Dockerfile.runtime
   env_file: .env
   environment:
+    <<: *review-binding
     ENVIRONMENT: production
     REDIS_URL: redis://redis:6379/0
   restart: unless-stopped
@@ -17,7 +27,7 @@ x-runtime: &runtime
       condition: service_healthy
   logging:
     driver: json-file
-    options: {max-size: 10m, max-file: "3"}
+    options: { max-size: 10m, max-file: "3" }
 
 services:
   redis:
@@ -35,7 +45,13 @@ services:
     command: [uvicorn, agents_factory.main:app, --host, 0.0.0.0, --port, "8000"]
     ports: [127.0.0.1:8100:8000]
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)",
+        ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -49,6 +65,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
     environment:
+      <<: *review-binding
       BACKEND_API_URL: http://backend:8000
       NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
@@ -60,7 +77,13 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 20s
       timeout: 5s
       retries: 5
