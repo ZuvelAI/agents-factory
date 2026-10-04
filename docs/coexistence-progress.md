@@ -116,11 +116,11 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   persistent volumes, using test-only credentials. Fresh matrix + secret isolation
   suite: 27 passed. Fresh whole backend suite: 457 passed, 2 failed, no setup errors.
   Failures retained, not waived:
-  * test_core_contains_no_customer_uuid_or_tenant_id_conditionals: baseline
+  - test_core_contains_no_customer_uuid_or_tenant_id_conditionals: baseline
     review_router.py and review-access.ts contain fixed customer UUIDs. This is
     an intentional restricted reviewer surface; changing authorization requires
     a separate decision, not a weakened scanner or removed access guard.
-  * test_database_gate_removes_stale_schema_state: pnpm 11.24.0 unavailable in
+  - test_database_gate_removes_stale_schema_state: pnpm 11.24.0 unavailable in
     test image. Do not run reset script against the existing local stack. Test
     leaves only its empty marker table in the disposable security database.
 - Signup code/assets now settle together with a bounded timeout and cleanup on
@@ -379,8 +379,7 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
 - The webhook role has INSERT only; public roles cannot read or write the table.
   A new bounded read-only platform-admin route lists alert metadata for manual
   investigation, not a client/tenant route and not an automatic resolution.
-  Missing authentication returns 401; a principal without DB membership gets
-  403. No token, raw payload, or secret is returned.
+  Missing authentication returns 401; a principal without DB membership gets 403. No token, raw payload, or secret is returned.
 - Ruling: acknowledge only after the alert transaction commits; unexpected
   persistence failure still yields a retryable error. Never infer a phone from
   WABA alone or automatically reactivate on ACCOUNT_RECONNECTED. Cost if wrong:
@@ -885,3 +884,45 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   there. Test logs remain in the temporary snapshot. The active Supabase project
   remained healthy with its pre-run start time, and the original checkout
   remained clean at `4e85b3d`. The disposable database also remains healthy.
+
+## Zuvel production pilot authorization and read-only preflight — 2026-10-04
+
+- The owner explicitly chose a supervised pilot on the existing production
+  installation rather than a separate staging environment. Scope is Zuvel and
+  its previously authorized Business-app number, not general coexistence
+  availability. The owner continues to perform Meta UI/phone actions manually.
+- Recovered the existing SSH destination from a narrowly scoped connection
+  history match and used the dedicated local Zuvel deployment key with strict
+  known-host verification. No key, password or token was printed or changed.
+- Confirmed `/opt/aiworkers` and the running AI Workers Compose project. Backend
+  readiness reports database and Redis up; dashboard liveness also responds.
+  Backend/panel and the three inspected workers have different running image
+  generations. Their image identities were read, not overwritten or restarted.
+- Read-only admin-role database preflight confirms one visible tenant, Zuvel
+  (`c5cd8d04-01f2-49be-aa27-1075520a2a20`), and its existing API_ONLY account
+  (`d4dfa61a-7ed6-4a87-877a-1d34e7dbf837`). Eligibility is UNKNOWN. The durable
+  outbox contains three succeeded jobs and no pending row in this observation.
+  This does not prove queues are empty or the real number is accepted by Meta.
+- Initial reads without the admin role returned no tenant/account rows because
+  of RLS. Repeated the inventory using the existing application's admin role
+  within an explicit READ ONLY transaction; did not change roles, policies or
+  grants. Reading Supabase migration history fails with SQLSTATE 42501 under
+  the runtime connection. No permission change or migration was attempted.
+- Production lacks the new five-value reviewer environment profile; its current
+  older image still has the earlier binding. Preserve that identity when the
+  candidate is deployed rather than replacing or converting its account.
+- Ruling: the production choice supersedes the staging requirement, not backup,
+  compatibility, single-scheduler or tenant/number guards — those remain needed
+  even with one client. Cost if wrong: an unsafe update could disrupt Zuvel's
+  messages or reviewer access; read-only preflight is not deployment approval
+  evidence or proof of recoverability.
+- Proposed bounded follow-up: a server-owned, default-closed, single-tenant
+  signup permission and exact provider-verified phone restriction, consumed by
+  the existing panel flow. Start and completion recheck the permission; missing
+  or malformed configuration never opens general onboarding. Closing signup is
+  not an outbound kill switch; use existing mobile takeover and explicitly stop
+  the named AI Workers outbound/agent execution if a pilot must be halted.
+- All actions in this preflight were read-only. No deployment, remote file
+  change, migration, worker activation, live Meta request or onboarding occurred.
+  Existing signup gates remain CLOSED. The 28 local signup unit/contract tests
+  passed fresh; no broader regression rerun is claimed for this preflight.
