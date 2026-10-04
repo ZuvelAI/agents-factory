@@ -1,8 +1,10 @@
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Annotated, Literal
 from urllib.parse import SplitResult, urlsplit
+from uuid import UUID
 
 from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,7 +34,21 @@ _CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
     "META_CONFIGURATION_ID",
     "META_REDIRECT_URI",
     "META_GRAPH_API_BASE_URL",
+    "META_REVIEW_TENANT_ID",
+    "META_REVIEW_ACCOUNT_ID",
+    "META_REVIEW_WABA_ID",
+    "META_REVIEW_PHONE_NUMBER_ID",
+    "META_REVIEW_RECIPIENT",
 )
+
+
+@dataclass(frozen=True)
+class ReviewBinding:
+    tenant_id: UUID
+    account_id: UUID
+    waba_id: str
+    phone_number_id: str
+    recipient: str
 
 
 class Settings(BaseSettings):
@@ -59,11 +75,42 @@ class Settings(BaseSettings):
     meta_configuration_id: NonEmptyString | None = None
     meta_redirect_uri: NonEmptyString | None = None
     meta_graph_api_base_url: NonEmptyString = "https://graph.facebook.com/v25.0"
+    meta_review_tenant_id: UUID | None = None
+    meta_review_account_id: UUID | None = None
+    meta_review_waba_id: Annotated[str, Field(pattern=r"^[0-9]{1,64}$")] | None = None
+    meta_review_phone_number_id: (
+        Annotated[str, Field(pattern=r"^[0-9]{1,64}$")] | None
+    ) = None
+    meta_review_recipient: (
+        Annotated[str, Field(pattern=r"^[1-9][0-9]{7,14}$")] | None
+    ) = None
+
+    @property
+    def review_binding(self) -> ReviewBinding | None:
+        tenant = self.meta_review_tenant_id
+        account = self.meta_review_account_id
+        waba = self.meta_review_waba_id
+        phone = self.meta_review_phone_number_id
+        recipient = self.meta_review_recipient
+        if (
+            tenant is None
+            or account is None
+            or waba is None
+            or phone is None
+            or recipient is None
+        ):
+            return None
+        return ReviewBinding(tenant, account, waba, phone, recipient)
 
     @field_validator(
         "meta_app_id",
         "meta_configuration_id",
         "meta_redirect_uri",
+        "meta_review_tenant_id",
+        "meta_review_account_id",
+        "meta_review_waba_id",
+        "meta_review_phone_number_id",
+        "meta_review_recipient",
         mode="before",
     )
     @classmethod

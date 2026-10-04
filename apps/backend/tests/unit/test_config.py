@@ -198,6 +198,44 @@ def test_settings_keep_credential_bearing_values_secret(
     assert serialized["meta_webhook_verify_token"] == "**********"
 
 
+REVIEW_ENVIRONMENT = {
+    "META_REVIEW_TENANT_ID": "11111111-1111-4111-8111-111111111111",
+    "META_REVIEW_ACCOUNT_ID": "22222222-2222-4222-8222-222222222222",
+    "META_REVIEW_WABA_ID": "111111111111111",
+    "META_REVIEW_PHONE_NUMBER_ID": "222222222222222",
+    "META_REVIEW_RECIPIENT": "15550123456",
+}
+
+
+@pytest.mark.parametrize("omitted", [None, *REVIEW_ENVIRONMENT])
+def test_review_binding_requires_all_five_server_values(monkeypatch, omitted):
+    for name, value in {**_valid_environment(), **REVIEW_ENVIRONMENT}.items():
+        monkeypatch.setenv(name, value)
+    if omitted:
+        monkeypatch.setenv(omitted, "")
+    scope = getattr(load_settings(), "review_binding", None)
+    if omitted:
+        assert scope is None
+    else:
+        assert scope is not None
+        assert str(scope.tenant_id) == "11111111-1111-4111-8111-111111111111"
+        assert str(scope.account_id) == "22222222-2222-4222-8222-222222222222"
+        assert scope.waba_id == "111111111111111"
+        assert scope.phone_number_id == "222222222222222"
+        assert scope.recipient == "15550123456"
+
+
+@pytest.mark.parametrize("variable", list(REVIEW_ENVIRONMENT))
+def test_review_binding_invalid_inputs_are_sanitized(monkeypatch, variable):
+    for name, value in {**_valid_environment(), **REVIEW_ENVIRONMENT}.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(variable, "rejected-review-input-sentinel")
+    with pytest.raises(ConfigurationError) as caught:
+        load_settings()
+    assert caught.value.invalid_variables == (variable,)
+    assert "rejected-review-input-sentinel" not in str(caught.value)
+
+
 def test_uuid_factory_produces_uuid7_compatible_ids() -> None:
     identifier = new_uuid7()
 

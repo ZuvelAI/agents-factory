@@ -724,3 +724,38 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   Meta request, production migration, deployment or number onboarding occurred.
   Release gate CLOSED; reviewer correction, supervised pilot and production
   migration/release decision remain pending.
+
+## Deferred reviewer correction — 2026-10-04
+
+- User continued after the final Operations stage; implement the previously
+  deferred internal correction, not a customer demo. Existing credentials,
+  Supabase user metadata/expiry, Meta assets and deployed services are untouched.
+- Removed the customer-specific UUIDs from application code without weakening
+  the architecture scanner. Backend and panel use the same five server-only
+  `META_REVIEW_*` identifiers. The existing binding is retained explicitly in
+  `infrastructure/meta-review-binding.env.example`, outside the reusable core.
+  Blank/partial configuration denies reviewer access; invalid backend values
+  produce sanitized configuration errors. No permissive built-in fallback.
+- Backend still fetches the current Auth user, checks non-anonymous reviewer
+  role, exact tenant/account and timezone-aware expiry, and revalidates active
+  WABA/phone identity. Added an API_ONLY restriction so reconnecting the record
+  as COEXISTENCE cannot repurpose the reviewer surface for the live pilot.
+  One configured recipient, the daily cap and platform-admin denial remain.
+- Backend auth configuration and API_ONLY regressions observed RED then GREEN.
+  The panel guard's missing-config/alternate-binding/anonymous-account cases
+  observed RED then GREEN. Actions verify the current user before forwarding
+  a session; the displayed recipient is masked and only server configuration
+  chooses the actual destination. Fixed the two escaped-apostrophe lint errors.
+- Fresh verification: 541 safe backend tests, 74 frontend unit tests, full
+  frontend ESLint, TypeScript, targeted backend Ruff/mypy and diff checks pass.
+  The architecture test now passes without deselection. The safe backend run
+  still excludes the original-stack reset test, unavailable Redis lock test,
+  and the two canonical-port security suites; those are not waived or claimed
+  freshly verified. Independent review and browser check are in progress.
+- Ruling: deploy this correction only together with the unchanged five-value
+  reviewer profile on both servers — avoids a customer-specific default in
+  reusable code while retaining the approved review scope. Cost if omitted
+  or mismatched: reviewer access fails closed; deployment remains gated until
+  the authorized operator verifies configuration parity and reviewer login.
+- Release gate CLOSED. No push, merge, deployment, production migration, live
+  provider request, credential change or Zuvel number onboarding occurred.
