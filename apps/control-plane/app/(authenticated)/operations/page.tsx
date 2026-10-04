@@ -257,10 +257,15 @@ export default async function OperationsPage({
                         <textarea
                           id={`note-${alert.id}`}
                           name="note"
+                          aria-describedby={`note-help-${alert.id}`}
                           required
                           maxLength={500}
                           rows={3}
                         />
+                        <p id={`note-help-${alert.id}`}>
+                          No incluyas tokens, credenciales ni contenido de
+                          mensajes.
+                        </p>
                         <button type="submit">Confirmar cierre</button>
                       </form>
                     </details>

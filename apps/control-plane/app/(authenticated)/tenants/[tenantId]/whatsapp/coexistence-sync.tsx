@@ -18,6 +18,56 @@ type SyncObservations = {
   history_batches_pending: number;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSyncStatusList(value: unknown): value is SyncStatus[] {
+  if (!Array.isArray(value) || value.length > 2) return false;
+  const seen = new Set<string>();
+  return value.every((item) => {
+    if (
+      !isRecord(item) ||
+      (item.sync_type !== "smb_app_state_sync" &&
+        item.sync_type !== "history") ||
+      seen.has(item.sync_type)
+    )
+      return false;
+    seen.add(item.sync_type);
+    if (item.state === "NOT_REQUESTED") {
+      return item.request_id === null && item.reserved_at === null;
+    }
+    if (
+      typeof item.reserved_at !== "string" ||
+      !Number.isFinite(Date.parse(item.reserved_at))
+    )
+      return false;
+    return item.state === "UNKNOWN"
+      ? item.request_id === null
+      : item.state === "ACCEPTED" &&
+          typeof item.request_id === "string" &&
+          item.request_id.length > 0 &&
+          item.request_id.length <= 500;
+  });
+}
+
+function isSyncObservations(value: unknown): value is SyncObservations {
+  const countFields: (keyof SyncObservations)[] = [
+    "active_contacts",
+    "history_batches_received",
+    "history_batches_imported",
+    "history_batches_declined",
+    "history_batches_pending",
+  ];
+  return (
+    isRecord(value) &&
+    countFields.every(
+      (field) =>
+        Number.isSafeInteger(value[field]) && (value[field] as number) >= 0,
+    )
+  );
+}
+
 function requestDescription(status: SyncStatus | undefined): string {
   if (!status) return "estado no disponible";
   switch (status.state) {
@@ -41,29 +91,18 @@ export async function CoexistenceSync({
   let statuses: SyncStatus[];
   let observations: SyncObservations;
   try {
-    [statuses, observations] = await Promise.all([
-      callAuthenticatedBackend<SyncStatus[]>(`${basePath}/sync-status`),
-      callAuthenticatedBackend<SyncObservations>(
-        `${basePath}/sync-observations`,
-      ),
+    const [statusResult, observationResult] = await Promise.all([
+      callAuthenticatedBackend<unknown>(`${basePath}/sync-status`),
+      callAuthenticatedBackend<unknown>(`${basePath}/sync-observations`),
     ]);
-    if (!Array.isArray(statuses)) throw new Error("Invalid sync statuses");
-    const countFields: (keyof SyncObservations)[] = [
-      "active_contacts",
-      "history_batches_received",
-      "history_batches_imported",
-      "history_batches_declined",
-      "history_batches_pending",
-    ];
     if (
-      !observations ||
-      countFields.some(
-        (field) =>
-          !Number.isSafeInteger(observations[field]) || observations[field] < 0,
-      )
+      !isSyncStatusList(statusResult) ||
+      !isSyncObservations(observationResult)
     ) {
-      throw new Error("Invalid sync observations");
+      throw new Error("Invalid sync report");
     }
+    statuses = statusResult;
+    observations = observationResult;
   } catch {
     return (
       <section aria-label="Sincronización de coexistencia">

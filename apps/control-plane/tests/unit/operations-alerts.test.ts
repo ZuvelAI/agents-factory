@@ -52,6 +52,9 @@ describe("Operations alert triage", () => {
     expect(markup).toContain("required");
     expect(markup).toContain('name="confirmed" value="resolve"');
     expect(markup).toContain("Confirmar cierre");
+    expect(markup).toContain(
+      "No incluyas tokens, credenciales ni contenido de mensajes",
+    );
     expect(backend).toHaveBeenCalledWith(
       "/admin/whatsapp/account-update-alerts?status=open&limit=50&offset=0",
     );

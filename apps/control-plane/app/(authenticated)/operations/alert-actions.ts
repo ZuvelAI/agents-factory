@@ -20,6 +20,7 @@ export async function resolveAccountUpdateAlert(
     !UUID_PATTERN.test(alertId) ||
     !note ||
     note.length > 500 ||
+    note.includes("\0") ||
     confirmed !== "resolve"
   ) {
     redirect("/operations?alertResolution=invalid");

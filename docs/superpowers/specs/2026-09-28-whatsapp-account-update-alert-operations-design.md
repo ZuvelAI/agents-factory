@@ -2,7 +2,8 @@
 
 Date: 2026-09-28
 
-Status: design approved in conversation; written-spec review pending
+Status: approved design implemented locally; independent implementation review
+completed and findings verified on 2026-10-04. Release gate CLOSED.
 
 Scope: isolated `codex/whatsapp-coexistence` branch only
 

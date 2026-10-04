@@ -1,18 +1,54 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, field_validator
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
+from agents_factory.common.errors import DomainError
 from agents_factory.common.security import PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 
 
-router = APIRouter(prefix="/admin/whatsapp", tags=["platform-admin-whatsapp"])
+class SafeAlertRoute(APIRoute):
+    """Keep operator notes out of validation replies and ASGI exception logs."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                raise HTTPException(
+                    status_code=422, detail="Invalid alert request"
+                ) from None
+            except SQLAlchemyError:
+                # Driver errors may contain both bound values and server DETAIL.
+                # A handled domain error prevents the raw exception reaching ASGI.
+                raise DomainError(
+                    type="https://agents-factory.dev/problems/whatsapp-alert-storage-unavailable",
+                    title="WhatsApp alert storage unavailable",
+                    status=503,
+                    detail="The alert could not be read or saved. Try again later.",
+                    code="whatsapp_alert_storage_unavailable",
+                ) from None
+
+        return handle
+
+
+router = APIRouter(
+    prefix="/admin/whatsapp",
+    tags=["platform-admin-whatsapp"],
+    route_class=SafeAlertRoute,
+)
 
 
 class AccountUpdateAlert(BaseModel):
@@ -41,6 +77,10 @@ class ResolveAccountUpdateAlertRequest(BaseModel):
         note = value.strip()
         if not 1 <= len(note) <= 500:
             raise ValueError("The resolution note must contain 1 to 500 characters")
+        if "\x00" in note or any(
+            0xD800 <= ord(character) <= 0xDFFF for character in note
+        ):
+            raise ValueError("The resolution note must be valid database text")
         return note
 
 

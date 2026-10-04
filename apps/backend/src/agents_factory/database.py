@@ -16,7 +16,10 @@ class Database:
 
     def __init__(self, url: SecretStr) -> None:
         self._engine: AsyncEngine = create_async_engine(
-            url.get_secret_value(), pool_pre_ping=True, pool_recycle=300
+            url.get_secret_value(),
+            pool_pre_ping=True,
+            pool_recycle=300,
+            hide_parameters=True,
         )
         self.session_factory = async_sessionmaker(
             self._engine,

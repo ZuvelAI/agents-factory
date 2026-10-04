@@ -675,3 +675,52 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   review remains; a supervised live coexistence pilot, production migration
   and deployment each require a separate decision. The Meta reviewer account
   stays available and unchanged. Release gate CLOSED.
+
+## Final Operations review and fixes — 2026-10-04
+
+- The fresh, read-only whole-branch review identified no Critical issue and
+  two Important issues: database exceptions could include an operator note
+  in ASGI logs, and malformed sync-status entries could crash the account
+  panel or show an empty status beside reassuring counts. Both were
+  reproduced before implementation changes.
+- Database parameter hiding is enabled. Alert routes handle database errors
+  as a safe 503 without forwarding driver messages or exception chains, and
+  validation failures no longer echo the input. NUL and unpaired Unicode
+  surrogates are rejected with 422. Six new backend regressions observed
+  RED then GREEN, including synthetic bound values and driver error text in
+  a captured ASGI-server logging path.
+- Sync-status responses now validate each entry, unique supported types,
+  state, timestamp and state-specific request metadata before rendering.
+  Six malformed-response regressions observed RED then GREEN. The form also
+  rejects NUL before calling the backend.
+- The reviewer marked whitespace-only database notes and missing sensitive-
+  note guidance Minor. These were regraded as required-spec fixes: audit
+  notes are immutable and their validation and operator guidance are explicit
+  requirements. A new CLI-generated migration aligns the trim check with
+  Python whitespace, including tabs, newlines and Unicode spaces; the schema
+  regression observed RED then GREEN. The note field now explains not to
+  include tokens, credentials or message contents, with accessible help text.
+- Fresh safe backend suite: 522 passed, one explicitly deferred reviewer-
+  account architecture test deselected. This run excluded the active-stack
+  reset test, unavailable Redis lock test, and the two canonical-port tenant/
+  secret suites; their prior isolated evidence is retained above, not claimed
+  as rerun. Frontend: 62 unit tests and 8 local-browser tests passed. Scoped
+  ESLint, frontend typecheck, targeted Ruff/mypy and diff checks passed.
+  Full frontend lint retains the two deferred reviewer-page findings.
+- Applied the follow-up migration only to the known disposable project at
+  port 55322, then rebuilt all 27 migrations there and reran the 11 alert API/
+  schema integration tests successfully. Database advisors found no error-
+  level issue. The active local database remained healthy; the original
+  checkout stayed clean at checkpoint `4e85b3d`.
+- Final Ruling: live Meta behavior and rollout readiness remain outside this
+  local review, as authorized by the user. Cost if wrong: local tests do not
+  establish actual eligibility, signup, provider delivery or synchronization
+  for Zuvel's number; the supervised pilot and release gate remain required.
+- Final Ruling: retain the Meta reviewer account and its known architecture/
+  lint exceptions for the user's deferred correction. Cost if wrong: the
+  complete repository gate is not green; no full-release approval is claimed.
+- All findings from this review were addressed with reproduction-backed
+  verification; no Minor finding from this review remains deferred. No live
+  Meta request, production migration, deployment or number onboarding occurred.
+  Release gate CLOSED; reviewer correction, supervised pilot and production
+  migration/release decision remain pending.

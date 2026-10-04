@@ -45,15 +45,25 @@ async def test_resolution_schema_restricts_roles(database_engine: AsyncEngine) -
                 assert allowed is False, (role, privilege)
 
         for privilege in ("SELECT", "INSERT"):
-            assert await connection.scalar(
-                text("SELECT has_table_privilege('agents_factory_admin', :table_name, :privilege)"),
-                {"table_name": RESOLUTIONS, "privilege": privilege},
-            ) is True
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT has_table_privilege('agents_factory_admin', :table_name, :privilege)"
+                    ),
+                    {"table_name": RESOLUTIONS, "privilege": privilege},
+                )
+                is True
+            )
         for privilege in ("UPDATE", "DELETE"):
-            assert await connection.scalar(
-                text("SELECT has_table_privilege('agents_factory_admin', :table_name, :privilege)"),
-                {"table_name": RESOLUTIONS, "privilege": privilege},
-            ) is False
+            assert (
+                await connection.scalar(
+                    text(
+                        "SELECT has_table_privilege('agents_factory_admin', :table_name, :privilege)"
+                    ),
+                    {"table_name": RESOLUTIONS, "privilege": privilege},
+                )
+                is False
+            )
 
 
 @pytest.mark.asyncio
@@ -104,7 +114,17 @@ async def test_resolution_requires_existing_alert_and_single_note(
                 {"alert_id": uuid4(), "resolved_by": resolver_id},
             )
 
-    for note in (" ", " leading space", "x" * 501):
+    for note in (
+        " ",
+        "\t",
+        "\n",
+        "\u00a0",
+        "\u2003",
+        "\tleading",
+        "trailing\n",
+        " leading space",
+        "x" * 501,
+    ):
         invalid_alert_id = uuid4()
         async with database_engine.begin() as connection:
             await connection.execute(
@@ -128,12 +148,19 @@ async def test_resolution_requires_existing_alert_and_single_note(
                         "(alert_id, resolved_by, resolution_note) "
                         "VALUES (:alert_id, :resolved_by, :note)"
                     ),
-                    {"alert_id": invalid_alert_id, "resolved_by": resolver_id, "note": note},
+                    {
+                        "alert_id": invalid_alert_id,
+                        "resolved_by": resolver_id,
+                        "note": note,
+                    },
                 )
 
     async with database_engine.connect() as connection:
-        assert await connection.scalar(
-            text(
-                "SELECT count(*) FROM agents_factory_private.whatsapp_account_update_alert_resolutions"
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT count(*) FROM agents_factory_private.whatsapp_account_update_alert_resolutions"
+                )
             )
-        ) == 1
+            == 1
+        )

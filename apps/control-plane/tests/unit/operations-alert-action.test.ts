@@ -36,6 +36,7 @@ describe("Operations alert resolution action", () => {
       resolutionForm(" "),
       resolutionForm("x".repeat(501)),
       resolutionForm("Valid"),
+      resolutionForm("review\0end"),
     ];
     cases[3].set("alertId", "not-a-uuid");
     for (const form of cases) {

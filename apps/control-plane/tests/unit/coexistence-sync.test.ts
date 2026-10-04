@@ -131,4 +131,76 @@ describe("coexistence sync visibility", () => {
     );
     expect(markup).not.toContain("Contactos activos: 2");
   });
+
+  it.each([
+    [null],
+    [
+      {
+        sync_type: "history",
+        state: "BROKEN",
+        request_id: null,
+        reserved_at: null,
+      },
+    ],
+    [
+      {
+        sync_type: "history",
+        state: "NOT_REQUESTED",
+        request_id: null,
+        reserved_at: null,
+      },
+      {
+        sync_type: "history",
+        state: "NOT_REQUESTED",
+        request_id: null,
+        reserved_at: null,
+      },
+    ],
+    [
+      {
+        sync_type: "history",
+        state: "ACCEPTED",
+        request_id: null,
+        reserved_at: null,
+      },
+    ],
+    [
+      {
+        sync_type: "history",
+        state: "NOT_REQUESTED",
+        request_id: "unexpected",
+        reserved_at: "2026-09-26T12:00:00Z",
+      },
+    ],
+    [
+      {
+        sync_type: "history",
+        state: "UNKNOWN",
+        request_id: null,
+        reserved_at: "invalid-date",
+      },
+    ],
+  ])(
+    "contains malformed status entries without showing reassuring counts (%j)",
+    async (...entries) => {
+      getBackend.mockImplementation(async (path) =>
+        path.endsWith("/sync-status")
+          ? entries
+          : {
+              active_contacts: 0,
+              history_batches_received: 0,
+              history_batches_imported: 0,
+              history_batches_declined: 0,
+              history_batches_pending: 0,
+            },
+      );
+      const markup = renderToStaticMarkup(
+        await CoexistenceSync({ tenantId, accountId }),
+      );
+      expect(markup).toContain(
+        "No se pudo consultar el estado de sincronización.",
+      );
+      expect(markup).not.toContain("Contactos activos: 0");
+    },
+  );
 });

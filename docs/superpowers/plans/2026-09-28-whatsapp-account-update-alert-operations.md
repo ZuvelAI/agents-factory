@@ -10,7 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-28-whatsapp-account-update-alert-operations-design.md`
 
-**Status:** Awaiting user review and execution-method choice; implementation has not started.
+**Status:** All three tasks implemented locally. Independent review completed;
+findings fixed and verified on 2026-10-04. Evidence and remaining gates are in
+`docs/coexistence-progress.md`. Release gate CLOSED; integration and live pilot
+remain separate decisions.
 
 ## Global Constraints
 
