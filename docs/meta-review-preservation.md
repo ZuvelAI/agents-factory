@@ -47,7 +47,9 @@ all five values explicitly; a successful login alone does not prove parity.
 
 ## Coexistence pilot is a separate gate
 
-The panel still blocks live COEXISTENCE signup. There is no evidence yet that
+The current production panel still blocks live COEXISTENCE signup. The candidate
+has a separate, default-closed server-owned tenant/number pilot permission;
+reviewer access never grants that permission. There is no evidence yet that
 Meta accepts Zuvel's number. A pilot needs a separately approved deployment,
 backup/rollback plan and a narrow activation decision, then owner-operated Meta
 signup from the AI Workers panel. Never use the reviewer account for this, remove

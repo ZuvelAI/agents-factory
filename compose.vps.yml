@@ -19,6 +19,8 @@ x-runtime: &runtime
     <<: *review-binding
     ENVIRONMENT: production
     REDIS_URL: redis://redis:6379/0
+    COEXISTENCE_PILOT_TENANT_ID: ${COEXISTENCE_PILOT_TENANT_ID:-}
+    COEXISTENCE_PILOT_PHONE_DIGITS: ${COEXISTENCE_PILOT_PHONE_DIGITS:-}
   restart: unless-stopped
   init: true
   security_opt: [no-new-privileges:true]

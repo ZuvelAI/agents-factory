@@ -39,6 +39,8 @@ _CONFIGURATION_VARIABLE_ORDER = REQUIRED_ENVIRONMENT_VARIABLES + (
     "META_REVIEW_WABA_ID",
     "META_REVIEW_PHONE_NUMBER_ID",
     "META_REVIEW_RECIPIENT",
+    "COEXISTENCE_PILOT_TENANT_ID",
+    "COEXISTENCE_PILOT_PHONE_DIGITS",
 )
 
 
@@ -84,6 +86,17 @@ class Settings(BaseSettings):
     meta_review_recipient: (
         Annotated[str, Field(pattern=r"^[1-9][0-9]{7,14}$")] | None
     ) = None
+    coexistence_pilot_tenant_id: UUID | None = None
+    coexistence_pilot_phone_digits: (
+        Annotated[str, Field(pattern=r"^[1-9][0-9]{7,14}$")] | None
+    ) = None
+
+    def coexistence_pilot_enabled_for(self, tenant_id: UUID | None) -> bool:
+        return (
+            self.coexistence_pilot_tenant_id is not None
+            and self.coexistence_pilot_phone_digits is not None
+            and tenant_id == self.coexistence_pilot_tenant_id
+        )
 
     @property
     def review_binding(self) -> ReviewBinding | None:
@@ -111,6 +124,8 @@ class Settings(BaseSettings):
         "meta_review_waba_id",
         "meta_review_phone_number_id",
         "meta_review_recipient",
+        "coexistence_pilot_tenant_id",
+        "coexistence_pilot_phone_digits",
         mode="before",
     )
     @classmethod

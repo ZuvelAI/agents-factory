@@ -42,6 +42,10 @@ def test_review_binding_reaches_both_servers_without_privileged_secrets(
     }
     if profile_source != "absent":
         file_values.update(REVIEW_PROFILE)
+        file_values.update(
+            COEXISTENCE_PILOT_TENANT_ID="11111111-1111-4111-8111-111111111111",
+            COEXISTENCE_PILOT_PHONE_DIGITS="15550123456",
+        )
     (tmp_path / ".env").write_text(
         "".join(f"{key}={value}\n" for key, value in file_values.items())
     )
@@ -50,6 +54,10 @@ def test_review_binding_reaches_both_servers_without_privileged_secrets(
     }
     if profile_source == "host":
         environment.update(HOST_REVIEW_PROFILE)
+        environment.update(
+            COEXISTENCE_PILOT_TENANT_ID="33333333-3333-4333-8333-333333333333",
+            COEXISTENCE_PILOT_PHONE_DIGITS="15550654321",
+        )
 
     result = subprocess.run(
         [
@@ -84,6 +92,14 @@ def test_review_binding_reaches_both_servers_without_privileged_secrets(
                 f"{manifest}: {service} is missing or differs on {name}"
             )
     panel_environment = services["control-plane"]["environment"]
+    for name in ("COEXISTENCE_PILOT_TENANT_ID", "COEXISTENCE_PILOT_PHONE_DIGITS"):
+        expected = (
+            ""
+            if profile_source == "absent"
+            else environment.get(name, file_values[name])
+        )
+        assert services["backend"]["environment"].get(name, "") == expected
+        assert name not in panel_environment
     assert not any(
         name.startswith("NEXT_PUBLIC_META_REVIEW_") for name in panel_environment
     )

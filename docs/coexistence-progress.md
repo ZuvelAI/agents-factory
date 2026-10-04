@@ -926,3 +926,71 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   change, migration, worker activation, live Meta request or onboarding occurred.
   Existing signup gates remain CLOSED. The 28 local signup unit/contract tests
   passed fresh; no broader regression rerun is claimed for this preflight.
+
+## Zuvel-only pilot permission and additive production recovery — 2026-10-04
+
+- Continued from `0b793bc` in the existing isolated branch. The owner reiterated
+  that nothing on the shared VPS may be deleted. No file/container/image/volume
+  deletion, service restart, deployment, migration or live Meta action occurred.
+- Implemented a server-owned pilot permission requiring both
+  `COEXISTENCE_PILOT_TENANT_ID` and `COEXISTENCE_PILOT_PHONE_DIGITS`. Missing,
+  blank or partial configuration leaves coexistence signup closed. Invalid
+  identifiers fail sanitized configuration validation. Start and callback both
+  recheck the exact tenant; the provider-verified number is checked before any
+  account or credential write. API_ONLY and the reviewer binding are unchanged.
+- The authenticated admin availability endpoint returns only a boolean. The
+  panel fetches it server-side without caching; missing, failed or malformed
+  responses remain closed. An availability failure does not hide existing
+  accounts. An enabled pilot still requires an explicit mode choice and current
+  Meta eligibility/ownership evidence, not a forced ELIGIBLE status.
+- Both Compose manifests pass the optional pilot settings only to the Python
+  runtime, not the panel browser/server. The existing five-value reviewer
+  binding remains identical on backend and panel, including host overrides.
+- TDD evidence: backend 14 failed/71 passed before the implementation, panel
+  8 failed/74 passed, Compose 3 failed/3 passed and pilot browser 1 failed/2
+  passed. Final fresh backend partition: 362 unit/contract plus 237 integration/
+  security/architecture tests passed (599 total). Panel: 82 unit tests and all
+  9 local browser tests passed. Compose: all six actual configuration cases
+  passed. The browser uses fake Auth/provider fixtures, never the real number.
+- Initial aggregate validation had nine failures: unavailable Node/Docker in
+  its narrowed PATH, a missing disposable encryption key, and the already-known
+  canonical-port fixture mismatch. A subsequent integration run retained a
+  stale marker from the interrupted reset. Restored the normal executable PATH,
+  supplied a test-only key and reconstructed only the disposable 55322 project;
+  the fresh 237-test run then passed. The unchanged canonical-port unit gate ran
+  in the worktree. No guard was weakened or test permanently deselected.
+- Ruling: retain partitioned regression proof using the unchanged worktree
+  and temporary snapshot, not an all-in-one green claim. Cost if wrong: this
+  does not establish a fresh dependency installation or aggregate CI run.
+- Added private recovery artifacts under
+  `/opt/aiworkers/.recovery-coex-20261004-l7fySG` (directory 700, files 600).
+  The deployment/configuration archive, available backend/panel/Redis images,
+  old worker filesystems and seven private container configurations pass archive
+  and checksum checks. The first image-save attempt failed because the running
+  worker images are no longer present in Docker's image store; its partial
+  archive is retained, not overwritten or deleted. Worker exports did not pause
+  the running services. Shared worker generations are recorded separately from
+  the outbound worker generation.
+- Ruling: intact image/filesystem/configuration archives are recovery material,
+  not a completed restore drill. Cost if wrong: restoring commands, dependencies,
+  data/queues and schema compatibility remain release gates before cutover.
+- Read-only Supabase management access confirms the exact production project,
+  14 remote migrations and 13 pending candidate migrations. The first 11 remote
+  statements exactly match local checksums; the remaining three baseline changes
+  match semantically despite comments/whitespace and different history versions.
+  All 13 pending SQL files were read. Do not blindly push 27 local versions or
+  rewrite the legacy remote history. No remote DDL/DML was executed.
+- Production inventory: 24 application tables, two Auth users and no Storage
+  buckets/objects. A protected database backup and separate restoration proof,
+  reviewer smoke/configuration parity, candidate clean build and scheduler/queue
+  ownership checks still gate production changes. Zuvel's real number has not
+  been onboarded or shown eligible. No push or merge was performed.
+- The local optimized Next.js build also completed with fictitious loopback
+  Auth/backend settings, without real provider calls. ESLint, TypeScript, Ruff
+  and diff checks passed. The build-generated next-env path change was restored;
+  no generated output belongs in the source commit. This is not a clean Docker
+  dependency installation or a deployed-image claim.
+- The owner authorized Supabase CLI's macOS Keychain request directly. The CLI
+  initialized its normal login role and saved a protected application schema
+  dump. Production application schema/data remain unchanged; completing the
+  data/Auth/history backup and proving a disposable restoration remain pending.

@@ -3,6 +3,7 @@ import {
   revokeWhatsAppAccount,
 } from "../../../../actions";
 import { callAuthenticatedBackend } from "../../../../../lib/api";
+import { isCoexistenceSignupEnabled } from "../../../../../lib/whatsapp-mode";
 import { CoexistenceSync } from "./coexistence-sync";
 import { EmbeddedSignup } from "./embedded-signup";
 import { HumanControl, type HumanConversation } from "./human-control";
@@ -33,15 +34,20 @@ export default async function WhatsAppSetupPage({
 }) {
   const { tenantId } = await params;
   const notice = (await searchParams)?.humanControl;
-  let accounts: WhatsAppAccount[] = [];
-  let backendAvailable = true;
-  try {
-    accounts = await callAuthenticatedBackend<WhatsAppAccount[]>(
+  const [accountResult, availabilityResult] = await Promise.allSettled([
+    callAuthenticatedBackend<WhatsAppAccount[]>(
       `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp`,
-    );
-  } catch {
-    backendAvailable = false;
-  }
+    ),
+    callAuthenticatedBackend<unknown>(
+      `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp/signup/availability`,
+    ),
+  ]);
+  const backendAvailable = accountResult.status === "fulfilled";
+  const accounts =
+    accountResult.status === "fulfilled" ? accountResult.value : [];
+  const coexistenceEnabled =
+    availabilityResult.status === "fulfilled" &&
+    isCoexistenceSignupEnabled(availabilityResult.value);
   const humanConversations = await Promise.all(
     accounts.map(async (account): Promise<HumanConversation[] | null> => {
       if (
@@ -78,11 +84,17 @@ export default async function WhatsAppSetupPage({
           <h2>Connection</h2>
           <p>
             Elige entre un número exclusivo o conservar la aplicación del
-            celular. La coexistencia está pendiente de habilitación y
-            validación; elegirla no conecta ni migra tu número.
+            celular.{" "}
+            {coexistenceEnabled
+              ? "El piloto de coexistencia está habilitado para este cliente; Meta aún debe validar el número."
+              : "La coexistencia está pendiente de habilitación y validación."}{" "}
+            Elegirla no conecta ni migra tu número.
           </p>
         </div>
-        <EmbeddedSignup tenantId={tenantId} />
+        <EmbeddedSignup
+          tenantId={tenantId}
+          coexistenceEnabled={coexistenceEnabled}
+        />
       </div>
 
       {!backendAvailable ? (

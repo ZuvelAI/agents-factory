@@ -252,17 +252,37 @@ class SignupStartRequest(BaseModel):
     mode: WhatsAppMode = "API_ONLY"
 
 
-def _require_available_signup_mode(mode: WhatsAppMode) -> None:
-    # Release gate, not an eligibility verdict. Do not open a provider flow
-    # until sync ingestion and human takeover can safely support real clients.
-    if mode == "COEXISTENCE":
+def _require_available_signup_mode(
+    mode: WhatsAppMode,
+    *,
+    tenant_id: UUID | None = None,
+    settings: Settings | None = None,
+) -> None:
+    # A scoped rollout permission, never a Meta eligibility verdict.
+    if mode == "COEXISTENCE" and (
+        settings is None or not settings.coexistence_pilot_enabled_for(tenant_id)
+    ):
         raise DomainError(
             type="https://agents-factory.dev/problems/whatsapp-coexistence-not-ready",
             title="Coexistence pending enablement",
             status=409,
-            detail="Coexistence synchronization and human takeover are not enabled yet.",
+            detail="Coexistence signup is not enabled for this tenant.",
             code="whatsapp_coexistence_not_ready",
         )
+
+
+class SignupAvailabilityResponse(BaseModel):
+    coexistence_enabled: bool
+
+
+@router.get("/signup/availability", response_model=SignupAvailabilityResponse)
+async def signup_availability(
+    tenant_id: UUID, request: Request, principal: PlatformAdmin
+) -> SignupAvailabilityResponse:
+    settings: Settings = request.app.state.settings
+    return SignupAvailabilityResponse(
+        coexistence_enabled=settings.coexistence_pilot_enabled_for(tenant_id)
+    )
 
 
 class SignupStartResponse(BaseModel):
@@ -372,7 +392,9 @@ async def start_embedded_signup(
     session: TransactionSession,
     payload: SignupStartRequest = SignupStartRequest(),
 ) -> SignupStartResponse:
-    _require_available_signup_mode(payload.mode)
+    _require_available_signup_mode(
+        payload.mode, tenant_id=tenant_id, settings=request.app.state.settings
+    )
     settings, signup = _signup_services(request, session)
     started = await signup.start(
         context=_context(request, principal, tenant_id),
@@ -403,8 +425,10 @@ async def complete_embedded_signup(
     principal: PlatformAdmin,
     session: TransactionSession,
 ) -> WhatsAppAccountResponse:
-    _require_available_signup_mode(payload.mode)
-    _settings, signup = _signup_services(request, session)
+    _require_available_signup_mode(
+        payload.mode, tenant_id=tenant_id, settings=request.app.state.settings
+    )
+    settings, signup = _signup_services(request, session)
     connected = await signup.complete(
         context=_context(request, principal, tenant_id),
         admin_session_id=principal.session_id,
@@ -414,6 +438,11 @@ async def complete_embedded_signup(
         waba_id=payload.waba_id,
         phone_number_id=payload.phone_number_id,
         requested_mode=payload.mode,
+        expected_phone_digits=(
+            settings.coexistence_pilot_phone_digits
+            if payload.mode == "COEXISTENCE"
+            else None
+        ),
     )
     if connected.mode == "COEXISTENCE":
         await enqueue_initial_sync(

@@ -1,9 +1,12 @@
 # Coexistence: test deployment and Zuvel pilot
 
 This checklist is preparation, not authorization to deploy, migrate a remote
-database, change Meta, start workers or connect a real number. The current API
-and panel still reject live COEXISTENCE signup. Local tests cannot establish
-Meta eligibility for Zuvel or any future customer.
+database, change Meta, start workers or connect a real number. The owner has
+separately approved a Zuvel-only pilot on the existing production installation;
+that choice does not waive the recovery and compatibility gates below. The
+candidate remains closed unless its server-owned tenant/number permission is
+configured. The current production deployment has not been updated. Local tests
+cannot establish Meta eligibility for Zuvel or any future customer.
 
 ## 1. Identify the target before changing it
 
@@ -61,9 +64,14 @@ images and configuration rather than overwriting the only rollback copy.
 ## 3. Open a supervised Zuvel-only pilot separately
 
 Before a real-number pilot, approve and verify a tenant-scoped activation
-mechanism on both API and panel. The current hard gate must not be removed
-globally to test one customer. An approved/published Meta app is not evidence
-that a particular number is accepted for coexistence.
+mechanism on both API and panel. The candidate requires both optional server
+settings `COEXISTENCE_PILOT_TENANT_ID` and `COEXISTENCE_PILOT_PHONE_DIGITS`.
+Missing/partial configuration keeps signup closed. Both start and callback
+recheck the tenant; completion verifies the exact provider-returned number
+before storing credentials or an account. The panel consumes only an
+authenticated boolean, failing closed on an unknown response. Do not open
+signup globally to test one customer. An approved/published Meta app is not
+evidence that a particular number is accepted for coexistence.
 
 The owner performs all Meta UI and phone actions. Confirm current official Meta
 requirements and the exact Embedded Signup configuration before starting; the

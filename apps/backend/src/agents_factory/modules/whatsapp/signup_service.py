@@ -179,6 +179,7 @@ class WhatsAppSignupService:
         waba_id: str,
         phone_number_id: str | None,
         requested_mode: WhatsAppMode = "API_ONLY",
+        expected_phone_digits: str | None = None,
     ) -> ConnectedWhatsAppAccount:
         admin_user_id = _admin_user_id(context)
         now = self._now()
@@ -246,6 +247,13 @@ class WhatsAppSignupService:
             )
 
         business_id = authorization.business_id
+        if expected_phone_digits is not None and (
+            authorization.display_phone_digits != expected_phone_digits
+        ):
+            raise WhatsAppSignupError(
+                code="whatsapp_coexistence_pilot_number_mismatch",
+                detail="The Meta-verified number is not the number authorized for this pilot.",
+            )
         phone_number_id = authorization.phone_number_id
         await self._repository.lock_phone_number(phone_number_id=phone_number_id)
         existing = await self._repository.find_by_phone_number(

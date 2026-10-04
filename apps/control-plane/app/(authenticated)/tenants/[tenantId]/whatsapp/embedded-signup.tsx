@@ -11,13 +11,23 @@ import {
 import { loadMetaSdk } from "../../../../../lib/meta-sdk-loader";
 import { runSignupSession } from "../../../../../lib/whatsapp-signup-session";
 
-export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
+export function EmbeddedSignup({
+  tenantId,
+  coexistenceEnabled = false,
+}: {
+  tenantId: string;
+  coexistenceEnabled?: boolean;
+}) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "working" | "error">("idle");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<WhatsAppMode | null>(null);
   const [confirmedExclusive, setConfirmedExclusive] = useState(false);
-  const blocked = signupBlockReason(mode, confirmedExclusive);
+  const blocked = signupBlockReason(
+    mode,
+    confirmedExclusive,
+    coexistenceEnabled,
+  );
   const activeAttempt = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
@@ -104,7 +114,10 @@ export function EmbeddedSignup({ tenantId }: { tenantId: string }) {
               setMessage("");
             }}
           />
-          Conservar WhatsApp Business + agente — pendiente de habilitación
+          Conservar WhatsApp Business + agente —{" "}
+          {coexistenceEnabled
+            ? "piloto habilitado"
+            : "pendiente de habilitación"}
         </label>
         <p>
           Para un número ya activo en WhatsApp Business. Su conexión dependerá

@@ -34,6 +34,54 @@ def _valid_environment() -> dict[str, str]:
     }
 
 
+@pytest.mark.parametrize(
+    "binding", ["complete", "tenant_only", "phone_only", "absent", "blank"]
+)
+def test_coexistence_pilot_requires_both_server_owned_values(
+    monkeypatch: pytest.MonkeyPatch, binding: str
+) -> None:
+    tenant = UUID("11111111-1111-4111-8111-111111111111")
+    for name in ("COEXISTENCE_PILOT_TENANT_ID", "COEXISTENCE_PILOT_PHONE_DIGITS"):
+        monkeypatch.delenv(name, raising=False)
+    environment = _valid_environment()
+    if binding in {"complete", "tenant_only"}:
+        environment["COEXISTENCE_PILOT_TENANT_ID"] = str(tenant)
+    if binding in {"complete", "phone_only"}:
+        environment["COEXISTENCE_PILOT_PHONE_DIGITS"] = "15550123456"
+    if binding == "blank":
+        environment.update(
+            COEXISTENCE_PILOT_TENANT_ID="", COEXISTENCE_PILOT_PHONE_DIGITS=""
+        )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    settings = load_settings()
+    assert settings.coexistence_pilot_enabled_for(tenant) is (binding == "complete")
+    assert not settings.coexistence_pilot_enabled_for(
+        UUID("22222222-2222-4222-8222-222222222222")
+    )
+
+
+@pytest.mark.parametrize(
+    ("variable", "invalid"),
+    [
+        ("COEXISTENCE_PILOT_TENANT_ID", "not-a-tenant"),
+        ("COEXISTENCE_PILOT_PHONE_DIGITS", "+15550123456"),
+        ("COEXISTENCE_PILOT_PHONE_DIGITS", "1555 0123456"),
+        ("COEXISTENCE_PILOT_PHONE_DIGITS", "0" * 16),
+    ],
+)
+def test_invalid_pilot_configuration_is_rejected_without_echoing_values(
+    monkeypatch: pytest.MonkeyPatch, variable: str, invalid: str
+) -> None:
+    for name, value in _valid_environment().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(variable, invalid)
+    with pytest.raises(ConfigurationError) as error:
+        load_settings()
+    assert error.value.invalid_variables == (variable,)
+    assert invalid not in str(error.value)
+
+
 def test_load_settings_reports_all_missing_variable_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

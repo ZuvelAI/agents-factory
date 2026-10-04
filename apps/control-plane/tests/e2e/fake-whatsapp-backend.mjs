@@ -45,6 +45,13 @@ createServer(async (request, response) => {
   }
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   const pathname = url.pathname;
+  if (
+    request.method === "GET" &&
+    pathname === `${accountPath}/signup/availability`
+  ) {
+    json(response, 200, { coexistence_enabled: true });
+    return;
+  }
   if (request.method === "GET" && pathname === `${alertsPath}/summary`) {
     json(response, 200, { open_count: resolution ? 0 : 1 });
     return;

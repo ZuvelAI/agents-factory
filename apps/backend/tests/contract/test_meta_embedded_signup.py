@@ -40,6 +40,57 @@ SECRET_ID = UUID("019c2000-0000-7000-8000-000000000106")
 NOW = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("display", ["15550783882", None])
+async def test_pilot_rejects_a_different_or_unverified_number_before_account_writes(
+    display: str | None,
+) -> None:
+    signup, repository, _provider, vault = service(
+        authorization=snapshot(eligibility="ELIGIBLE", display_phone_digits=display)
+    )
+    with pytest.raises(WhatsAppSignupError) as error:
+        await signup.complete(
+            context=context(),
+            admin_session_id=SESSION_ID,
+            state="x" * 32,
+            code="code",
+            business_id=None,
+            waba_id="waba-client-1",
+            phone_number_id=None,
+            requested_mode="COEXISTENCE",
+            expected_phone_digits="15550783881",
+        )
+    assert error.value.code in {
+        "whatsapp_coexistence_identity_unverified",
+        "whatsapp_coexistence_pilot_number_mismatch",
+    }
+    vault.store.assert_not_awaited()
+    repository.connect_account.assert_not_awaited()
+    repository.lock_phone_number.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pilot_accepts_only_the_provider_verified_expected_number() -> None:
+    signup, repository, _provider, _vault = service(
+        authorization=snapshot(eligibility="ELIGIBLE")
+    )
+    await signup.complete(
+        context=context(),
+        admin_session_id=SESSION_ID,
+        state="x" * 32,
+        code="code",
+        business_id=None,
+        waba_id="waba-client-1",
+        phone_number_id=None,
+        requested_mode="COEXISTENCE",
+        expected_phone_digits="15550783881",
+    )
+    assert (
+        repository.connect_account.await_args.kwargs["display_phone_digits"]
+        == "15550783881"
+    )
+
+
 def context(tenant_id: UUID = TENANT_ID) -> TenantContext:
     return TenantContext(
         tenant_id=tenant_id,
