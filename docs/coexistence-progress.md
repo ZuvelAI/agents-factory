@@ -1102,3 +1102,108 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   Docker build, container recovery/old-new schema compatibility, live reviewer
   scope/configuration, single-owner queues/scheduler, current Meta flow evidence,
   then supervised real-number pilot. All VPS material remains retained.
+
+## Packaged runtime compatibility and recovery proof — 2026-10-04
+
+- Clean locked Linux/amd64 Docker builds from `e437e8c` pass; VPS architecture
+  is x86_64. Runtime image `aiworkers-coex-runtime:e437e8c` is
+  `sha256:d82b6a0d6244c8fb878ae19812ea653b63896a7f49481e12b87cf33737ba23f0`;
+  dashboard `aiworkers-coex-dashboard:e437e8c` is
+  `sha256:76ea9f364077185996f61725b1751d7b0e629201d2afdf82decae6a3ca15033d`.
+  Both carry the complete source revision label. The dashboard uses only the
+  saved production public Supabase URL/publishable key as build configuration;
+  no private backend environment, provider secret or master key enters it.
+- Packaged dashboard smoke, isolated without networking: liveness and login
+  return 200; unauthenticated private tenant access redirects to login. The
+  runtime imports API and all four worker modules without starting consumers.
+- Downloaded verified production backend/panel/Redis image archive and imported
+  it locally by its saved IDs (no repository tags or local aliases overwritten).
+  Copied the two worker filesystem backups and Redis RDB; all SHA256 values
+  match the VPS copies. Reconstructed the old agent and outbound images locally
+  using their saved app user, working directory and only PATH/PYTHONPATH/virtual
+  environment settings. Both modules import with no network and no worker start.
+- Recovered Redis RDB loads successfully in a new isolated local container:
+  checksum valid, 69 records in the original snapshot, four unexpired keys at
+  load time. Snapshot mount is read-only; no AOF/save, public port or worker.
+  The test instance exits with `shutdown nosave`; live Redis was not touched.
+- Previous production backend and candidate both pass real DB/Redis readiness
+  and read the existing API_ONLY review account from the restored, migrated DB.
+  Queries are READ ONLY under session identity `agents_factory_app`, exercising
+  its existing SET-role permission to `agents_factory_admin`; account ID, WABA
+  and phone ID remain exact. The first probe wrongly assumed the local postgres
+  login could SET the admin role; it correctly failed because its membership
+  has SET FALSE. Corrected only the test session identity, not grants or source.
+- Ruling: this is pre-onboarding API_ONLY compatibility, not proof that old
+  images understand future coexistence records — retain a new compatible image
+  for post-onboarding incident recovery. Cost if wrong: promoting the older API
+  after onboarding could mishandle a real account despite passing this smoke.
+- Live reviewer Auth metadata checked read-only: one scoped reviewer, matching
+  tenant/account, confirmed, not banned/deleted, expiry remains
+  `2027-10-01T00:00:00+00:00`. Credentials and metadata were not changed. This
+  is not a password-login or deployed reviewer-permission smoke.
+- No local host arq/uvicorn consumers found; only two local database containers
+  and the dedicated pilot Redis are running. VPS still has the same seven
+  AI Workers services and original start times. Durable outbox contains only
+  three succeeded jobs; agent/knowledge/outbound Redis queues read zero.
+  Scheduler snapshots contain one or two recurring jobs and about 60 guards
+  with up-to-one-minute TTL, rather than an assumption that all keys are idle.
+- Ruling: inspect and preserve scheduler guards rather than clearing them —
+  arq retains completed cron guards briefly for deduplication. Cost if wrong:
+  read-only snapshots still cannot guarantee no new work at cutover; pause the
+  named scheduler, recheck real jobs and allow graceful consumer drain first.
+- Ruling: do not use standard Compose recreation for this deployment — the
+  owner's preserve-everything constraint requires an additive release and new
+  containers, retaining the old containers/configuration/images. Cost if wrong:
+  cutover takes a bounded service interruption and explicit network/port handling;
+  no unrelated VPS service or Redis volume may be removed or replaced.
+- Fresh reviewer decisions remain unchanged: live Meta eligibility/mobile flow,
+  deployed reviewer login, actual deployment/recovery behavior, queue ownership
+  and real webhook/outbound takeover remain explicit gates. No deferred minors.
+  No remote migration, application replacement, worker start, live Meta call,
+  number onboarding, real send, merge or push occurred in this recovery stage.
+- Prepared an additive private candidate directory on the VPS:
+  `/opt/aiworkers/.candidate-coex-e437e8c-pJU10x`, mode 700. Both source and
+  image archives match their local SHA256 values; the two new image tags were
+  absent before import. Image IDs, Linux/amd64 architecture and full revision
+  labels match the clean local builds. No existing tag was overwritten.
+- Validated the separate six-service manifest without creating containers.
+  It reuses only the existing external AI Workers network and Redis endpoint,
+  retains the loopback ports, uses distinct container names and has no Redis
+  service/volume definition. A new private `original.env` copy matches the
+  current deployment byte-for-byte. The copy utility's no-clobber portability
+  warning is benign: target absence was asserted first and equality afterward.
+- In-memory configuration comparison passes: original database URL, master key,
+  provider secrets and Supabase Auth settings unchanged; five exact reviewer
+  values identical on API and panel; panel has only those five and its three
+  required connection/public settings. Both pilot permission values stay blank
+  on all runtime services, so onboarding remains closed. No secret was printed.
+- Ruling: use a deployment-only migration bundle with the exact 14 existing
+  identifiers/statements plus the 13 unchanged pending source files — preserve
+  historical records instead of repairing or blindly including old versions.
+  Cost if wrong: future deployments must repeat this history-aware preparation;
+  standard pushes from the canonical checkout still encounter legacy IDs.
+- Current production query confirms all 14 exported historical SQL hashes
+  match exactly. Supabase CLI 2.115.0 `db push --dry-run --skip-vault` against
+  the named production project succeeds and lists exactly the 13 pending
+  migrations, no seeds or application roles. The CLI initializes its managed
+  login role, but applies no application migration or Vault update. No CLI
+  upgrade, history repair or include-all was used. The generated temporary
+  bundle is `/private/tmp/aiworkers-coex-release-migrations-vWqUgKa5`.
+- Saved its private archive beside the candidate, SHA256
+  `1ce98d8789a037a7179e4d978ab8b159258512260553976e6a11e1972fbaeef1`.
+  The source archive is
+  `43abe3a638fb3c92beff88cc496b126e89570a693a15abe0e40385bb5b88f19c`;
+  image archive is
+  `09ed4434390ed1f0f5af687b36cf219d36ce1727d0a1245bdcf5fd0f0891cb9a`.
+- Final read-only check still finds all seven original VPS containers with
+  their original start times. About 60 in-progress keys all identify the known
+  dispatch cron; its installed arq implementation retains these for 60 seconds.
+  One/two queued scheduler entries also identify this recurring dispatch.
+  Snapshots are intentionally not claimed atomic; no customer work was queued
+  in agent, knowledge or outbound. Do not manufacture idleness by flushing.
+- Next boundary: actual production schema application and six-service cutover
+  require explicit confirmation of this concrete security-sensitive change and
+  short AI Workers interruption under executing-plans. Retain all old containers,
+  files, images and Redis; never use recreation/removal as the cutover shortcut.
+  After cutover, verify live reviewer access before opening the Zuvel-only signup
+  gate; the owner still performs Meta/phone actions, with no computer use.
