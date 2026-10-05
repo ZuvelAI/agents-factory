@@ -5,8 +5,11 @@ database, change Meta, start workers or connect a real number. The owner has
 separately approved a Zuvel-only pilot on the existing production installation;
 that choice does not waive the recovery and compatibility gates below. The
 candidate remains closed unless its server-owned tenant/number permission is
-configured. The current production deployment has not been updated. Local tests
-cannot establish Meta eligibility for Zuvel or any future customer.
+configured. The approved additive production cutover is now deployed with signup
+closed; see [the dated deployment evidence](coexistence-progress.md). Reviewer
+password-login and live-number pilot gates remain open. Local tests and a
+successful deployment cannot establish Meta eligibility for Zuvel or any future
+customer.
 
 ## 1. Identify the target before changing it
 

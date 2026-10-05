@@ -1,7 +1,10 @@
 # Coexistence implementation ledger
 
 Approved scope: conversation plan approved 2026-09-23. Base: 4e85b3d.
-Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding authorized.
+Branch: codex/whatsapp-coexistence. Initial approval excluded deployment and
+live-number onboarding. Subsequent explicit approval authorized the 13 production
+migrations and additive six-service cutover recorded below; live-number signup
+remains closed and requires its separate gates.
 
 ## Work sequence
 
@@ -1207,3 +1210,72 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   files, images and Redis; never use recreation/removal as the cutover shortcut.
   After cutover, verify live reviewer access before opening the Zuvel-only signup
   gate; the owner still performs Meta/phone actions, with no computer use.
+
+## Approved production cutover — 2026-10-04 / verified 2026-10-05
+
+- Owner explicitly approved applying the 13 pending migrations and replacing
+  only the six AI Workers application services, preserving every old container,
+  Redis and unrelated projects. This supersedes the preceding approval boundary,
+  not the separate reviewer-login and real-number onboarding gates.
+- Supabase CLI 2.115.0 applied the exact 13 pending source migrations using the
+  history-aware deployment bundle and `--skip-vault`; exit 0. Subsequent dry run
+  returned no pending migrations, seeds or roles. Production history now contains
+  27 entries. No history repair, reset, Vault/config/Auth push or engine upgrade.
+- Fresh read-only checks on 2026-10-05: one tenant, one WhatsApp account, two Auth
+  users; zero public tables without RLS and zero tables directly accessible to
+  anon/authenticated. All four internal security-definer functions are in
+  `agents_factory_private`, have empty search_path, allow the application role
+  and deny both browser roles. A preliminary query for schema `private` returned
+  no rows; the exact function-name check above establishes the actual schema.
+- The security advisor reports only the pre-existing disabled leaked-password
+  protection warning, unchanged before/after migration. It is not an introduced
+  schema issue; no global Auth setting was changed under this deployment scope.
+- Gracefully stopped the original scheduler first, then its three consumers;
+  queues agent/knowledge/outbound read zero and durable outbox contains only
+  three succeeded jobs. Preserved completed cron guards without flushing Redis.
+- Retained all six original containers with their original IDs, stopped. The
+  replacement API and panel use the verified e437e8c image IDs, same loopback
+  ports and existing network. Measured web cutover was 28.75 seconds; backend
+  readiness and panel liveness passed before worker activation. No Nginx change.
+- On 2026-10-05, started the three replacement consumers, then exactly one
+  replacement scheduler. All four heartbeat values changed from their prior
+  values within the bounded startup check. Final verification finds all six
+  new containers running with zero restarts; API/panel Docker health is healthy
+  and all four heartbeat keys have positive TTLs. Original containers remain
+  present/stopped; Redis and the other previously running container keep their
+  original IDs, images and start times. Redis volume is unchanged.
+- Twelve read-only HTTP checks pass: API readiness and panel liveness 200,
+  unauthenticated admin signup availability 401, loopback/public login and
+  reviewer-login 200, protected reviewer/tenant routes 307 to /login, and public
+  webhook GET without required parameters 422. This proves routing/validation,
+  not actual provider webhook delivery, authenticated access or message sending.
+- Probe diagnosis: the initial expected /review/login redirect was incorrect;
+  the existing proxy sends unauthenticated /review to /login. Source and live
+  headers agree. Public Python-urllib requests received 403 while curl and an
+  explicitly identified verification client received 200. Only the temporary
+  probe expectation/User-Agent changed; application/access rules were untouched.
+- Fresh configuration comparison verifies original database URL, master key,
+  provider secrets and Supabase Auth settings unchanged. All six containers
+  preserve the five exact reviewer bindings. Both pilot settings remain blank
+  on every runtime service, so coexistence signup remains closed.
+- The dedicated reviewer identity is still confirmed, not banned/deleted,
+  exactly scoped to its original test tenant/account, expires 2027-10-01 UTC.
+  This is metadata/configuration evidence, not a password-login smoke. No
+  credential or expiry change, account conversion, provider call or test send.
+- Final queues remain zero and durable outbox remains three succeeded jobs.
+  These snapshots do not establish future idleness or instantaneous cancellation
+  of a provider request already in flight. Existing approved service duties may
+  resume; no synthetic message/job was inserted to prove deployment.
+- Private candidate/backups remain available at their previously recorded
+  locations. Local read-only verification helpers were added under the protected
+  recovery directory; nothing on the VPS was deleted, pruned or overwritten.
+  No merge or push. Application build revision remains e437e8c; this entry is
+  deployment evidence, not a new application image.
+- Next gate: owner manually signs in at /review/login with existing Meta-review
+  credentials and confirms the original restricted API_ONLY review screen and
+  lack of administrative/customer controls. Do not refresh templates or send a
+  message as part of that check. Only after this gate and separate activation
+  approval should the exact Zuvel tenant/number signup permission be configured.
+  The owner then performs Meta/phone onboarding; real coexistence acceptance,
+  mobile echo, AI takeover, inbound/outbound delivery and disconnect behavior
+  remain unverified live gates. This deployment does not complete the pilot.
