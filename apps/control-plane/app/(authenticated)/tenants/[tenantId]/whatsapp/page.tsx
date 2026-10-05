@@ -3,7 +3,7 @@ import {
   revokeWhatsAppAccount,
 } from "../../../../actions";
 import { callAuthenticatedBackend } from "../../../../../lib/api";
-import { isCoexistenceSignupEnabled } from "../../../../../lib/whatsapp-mode";
+import { getCoexistenceSignupAvailability } from "../../../../../lib/whatsapp-availability";
 import { CoexistenceSync } from "./coexistence-sync";
 import { EmbeddedSignup } from "./embedded-signup";
 import { HumanControl, type HumanConversation } from "./human-control";
@@ -38,16 +38,13 @@ export default async function WhatsAppSetupPage({
     callAuthenticatedBackend<WhatsAppAccount[]>(
       `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp`,
     ),
-    callAuthenticatedBackend<unknown>(
-      `/admin/tenants/${encodeURIComponent(tenantId)}/whatsapp/signup/availability`,
-    ),
+    getCoexistenceSignupAvailability(tenantId),
   ]);
   const backendAvailable = accountResult.status === "fulfilled";
   const accounts =
     accountResult.status === "fulfilled" ? accountResult.value : [];
   const coexistenceEnabled =
-    availabilityResult.status === "fulfilled" &&
-    isCoexistenceSignupEnabled(availabilityResult.value);
+    availabilityResult.status === "fulfilled" && availabilityResult.value;
   const humanConversations = await Promise.all(
     accounts.map(async (account): Promise<HumanConversation[] | null> => {
       if (

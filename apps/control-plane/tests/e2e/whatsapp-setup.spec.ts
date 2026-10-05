@@ -1,5 +1,35 @@
 import { expect, test } from "@playwright/test";
 
+test("stalled optional availability preserves existing account controls and keeps signup closed", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill("admin@example.test");
+  await page.getByLabel("Password").fill("valid-admin");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto("/tenants/019c2000-0000-7000-8000-000000000102/whatsapp");
+  await expect(
+    page.getByRole("heading", { name: "+15550783881" }),
+  ).toBeVisible();
+  await page.goto("/tenants/019c2000-0000-7000-8000-000000000103/whatsapp", {
+    waitUntil: "commit",
+    timeout: 5_000,
+  });
+  await expect(page.getByRole("heading", { name: "+15550783881" })).toBeVisible(
+    {
+      timeout: 3_000,
+    },
+  );
+  await expect(page.getByRole("button", { name: "Revoke" })).toBeEnabled();
+  await page
+    .getByRole("radio", { name: /Conservar WhatsApp Business/ })
+    .check();
+  await expect(
+    page.getByRole("button", { name: "Connect with Meta" }),
+  ).toBeDisabled();
+});
+
 test("only a server-authorized tenant can start coexistence without exclusive consent", async ({
   page,
 }) => {

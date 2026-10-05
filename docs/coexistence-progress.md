@@ -994,3 +994,111 @@ Branch: codex/whatsapp-coexistence. No deployment or live-number onboarding auth
   initialized its normal login role and saved a protected application schema
   dump. Production application schema/data remain unchanged; completing the
   data/Auth/history backup and proving a disposable restoration remain pending.
+
+## Restored production rehearsal and bounded panel fetch — 2026-10-04
+
+- Resumed the unfinished recovery gate; no production migration, application
+  deployment, restart, queue flush, number onboarding, push or merge occurred.
+  The seven production containers retain their original running start times.
+  Added backup files only to the existing private recovery directory. A command
+  approval timeout/usage-limit interruption delayed local verification; after
+  permission review became available, resumed the same checks without bypassing it.
+- Saved application and managed Auth/history schemas, application/Auth/history
+  data and custom role definitions in the protected local recovery directory
+  `/private/tmp/aiworkers-production-recovery-gPonVmPZ` and copied the five SQL
+  artifacts to the private VPS recovery directory. Checksums pass. Existing
+  runtime passwords, encryption key and reviewer credentials were not changed.
+- Restored into a new local database, `aiworkers_coex_restore_20261004`, on the
+  disposable 55322 project, never into its working test database or production.
+  The first non-superuser owner-restore attempt rolled back transactionally;
+  the existing local Supabase bootstrap owner restored the unmodified dumps.
+  The CLI data filter omitted 82 Auth migration versions: recovered their exact
+  version-only rows separately. All 52 source tables then matched row counts
+  and canonical row-content fingerprints. No plaintext data was printed.
+- Applied all 13 pending migrations transactionally only to that restored copy.
+  Existing tenant/account/Auth, audit and encrypted rows remained: tenant 1,
+  WhatsApp account 1, Auth users 2, audit events 40, encrypted records 3; legacy
+  migration history remains 14 and the two old signup states remain API_ONLY.
+  This rehearsal intentionally does not add production migration history rows.
+- Ruling: retain the verified remote legacy migration identifiers rather than
+  repairing or pushing all local versions — the first 11 baseline SQL changes
+  match exactly and the remaining three match semantically. Cost if wrong:
+  pending-only deployment still needs correct history recording and lock checks;
+  the local rehearsal is not proof of production application.
+- Backed up the AI Workers Redis RDB without stopping or flushing Redis. The
+  first checksum utility invocation could not seek stdin; verified the same
+  retained snapshot through a new temporary file instead. Checksum and RDB
+  checks pass, with 69 keys observed. This does not prove the live queues are
+  empty; no queue contents or message values were exposed.
+- The restored-copy pgTAP run initially failed 12/360 assertions. Investigation
+  found two stale harness assumptions (two rather than four approved private
+  SECURITY DEFINER functions; exactly two total tenants), plus ten failed
+  default-privilege checks. The schema-filtered dump omitted PostgreSQL's global
+  function defaults; a read-only production query confirmed the original
+  `postgres` global function ACL is owner-only. Added a protected separate SQL
+  backup of that setting and restored it only locally. The probes explicitly use
+  the migration owner, not the managed CLI login role. No production ACL changed.
+- Ruling: adapt foundation fixtures to existing data and the two previously
+  implemented coexistence webhook functions, while preserving the exact definer
+  allowlist and adding app-only grant/empty-search-path assertions — this tests
+  the current schema without deleting restored rows or weakening public access
+  guards. Cost if wrong: an incorrectly approved privileged function could bypass
+  tenant isolation; signature-specific grants and existing disconnect/security
+  integration coverage remain mandatory.
+- Before restoring the missing global ACL, the corrected tests still failed
+  all ten execution-denial checks (115 foundation plus 247 isolation assertions).
+  After restoration: `supabase test db --db-url` on the explicit loopback restored
+  database passed both files, 362/362 assertions. Standard local `extensions`
+  schema bootstrap was needed because this disposable restore started empty.
+  No application policies or public grants were relaxed.
+- Recovery of the original application key is proved: the saved private backend
+  configuration decrypts all three restored envelopes in a READ ONLY local
+  transaction after migrations. Values are used only in memory and never printed,
+  persisted or sent to Meta. The local probe initially used an unavailable
+  driver; switched to the already-installed runtime asyncpg driver, without
+  installing a package or changing dependencies.
+- Fresh independent review of `0b793bc..de9d95c`: no Critical or Minor findings;
+  one Important finding, optional pilot availability could block existing account
+  controls indefinitely. Kept that grade because it affects already-connected
+  users, not just the new pilot. No re-review was dispatched.
+- Final: fixed unbounded optional availability — real browser regression
+  `stalled optional availability preserves existing account controls and keeps
+  signup closed` timed out before the change, then passed after the server-only
+  helper bounds Auth plus fetch with a two-second deadline and aborts the request.
+  Fresh full panel suite: 82/82 unit and 10/10 browser tests; typecheck and ESLint
+  pass. Final optimized Next.js build passes using fictitious loopback values.
+  Fresh unchanged backend unit/contract partition: 362 passed. Earlier 237-test
+  integration/security/architecture proof remains recorded, not rerun against the
+  restored copy because those fixtures truncate data. No aggregate CI claim.
+- Ruling: a timeout closes only optional coexistence signup and preserves existing
+  controls — no cached positive permission or API_ONLY fallback. Cost if wrong:
+  a slow healthy provider/backend may temporarily hide an authorized pilot until
+  refresh; it cannot open onboarding without current server permission.
+- Final Ruling: the reviewer declined live Meta eligibility, Embedded Signup
+  configuration and mobile preservation — retain a supervised owner-run live
+  gate; approval/publishing is not number acceptance. Cost if wrong: onboarding
+  could fail or phone-app access could change; do not force eligibility.
+- Final Ruling: the reviewer declined deployed runtime parity and reviewer login —
+  preserve the five-value identity on both servers and verify scoped access at
+  deployment. Cost if wrong: the reviewer could lose access or receive admin
+  controls; local fixtures do not prove the live Auth account is valid.
+- Final Ruling: the reviewer declined recovery, pending migrations and old/new
+  image compatibility — database/data/key restoration and pending SQL are now
+  rehearsed, but container recovery and deployed-image compatibility remain open.
+  Cost if wrong: archive integrity alone cannot guarantee a working rollback.
+- Final Ruling: the reviewer declined scheduler/queue ownership, webhook delivery
+  and real outbound takeover — keep these as release/pilot gates and never run
+  duplicate schedulers on the shared outbox. Cost if wrong: duplicate or unexpected
+  messages could be sent; an RDB copy is not proof of idle queues.
+- Final Ruling: the reviewer declined in-flight revocation guarantees — startup-
+  loaded signup permission is not an instantaneous outbound kill switch or recall
+  of a dispatched request. Cost if wrong: an in-flight reply may still arrive;
+  explicit mobile takeover and scoped execution pause remain the pilot response.
+- Final Ruling: the reviewer declined prior broad implementation and full suite
+  replication — its 93 targeted passing checks and this fix's full frontend suite
+  supplement, not replace, the recorded backend partitions. Cost if wrong:
+  clean dependency builds, actual deployment and external behavior can still fail.
+- Deferred minors: none from this fresh review. Remaining gates: candidate clean
+  Docker build, container recovery/old-new schema compatibility, live reviewer
+  scope/configuration, single-owner queues/scheduler, current Meta flow evidence,
+  then supervised real-number pilot. All VPS material remains retained.

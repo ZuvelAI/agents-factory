@@ -458,12 +458,37 @@ select is(
       and procedure.prosecdef
   ),
   '[
+    "agents_factory_private.apply_whatsapp_partner_removed",
     "agents_factory_private.resolve_active_whatsapp_account",
+    "agents_factory_private.resolve_whatsapp_update_tenant",
     "agents_factory_private.transition_conversation_control"
   ]'::jsonb,
   'SECURITY DEFINER functions are limited to the approved runtime allowlist'
 );
 
+-- Coexistence webhook resolvers are narrowly granted and use no ambient path.
+select ok(
+  has_function_privilege('agents_factory_app', expected.signature, 'EXECUTE')
+    and not has_function_privilege('anon', expected.signature, 'EXECUTE')
+    and not has_function_privilege('authenticated', expected.signature, 'EXECUTE')
+    and not has_function_privilege('service_role', expected.signature, 'EXECUTE')
+    and not has_function_privilege('agents_factory_admin', expected.signature, 'EXECUTE')
+    and (
+      select procedure.prosecdef
+        and procedure.proconfig @> array['search_path=""']
+      from pg_proc as procedure
+      where procedure.oid = expected.signature::regprocedure
+    ),
+  format('%s has only the required runtime grant and an empty search path', expected.signature)
+)
+from (
+  values
+    ('agents_factory_private.apply_whatsapp_partner_removed(text,text,timestamp with time zone)'),
+    ('agents_factory_private.resolve_whatsapp_update_tenant(text,text)')
+) as expected(signature);
+
+-- Test the migration owner's defaults, not the managed CLI login role's.
+set local role postgres;
 create function public.task3_default_privilege_probe()
 returns integer
 language sql
@@ -500,6 +525,7 @@ from (
   cross join unnest(array['public', 'agents_factory_private'])
     as schema_names(schema_name)
 ) as expected;
+reset role;
 
 select (
   to_regclass('public.tenants') is not null
@@ -893,7 +919,10 @@ select (
 
   set local role agents_factory_admin;
   select results_eq(
-    'select count(*)::bigint from public.tenants',
+    $$select count(*)::bigint from public.tenants where id in (
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5d',
+      '0198f3df-cbb5-7ec9-98f8-4ca608db0f5e'
+    )$$,
     array[2::bigint],
     'the non-bypass admin role has explicit cross-tenant read access'
   );

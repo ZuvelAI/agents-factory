@@ -7,6 +7,8 @@ const conversationId = "019c2000-0000-7000-8000-000000000303";
 const alertId = "019c2000-0000-7000-8000-000000000777";
 const adminId = "019c2000-0000-7000-8000-000000000111";
 const accountPath = `/admin/tenants/${tenantId}/whatsapp`;
+const stalledAvailabilityPath =
+  "/admin/tenants/019c2000-0000-7000-8000-000000000103/whatsapp";
 const alertsPath = "/admin/whatsapp/account-update-alerts";
 let resumed = false;
 let resolution = null;
@@ -44,7 +46,11 @@ createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
-  const pathname = url.pathname;
+  if (url.pathname === `${stalledAvailabilityPath}/signup/availability`) {
+    // The account endpoints work, but this optional request never resolves.
+    return;
+  }
+  const pathname = url.pathname.replace(stalledAvailabilityPath, accountPath);
   if (
     request.method === "GET" &&
     pathname === `${accountPath}/signup/availability`
