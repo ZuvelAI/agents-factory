@@ -4,7 +4,8 @@ Approved scope: conversation plan approved 2026-09-23. Base: 4e85b3d.
 Branch: codex/whatsapp-coexistence. Initial approval excluded deployment and
 live-number onboarding. Subsequent explicit approval authorized the 13 production
 migrations and additive six-service cutover recorded below; live-number signup
-remains closed and requires its separate gates.
+was initially closed. Subsequent owner approval enabled only the exact Zuvel
+tenant/phone permission recorded below; live provider acceptance remains unverified.
 
 ## Work sequence
 
@@ -1279,3 +1280,56 @@ remains closed and requires its separate gates.
   The owner then performs Meta/phone onboarding; real coexistence acceptance,
   mobile echo, AI takeover, inbound/outbound delivery and disconnect behavior
   remain unverified live gates. This deployment does not complete the pilot.
+
+## Owner-validated reviewer access and scoped pilot permission — 2026-10-05
+
+- The owner supplied a screenshot after password login showing the restricted
+  WhatsApp review screen, original test WABA/phone IDs and API_ONLY wording.
+  This satisfies the manual reviewer-login/display gate, not a provider-template
+  or test-message smoke. No template refresh or test send was requested or run.
+- The owner explicitly approved enabling signup solely for Zuvel and
+  +573124009568, leaving other tenants closed and Meta's test account unchanged.
+  A read-only query confirms the exact tenant is active, name Zuvel, slug zuvel.
+- Enabled the API's two server-owned settings: tenant
+  `c5cd8d04-01f2-49be-aa27-1075520a2a20` and phone digits `573124009568`.
+  The panel reads authenticated availability from that API; no public browser
+  permission or global customer flag was introduced. Workers need no change for
+  this signup-only permission and kept their existing configuration/start times.
+- Ruling: preserve the immutable closed-signup web containers and create only
+  two additional web containers with the same verified images — updating Docker
+  environment in place would require recreation and break the preserve-everything
+  constraint. Cost if wrong: 13.04 seconds of measured web cutover and two more
+  retained containers; recovery closes signup by restoring the retained web pair.
+- New active API/panel: `aiworkers-pilot-backend-e437e8c` and
+  `aiworkers-pilot-panel-e437e8c`. Private two-service configuration and metadata
+  snapshot are under `/opt/aiworkers/.pilot-coex-e437e8c-muptg34e`, directory 700,
+  files 600. It shares only the existing network/Redis, same loopback ports, no
+  volume definition, no image build or tag overwrite. No secret was printed.
+- Before stopping anything, compared generated container environments with the
+  running pair: API differences are exactly the two pilot settings; panel
+  difference is exactly its backend URL. Image IDs are identical. Five reviewer
+  bindings, original database/master/provider/Auth settings remain unchanged.
+- Ran the deployed Settings predicate in a separate read-only Python process:
+  exact Zuvel tenant true, another UUID false, None false, expected phone exact;
+  original test reviewer binding exact. No forged token, signup state, Meta call,
+  account write or synthetic message. Actual authenticated panel display is the
+  next owner check; the predicate is not presented as a browser-login smoke.
+- Fresh final checks: six active application services, zero restarts, healthy
+  API/panel, all four existing worker heartbeats positive TTL; twelve HTTP checks
+  still pass, including unauthenticated admin denial. All six original release
+  containers and the two closed-signup web containers remain stopped/present.
+  Current workers, Redis and unrelated running service preserve IDs/images/start
+  times. Client queues remain empty. Nothing deleted/pruned, no Nginx change.
+- Read-only database verification still shows exactly the original active
+  API_ONLY account and one reviewer with unchanged account/tenant scope and expiry.
+  No migration, credential update, account conversion or number connection in this
+  stage. The pilot permission does not mean Meta accepted the real Zuvel number.
+- Current official Meta coexistence-page retrieval returned HTTP 429. No current
+  provider-requirement claim is inferred from that failed fetch or third-party
+  search results. Existing reviewed launch selector remains unchanged; the owner
+  must confirm the actual offered Meta/phone flow before completing onboarding.
+- Next: owner signs out of reviewer access, uses the existing platform-admin
+  account and opens Zuvel's WhatsApp setup. Confirm the "Conservar WhatsApp
+  Business + agente — piloto habilitado" option before starting Meta. The owner
+  performs any Meta/phone step, never computer use. Stop if coexistence is not
+  offered; no API_ONLY fallback, deregistration, uninstall or forced eligibility.
