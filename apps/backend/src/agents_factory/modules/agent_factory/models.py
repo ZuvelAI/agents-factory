@@ -11,6 +11,8 @@ from pydantic import (
     ConfigDict,
     Field,
     model_validator,
+    model_serializer,
+    SerializerFunctionWrapHandler,
 )
 from sqlalchemy.engine import RowMapping
 
@@ -78,11 +80,47 @@ class AgentModelConfiguration(FrozenModel):
 
 
 class LanguagePolicy(FrozenModel):
-    supported_locales: tuple[Literal["es-CO"], Literal["en-US"]] = (
-        "es-CO",
-        "en-US",
+    supported_locales: tuple[Literal["es-CO", "en-US"], ...] = Field(
+        default=(
+            "es-CO",
+            "en-US",
+        ),
+        min_length=1,
+        max_length=2,
     )
-    default_locale: Literal["es-CO"] = "es-CO"
+    default_locale: Literal["es-CO", "en-US"] = "es-CO"
+
+    @model_validator(mode="after")
+    def check_locales(self) -> Self:
+        if (
+            len(set(self.supported_locales)) != len(self.supported_locales)
+            or self.default_locale not in self.supported_locales
+        ):
+            raise ValueError("default locale must be permitted and languages unique")
+        return self
+
+
+class ApprovedBusinessContext(FrozenModel):
+    source_name: str = Field(min_length=1, max_length=300)
+    source_type: Literal["PDF", "WEBSITE", "INTERNAL_TEXT"]
+    source_reference: str = Field(min_length=1, max_length=2000)
+    authority: Literal["OFFICIAL", "OPERATIONAL", "REFERENCE"]
+    approved_summary: str = Field(min_length=1, max_length=10000)
+    review_confirmed: Literal[True] = True
+    digest: Sha256Digest
+
+    @model_validator(mode="after")
+    def verify_content_digest(self) -> Self:
+        import hashlib
+        import json
+
+        content = self.model_dump(mode="json", exclude={"digest"})
+        encoded = json.dumps(
+            content, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+        if hashlib.sha256(encoded.encode()).hexdigest() != self.digest:
+            raise ValueError("business context digest does not match content")
+        return self
 
 
 class HumanOperationsConfiguration(FrozenModel):
@@ -114,9 +152,24 @@ class AgentSpecConfiguration(FrozenModel):
     human_operations: HumanOperationsConfiguration
     runtime_limits: AgentRuntimeLimits = Field(default_factory=AgentRuntimeLimits)
     code_digest: Sha256Digest
+    approved_business_context: ApprovedBusinessContext | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_context(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        result = handler(self)
+        if self.approved_business_context is None:
+            result.pop("approved_business_context", None)
+        return result
 
     @model_validator(mode="after")
     def validate_collections(self) -> Self:
+        if (
+            self.approved_business_context is not None
+            and self.approved_business_context.digest != self.knowledge.digest
+        ):
+            raise ValueError("knowledge reference must match approved context")
         for values, label in (
             (self.permitted_tools, "tools"),
             (self.permitted_actions, "actions"),
