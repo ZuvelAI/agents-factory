@@ -16,6 +16,9 @@ from agents_factory.common.queue import (
 )
 from agents_factory.database import Database, set_tenant_context
 from agents_factory.modules.conversations.models import AwaitingHumanPolicy
+from agents_factory.modules.agent_factory.channel_provider import (
+    ConversationAgentSpecProvider,
+)
 from agents_factory.modules.conversations.service import ConversationService
 from agents_factory.modules.runtime.contracts import AgentRuntime
 from agents_factory.modules.runtime.openai_adapter import OpenAIAgentsRuntime
@@ -213,7 +216,17 @@ async def handle_agent_turn(
             session=session,
             context=context,
             runtime=runtime,
-            agent_specs=agent_specs,
+            agent_specs=(
+                ConversationAgentSpecProvider(
+                    session,
+                    context,
+                    conversation_id,
+                    agent_specs,
+                    code_digest=load_settings().agent_publication_code_digest,
+                )
+                if isinstance(agent_specs, Milestone2AgentSpecProvider)
+                else agent_specs
+            ),
             tools=tools,
         ).process(
             conversation_id=conversation_id,

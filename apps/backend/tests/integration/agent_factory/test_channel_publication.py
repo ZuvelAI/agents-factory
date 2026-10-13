@@ -131,6 +131,9 @@ async def test_account_publication_explicit_atomic_and_rollback_preserves_other_
             expected_binding_revision=1,
         )
         assert updated.revision == 2
+        from agents_factory.modules.agent_factory.repository import ProductionAgentSpecProvider
+        pinned=await ProductionAgentSpecProvider(session,agent_instance_id=first.agent_instance_id,version_id=first.id).get_active(tenant_id=tenant)
+        assert pinned.id==first.id
         repository = AccountAgentBindingRepository(session, operation)
         assert (await repository.get_for_account(second_account)).version_id == first.id
         with pytest.raises(DomainError):

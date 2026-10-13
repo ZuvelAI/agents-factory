@@ -287,9 +287,16 @@ class ProductionAgentSpecProvider:
     a Production deployment.
     """
 
-    def __init__(self, session: AsyncSession, *, agent_instance_id: UUID) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        agent_instance_id: UUID,
+        version_id: UUID | None = None,
+    ) -> None:
         self._session = session
         self._agent_instance_id = agent_instance_id
+        self._version_id = version_id
 
     async def get_active(self, *, tenant_id: UUID) -> AgentSpecSnapshot | None:
         await set_tenant_context(self._session, tenant_id)
@@ -304,9 +311,14 @@ class ProductionAgentSpecProvider:
                 "WHERE deployment.tenant_id = :tenant_id "
                 "AND deployment.agent_instance_id = :instance_id "
                 "AND version.state = 'PRODUCTION' "
+                "AND (CAST(:version_id AS uuid) IS NULL OR version.id=CAST(:version_id AS uuid)) "
                 "ORDER BY deployment.created_at DESC, deployment.id DESC LIMIT 1"
             ),
-            {"tenant_id": tenant_id, "instance_id": self._agent_instance_id},
+            {
+                "tenant_id": tenant_id,
+                "instance_id": self._agent_instance_id,
+                "version_id": self._version_id,
+            },
         )
         row = result.mappings().one_or_none()
         if row is None:
