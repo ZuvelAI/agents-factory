@@ -15,6 +15,7 @@ from agents_factory.modules.agent_factory.publication_evidence import (
     PublicationEvidenceService,
     PublicationTestRun,
 )
+from agents_factory.modules.agent_factory.channel_binding import AccountAgentBinding
 
 router = APIRouter(
     prefix="/admin/tenants/{tenant_id}/agent-publication",
@@ -29,6 +30,20 @@ class PrepareCandidateRequest(BaseModel):
 class ReviewTestsRequest(BaseModel):
     expected_revision: int = Field(ge=1)
     approved: bool
+
+
+class PublishRequest(BaseModel):
+    version_id: UUID
+    whatsapp_account_id: UUID
+    expected_revision: int = Field(ge=1)
+    test_run_id: UUID
+    expected_binding_revision: int = Field(ge=0)
+
+
+class RollbackRequest(BaseModel):
+    whatsapp_account_id: UUID
+    target_version_id: UUID
+    expected_binding_revision: int = Field(ge=1)
 
 
 def service(
@@ -113,4 +128,30 @@ async def review_tests(
 ):
     return await evidence(request, tenant_id, principal, session).review(
         run_id, approved=payload.approved, expected_revision=payload.expected_revision
+    )
+
+
+@router.post("/publish", response_model=AccountAgentBinding)
+async def publish(
+    tenant_id: UUID,
+    payload: PublishRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+):
+    return await service(request, tenant_id, principal, session).publish(
+        **payload.model_dump()
+    )
+
+
+@router.post("/rollback", response_model=AccountAgentBinding)
+async def rollback(
+    tenant_id: UUID,
+    payload: RollbackRequest,
+    request: Request,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+):
+    return await service(request, tenant_id, principal, session).rollback(
+        **payload.model_dump()
     )

@@ -15,6 +15,10 @@ from agents_factory.modules.agent_factory.approved_knowledge import (
     ApprovedKnowledgeRepository,
 )
 from agents_factory.modules.agent_factory.models import AgentSpecVersion
+from agents_factory.modules.agent_factory.channel_binding import (
+    AccountAgentBinding,
+    AccountAgentBindingRepository,
+)
 from agents_factory.modules.agent_factory.onboarding_projection import (
     project_onboarding,
 )
@@ -39,6 +43,7 @@ class PublicationState(BaseModel):
     candidates: list[AgentSpecVersion]
     accounts: list[PublicationAccount]
     blockers: list[str]
+    bindings: list[AccountAgentBinding] = []
 
 
 def publication_problem(code: str, detail: str, status: int = 409) -> DomainError:
@@ -119,7 +124,172 @@ class PanelPublicationService:
             candidates=candidates,
             accounts=[PublicationAccount(**row) for row in accounts.mappings()],
             blockers=list(dict.fromkeys(blockers)),
+            bindings=[
+                AccountAgentBinding(**row)
+                for row in (
+                    await self.session.execute(
+                        text(
+                            "SELECT * FROM public.account_agent_bindings WHERE tenant_id=:tenant ORDER BY whatsapp_account_id"
+                        ),
+                        {"tenant": self.context.tenant_id},
+                    )
+                ).mappings()
+            ],
         )
+
+    async def _lock_publication_account(
+        self, account_id: UUID
+    ) -> AccountAgentBindingRepository:
+        await self._existing_tenant()
+        await self.session.execute(
+            text(
+                "SELECT tenant_id FROM public.tenant_onboarding_configs WHERE tenant_id=:tenant FOR UPDATE"
+            ),
+            {"tenant": self.context.tenant_id},
+        )
+        account = await self.session.execute(
+            text(
+                "SELECT status,health_status FROM public.whatsapp_accounts "
+                "WHERE tenant_id=:tenant AND id=:account FOR UPDATE"
+            ),
+            {"tenant": self.context.tenant_id, "account": account_id},
+        )
+        row = account.mappings().one_or_none()
+        if row is None:
+            raise publication_problem(
+                "whatsapp_account_not_found", "Account not found", 404
+            )
+        if row["status"] != "active" or row["health_status"] != "HEALTHY":
+            raise publication_problem(
+                "whatsapp_account_unhealthy", "A healthy active account is required"
+            )
+        return AccountAgentBindingRepository(self.session, self.context)
+
+    async def publish(
+        self,
+        *,
+        version_id: UUID,
+        whatsapp_account_id: UUID,
+        expected_revision: int,
+        test_run_id: UUID,
+        expected_binding_revision: int,
+    ) -> AccountAgentBinding:
+        from agents_factory.modules.agent_factory.publication_evidence import (
+            PublicationEvidenceService,
+            PersistedPanelQualityGate,
+        )
+
+        bindings = await self._lock_publication_account(whatsapp_account_id)
+        stored = await self.onboarding.read()
+        version = await self.specs.get_version(version_id)
+        run = await PublicationEvidenceService(
+            self.session, self.context, code_digest=self.code_digest
+        ).read_run(test_run_id)
+        if (
+            stored is None
+            or stored.revision != expected_revision
+            or run.onboarding_revision != expected_revision
+        ):
+            raise publication_problem(
+                "stale_onboarding_revision", "Reload configuration before publishing"
+            )
+        if (
+            version is None
+            or run.version_id != version_id
+            or version.configuration.code_digest != self.code_digest
+        ):
+            raise publication_problem(
+                "stale_candidate", "Candidate does not match current code and test run"
+            )
+        if (
+            version.compiled_spec is None
+            or version.compiled_spec.digest() != version.compiled_digest
+        ):
+            raise publication_problem(
+                "candidate_integrity_failed", "Candidate digest mismatch"
+            )
+        gate = PersistedPanelQualityGate(self.session, self.context, run_id=test_run_id)
+        proof = await gate.evaluate(
+            agent_spec_digest=version.compiled_digest,
+            knowledge_digest=version.configuration.knowledge.digest,
+            code_digest=self.code_digest,
+        )
+        if proof is None:
+            raise publication_problem(
+                "production_quality_gate_required",
+                "Current passing reviewed evidence is required",
+            )
+        current = await bindings.get_for_account(whatsapp_account_id)
+        if current is not None and current.version_id == version_id:
+            return current
+        if (0 if current is None else current.revision) != expected_binding_revision:
+            raise publication_problem(
+                "stale_account_binding", "Reload the current account binding"
+            )
+        lifecycle = AgentSpecLifecycleService(repository=self.specs, quality_gate=gate)
+        if version.state == "TEST":
+            version = await lifecycle.enter_quality_gate(version.id)
+        if version.state != "PRODUCTION":
+            version = await lifecycle.publish_production(version.id)
+        binding = await bindings.bind(
+            whatsapp_account_id,
+            version,
+            expected_revision=expected_binding_revision,
+            action="PUBLISH",
+        )
+        await AuditService(self.session).record(
+            context=self.context,
+            event_type="agent.account_published",
+            entity_type="whatsapp_account",
+            entity_id=whatsapp_account_id,
+            payload={
+                "version_id": str(version.id),
+                "binding_revision": binding.revision,
+            },
+        )
+        return binding
+
+    async def rollback(
+        self,
+        *,
+        whatsapp_account_id: UUID,
+        target_version_id: UUID,
+        expected_binding_revision: int,
+    ) -> AccountAgentBinding:
+        bindings = await self._lock_publication_account(whatsapp_account_id)
+        current = await bindings.get_for_account(whatsapp_account_id)
+        target = await self.specs.get_version(target_version_id)
+        if current is None or current.revision != expected_binding_revision:
+            raise publication_problem(
+                "stale_account_binding", "Reload the current account binding"
+            )
+        if target is None or target.agent_instance_id != current.agent_instance_id:
+            raise publication_problem(
+                "incompatible_agent_spec_rollback",
+                "Target must belong to the current agent",
+            )
+        version = await AgentSpecLifecycleService(repository=self.specs).rollback_to(
+            agent_instance_id=current.agent_instance_id,
+            target_version_id=target_version_id,
+            current_code_digest=self.code_digest or "",
+        )
+        binding = await bindings.bind(
+            whatsapp_account_id,
+            version,
+            expected_revision=expected_binding_revision,
+            action="ROLLBACK",
+        )
+        await AuditService(self.session).record(
+            context=self.context,
+            event_type="agent.account_rolled_back",
+            entity_type="whatsapp_account",
+            entity_id=whatsapp_account_id,
+            payload={
+                "version_id": str(version.id),
+                "binding_revision": binding.revision,
+            },
+        )
+        return binding
 
     async def prepare_candidate(self, *, expected_revision: int) -> AgentSpecVersion:
         await self._existing_tenant()
