@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     app_master_key: NonEmptySecret
     meta_app_secret: NonEmptySecret
     meta_webhook_verify_token: NonEmptySecret
+    agent_publication_code_digest: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     meta_app_id: NonEmptyString | None = None
     meta_configuration_id: NonEmptyString | None = None
     meta_redirect_uri: NonEmptyString | None = None

@@ -201,6 +201,7 @@ class UpdateOnboardingStepRequest(BaseModel):
 
 
 class DomainFacts(BaseModel):
+    knowledge_frozen: bool = False
     healthy_whatsapp: bool = False
     whatsapp_configured: bool = False
     latest_agent_state: (
@@ -312,6 +313,31 @@ class OnboardingRepository:
 
     async def domain_facts(self) -> DomainFacts:
         await self._scope()
+        from agents_factory.modules.agent_factory.approved_knowledge import (
+            ApprovedKnowledgeDocument,
+        )
+        from agents_factory.modules.agent_factory.compiler import canonical_json
+
+        stored = await self.read()
+        digest = None
+        if stored is not None:
+            knowledge = stored.configuration.knowledge
+            if (
+                knowledge.review_confirmed
+                and knowledge.critical_conflicts == 0
+                and all(
+                    item.strip()
+                    for item in (
+                        knowledge.source_name,
+                        knowledge.source_reference,
+                        knowledge.approved_summary,
+                    )
+                )
+            ):
+                document = ApprovedKnowledgeDocument(
+                    **knowledge.model_dump(exclude={"critical_conflicts"})
+                )
+                digest = canonical_json(document).digest
         result = await self._session.execute(
             text(
                 "SELECT "
@@ -330,7 +356,17 @@ class OnboardingRepository:
             {"tenant_id": self._context.tenant_id},
         )
         row = result.mappings().one()
-        return DomainFacts.model_validate(row)
+        facts = DomainFacts.model_validate(row)
+        if digest is not None:
+            frozen = await self._session.scalar(
+                text(
+                    "SELECT exists(SELECT 1 FROM public.agent_approved_knowledge_versions "
+                    "WHERE tenant_id=:tenant AND digest=:digest)"
+                ),
+                {"tenant": self._context.tenant_id, "digest": digest},
+            )
+            facts.knowledge_frozen = bool(frozen)
+        return facts
 
     async def _scope(self) -> None:
         await set_tenant_context(self._session, self._context.tenant_id)
@@ -574,9 +610,9 @@ def _build_response(
         },
     )
     knowledge_blockers: list[str] = []
-    if not knowledge_missing:
+    if not knowledge_missing and not facts.knowledge_frozen:
         knowledge_blockers.append(
-            "El servicio de ingestión, trazabilidad y versionado de conocimiento aún no está conectado."
+            "Prepara el candidato para versionar el resumen aprobado; la referencia PDF o web no se importa automáticamente."
         )
     if config.knowledge.critical_conflicts > 0:
         knowledge_blockers.append(
