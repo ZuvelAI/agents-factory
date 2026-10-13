@@ -5,6 +5,8 @@ from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import text
+from agents_factory.config import load_settings
+from agent_worker.publication_jobs import handle_publication_test
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.queue import (
@@ -61,10 +63,19 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
     async def whatsapp_history_handler(envelope: JobEnvelope) -> None:
         await handle_whatsapp_history_import(envelope=envelope, database=database)
 
+    async def publication_test_handler(envelope: JobEnvelope) -> None:
+        await handle_publication_test(
+            envelope=envelope,
+            database=database,
+            runtime=runtime,
+            code_digest=load_settings().agent_publication_code_digest,
+        )
+
     handlers = cast(dict[str, JobHandler], context["job_handlers"])
     handlers["whatsapp.inbound.received"] = whatsapp_inbound_handler
     handlers["whatsapp.history.import"] = whatsapp_history_handler
     handlers["agent.turn"] = agent_turn_handler
+    handlers["agent.publication.test"] = publication_test_handler
 
 
 async def handle_whatsapp_history_import(

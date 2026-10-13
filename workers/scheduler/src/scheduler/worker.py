@@ -30,6 +30,7 @@ async def startup(context: dict[Any, Any]) -> None:
             "whatsapp.inbound.received": "agent",
             "whatsapp.history.import": "agent",
             "agent.turn": "agent",
+            "agent.publication.test": "agent",
             "outbound.text": "outbound",
             "whatsapp.outbound.send": "outbound",
             "whatsapp.sync.request": "outbound",
