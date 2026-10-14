@@ -156,8 +156,30 @@ validation fixed the helper comparison; only one revision14 model run was made.
 Revision12 has `handoff_enabled=true` and `awaiting_human_policy=SILENT`. The new
 panel correctly blocks automatic handoff because that execution is not implemented.
 Daniel subsequently authorized the change and testing as recorded above.
-Business-scope direction, human review, explicit publication, authorized live
-message and handset receipt remain pending; Task7 is not complete.
+Business-scope direction, human review and explicit publication were subsequently
+completed as recorded below. Live message delivery and handset receipt remain
+pending; Task7 is not complete.
+
+## Revision14 approved and published
+
+On 2026-10-14 Daniel explicitly approved the reviewed revision14 responses for
+publication exclusively on `+573124009568`. Fresh preflight confirmed current,
+passing evidence, unchanged saved revision14, the exact real account identity,
+and no existing account binding. The normal application services recorded the
+human review and publication in one committed transaction; no quality gate was
+bypassed. Binding revision1 pins version
+`01a13ae8-7833-7133-a575-077253fcd74b` to account
+`01a132b4-c3f5-75b4-b1dd-21eaa076f291` with test run
+`0b24ee95-a209-4ad9-a4cd-1a0d534a33e9`.
+
+A fresh transaction verified approved/current evidence, PRODUCTION state, exact
+pinned runtime snapshot/spec/knowledge digests, and one tenant account binding.
+All WhatsApp account identity/status fields remained unchanged; reviewer account
+`d4dfa61a-7ed6-4a87-877a-1d34e7dbf837` remains unbound. No outbound message was
+sent by this operation, no token/connection changed, and no new model test ran.
+The existing recovery warning now applies: never restore an old worker image
+that ignores account bindings. Live user-initiated inbound response, persisted
+delivery and actual branded handset receipt still need verification.
 
 ## Activation preflight and recovery
 
