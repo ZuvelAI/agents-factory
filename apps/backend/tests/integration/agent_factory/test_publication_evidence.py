@@ -243,16 +243,30 @@ async def test_rejected_and_expired_review_never_authorize_publication(
 
 @pytest.mark.asyncio
 async def test_repeated_request_reuses_pending_test_and_one_queue_job(session_factory):
-    from test_publication_candidates import configuration,context,seed
-    from agents_factory.modules.agent_factory.publication_service import PanelPublicationService
-    from agents_factory.modules.agent_factory.publication_evidence import PublicationEvidenceService
-    tenant=await seed(session_factory,configuration())
-    operation=context(tenant)
+    from test_publication_candidates import configuration, context, seed
+    from agents_factory.modules.agent_factory.publication_service import (
+        PanelPublicationService,
+    )
+    from agents_factory.modules.agent_factory.publication_evidence import (
+        PublicationEvidenceService,
+    )
+
+    tenant = await seed(session_factory, configuration())
+    operation = context(tenant)
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
-        version=await PanelPublicationService(session,operation,code_digest="a"*64).prepare_candidate(expected_revision=1)
-        service=PublicationEvidenceService(session,operation,code_digest="a"*64)
-        first=await service.request_tests(version.id)
-        again=await service.request_tests(version.id)
-        assert first.id==again.id
-        assert await session.scalar(text("SELECT count(*) FROM public.outbox_jobs WHERE topic='agent.publication.test'"))==1
+        version = await PanelPublicationService(
+            session, operation, code_digest="a" * 64
+        ).prepare_candidate(expected_revision=1)
+        service = PublicationEvidenceService(session, operation, code_digest="a" * 64)
+        first = await service.request_tests(version.id)
+        again = await service.request_tests(version.id)
+        assert first.id == again.id
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.outbox_jobs WHERE topic='agent.publication.test'"
+                )
+            )
+            == 1
+        )

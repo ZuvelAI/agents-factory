@@ -6,6 +6,10 @@ Local implementation is ready for independent review. Production has NOT been
 migrated, deployed or published by this work. Zuvel's saved configuration,
 credentials, account ownership and coexistence connection remain unchanged.
 
+Independent review dispatch could not start because the reviewing agent hit the
+account usage limit. No review verdict exists yet; this is not review approval.
+Resume the same review after capacity is available, before production activation.
+
 Implementation: approved-summary knowledge versions; deterministic onboarding
 projection; preparation, durable background tests, immutable human review;
 exact-digest production gate; account-specific publication/rollback; per-turn
@@ -22,6 +26,8 @@ verification; Daniel authorized reuse of the existing key for actual panel tests
 - Backend baseline: 577 passed. Final local run: 617 passed; any independent
   review repairs require a fresh verification run.
 - Panel: 104 unit tests passed; TypeScript passed; production build passed.
+- Full synthetic browser suite: 11 passed, including authentication and existing
+  WhatsApp controls. Scoped ESLint and Ruff check passed; git diff check passed.
 - Authenticated browser flow with synthetic local services: save → prepare →
   test → approve → explicitly publish → edit → existing connection/active version
   preserved. This checks UI interaction; database/runtime behavior is separately
