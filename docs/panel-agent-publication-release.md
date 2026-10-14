@@ -199,8 +199,16 @@ no double asterisks in any answer, exact service name, bullets with single-pair
 bold, no Bogotá/Colombia in presentation. Off-topic redirection, unknown-price
 refusal, extraction refusal and human-control silence remain observed.
 
-Human review is null. The real account remains bound to published revision14,
-binding revision1, until Daniel reviews the new responses and approves publication.
+At test completion human review was null and revision14/binding1 remained active.
+Daniel subsequently approved publication. Normal review and publication services
+committed approval=true and revision17 version
+`01a13b27-29d7-731e-b1c9-8b3c5ef9e638` as binding revision2 on
+`+573124009568`. Fresh post-commit verification confirmed current approved
+evidence, exact pinned PRODUCTION snapshot and spec/knowledge digests, one tenant
+binding, unchanged account fields, and the reviewer account unbound. The previous
+revision14 remains a compatible account rollback target. New handset-format
+confirmation is still pending; do not claim screenshot verification from stored
+model output alone.
 No outbound customer message was sent, no code redeployed and no key changed.
 Saved review link:
 `https://aiworkers.zuvel.ai/tenants/c5cd8d04-01f2-49be-aa27-1075520a2a20/onboarding/test?run=07db876a-122d-433a-b47f-781253227855`.
