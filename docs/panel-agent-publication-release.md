@@ -104,15 +104,33 @@ original env-file/BSUID override. After a binding exists, never restore the old
 generic worker; follow the published-aware recovery rule below. New additive
 tables/history remain in place. Recovery was prepared, not executed.
 
-## Current user decision needed
+## Real candidate tests and remaining review
+
+Daniel authorized disabling automatic handoff and preparing the tests. The panel
+saved revision13 with handoff=false; SILENT and the existing coexistence surface
+were preserved. Candidate `01a1382a-52be-7371-b940-314061aa0026` and test run
+`5cc594d0-6fad-4d1e-acbf-8bacf904dbfa` were prepared once through the application
+service, using the saving administrator's verified membership. No human approval
+or account publication was performed.
+
+The real worker generated five model responses plus the human-control check.
+On 2026-10-14 the evidence is still current, technical checks pass, approval is
+null and binding count remains0. Greeting starts “¡Hola! 👋 Bienvenido a Zuvel 👾”.
+Unknown-product pricing is not invented and instruction/key extraction is refused.
+However, the scope scenario accepts an unrelated mathematics task. Technical
+passing checks do not certify this semantic behavior. Obtain Daniel's direction
+before changing business instructions, then retest and request actual review.
+
+Saved results (viewing does not rerun OpenAI):
+`https://aiworkers.zuvel.ai/tenants/c5cd8d04-01f2-49be-aa27-1075520a2a20/onboarding/test?run=5cc594d0-6fad-4d1e-acbf-8bacf904dbfa`.
+
+## Historical installation blocker
 
 Revision12 has `handoff_enabled=true` and `awaiting_human_policy=SILENT`. The new
 panel correctly blocks automatic handoff because that execution is not implemented.
-Do not change this saved choice without Daniel's direction. The next supported
-informational test requires disabling automatic handoff while retaining manual
-human-control buttons. Preparation/model testing, review, explicit publication,
-authorized live message and handset receipt are still pending, so Task7 remains
-incomplete despite successful installation.
+Daniel subsequently authorized the change and testing as recorded above.
+Business-scope direction, human review, explicit publication, authorized live
+message and handset receipt remain pending; Task7 is not complete.
 
 ## Activation preflight and recovery
 
