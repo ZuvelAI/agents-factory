@@ -439,7 +439,10 @@ function ReadOnlyStep({
   if (step.key === "whatsapp") {
     return (
       <div className="read-only-step">
-        <p>La conexión se administra en la pantalla segura de WhatsApp.</p>
+        <p>
+          Consulta abajo la conexión existente. Abre su configuración solo si
+          necesitas administrarla; no repitas el registro si ya está conectada.
+        </p>
         <a className="button-link" href={`/tenants/${tenantId}/whatsapp`}>
           Abrir configuración de WhatsApp
         </a>

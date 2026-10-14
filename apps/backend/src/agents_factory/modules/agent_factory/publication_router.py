@@ -2,9 +2,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_factory.common.context import TenantContext
-from agents_factory.common.security import PlatformAdmin
+from agents_factory.common.security import AdminPrincipal, PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from agents_factory.modules.agent_factory.models import AgentSpecVersion
 from agents_factory.modules.agent_factory.publication_service import (
@@ -47,7 +48,7 @@ class RollbackRequest(BaseModel):
 
 
 def service(
-    request: Request, tenant_id: UUID, principal, session
+    request: Request, tenant_id: UUID, principal: AdminPrincipal, session: AsyncSession
 ) -> PanelPublicationService:
     return PanelPublicationService(
         session,
@@ -67,7 +68,7 @@ async def publication_state(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> PublicationState:
     return await service(request, tenant_id, principal, session).read_state()
 
 
@@ -78,13 +79,15 @@ async def prepare_candidate(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> AgentSpecVersion:
     return await service(request, tenant_id, principal, session).prepare_candidate(
         expected_revision=payload.expected_revision
     )
 
 
-def evidence(request, tenant_id, principal, session):
+def evidence(
+    request: Request, tenant_id: UUID, principal: AdminPrincipal, session: AsyncSession
+) -> PublicationEvidenceService:
     operation = service(request, tenant_id, principal, session)
     return PublicationEvidenceService(
         session, operation.context, code_digest=operation.code_digest
@@ -100,7 +103,7 @@ async def request_tests(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> PublicationTestRun:
     return await evidence(request, tenant_id, principal, session).request_tests(
         version_id
     )
@@ -113,7 +116,7 @@ async def read_tests(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> PublicationTestRun:
     return await evidence(request, tenant_id, principal, session).read_run(run_id)
 
 
@@ -125,7 +128,7 @@ async def review_tests(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> PublicationTestRun:
     return await evidence(request, tenant_id, principal, session).review(
         run_id, approved=payload.approved, expected_revision=payload.expected_revision
     )
@@ -138,7 +141,7 @@ async def publish(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> AccountAgentBinding:
     return await service(request, tenant_id, principal, session).publish(
         **payload.model_dump()
     )
@@ -151,7 +154,7 @@ async def rollback(
     request: Request,
     principal: PlatformAdmin,
     session: TransactionSession,
-):
+) -> AccountAgentBinding:
     return await service(request, tenant_id, principal, session).rollback(
         **payload.model_dump()
     )

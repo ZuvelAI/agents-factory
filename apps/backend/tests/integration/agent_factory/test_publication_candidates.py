@@ -176,3 +176,26 @@ async def test_publication_routes_require_admin_and_existing_tenant(session_fact
     ) as client:
         response = await client.get(f"/admin/tenants/{uuid4()}/agent-publication")
         assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unsupported_identity_is_visible_before_preparation(session_factory):
+    from agents_factory.modules.agent_factory.publication_service import (
+        PanelPublicationService,
+    )
+
+    config = configuration()
+    config = config.model_copy(
+        update={
+            "policies_identity": config.policies_identity.model_copy(
+                update={"customer_identity_method": "ONE_TIME_CODE"}
+            )
+        }
+    )
+    tenant = await seed(session_factory, config)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        state = await PanelPublicationService(
+            session, context(tenant), code_digest="a" * 64
+        ).read_state()
+        assert any("identidad" in blocker for blocker in state.blockers)

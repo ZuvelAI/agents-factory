@@ -17,6 +17,43 @@ from agents_factory.modules.agent_factory.models import (
 from agents_factory.modules.tenants.onboarding import OnboardingConfiguration
 
 
+def projection_blockers(configuration: OnboardingConfiguration) -> list[str]:
+    # Operational bindings are not inferred from checkboxes or prose.
+    unsupported = []
+    if configuration.capabilities.selected_capabilities:
+        unsupported.append(
+            "Conecta y valida las capacidades operativas antes de habilitarlas."
+        )
+    if (
+        configuration.integrations.business_systems_required
+        or configuration.integrations.required_connectors
+    ):
+        unsupported.append(
+            "Faltan conexiones empresariales validadas para las integraciones seleccionadas."
+        )
+    if configuration.policies_identity.customer_identity_method not in (
+        "NONE",
+        "WHATSAPP_NUMBER",
+    ):
+        unsupported.append(
+            "El método de identidad seleccionado todavía no está conectado."
+        )
+    if configuration.approval_routes.high_risk_actions_expected is not False:
+        unsupported.append(
+            "La aprobación de acciones de alto riesgo aún no está conectada."
+        )
+    human = configuration.human_operations
+    if human.handoff_enabled is None or (
+        human.handoff_enabled and human.response_surface != "WHATSAPP_COEXISTENCE"
+    ):
+        unsupported.append(
+            "La atención humana requiere una superficie de coexistencia compatible."
+        )
+    if configuration.capabilities.unsupported_requirements:
+        unsupported.append("Revisa las necesidades declaradas como no soportadas.")
+    return unsupported
+
+
 def project_onboarding(
     configuration: OnboardingConfiguration,
     knowledge: ApprovedKnowledgeSnapshot,
@@ -27,40 +64,40 @@ def project_onboarding(
         not company.commercial_name.strip()
         or not agent.greeting.strip()
         or not agent.instructions.strip()
+        or not agent.supported_languages
     ):
-        raise ValueError("agent identity, greeting and instructions are required")
-    # Operational bindings are not inferred from checkboxes or prose.
-    unsupported = []
-    if configuration.capabilities.selected_capabilities:
-        unsupported.append("capability bindings")
-    if (
-        configuration.integrations.business_systems_required
-        or configuration.integrations.required_connectors
-    ):
-        unsupported.append("connector bindings")
-    if configuration.policies_identity.customer_identity_method not in (
-        "NONE",
-        "WHATSAPP_NUMBER",
-    ):
-        unsupported.append("customer identity method")
-    if configuration.approval_routes.high_risk_actions_expected is not False:
-        unsupported.append("high-risk approval workflow")
-    human = configuration.human_operations
-    if human.handoff_enabled is None or (
-        human.handoff_enabled and human.response_surface != "WHATSAPP_COEXISTENCE"
-    ):
-        unsupported.append("human response surface")
-    if configuration.capabilities.unsupported_requirements:
-        unsupported.append("declared unsupported requirements")
+        raise ValueError(
+            "agent identity, greeting, instructions and languages are required"
+        )
+    unsupported = projection_blockers(configuration)
     if unsupported:
         raise ValueError("unsupported: " + ", ".join(unsupported))
+    human = configuration.human_operations
+    identity_method = configuration.policies_identity.customer_identity_method
+    if identity_method is None:
+        raise ValueError("customer identity method is required")
     locales = tuple(agent.supported_languages)
     presentation = {
-        "company": company.model_dump(mode="json"),
+        "company": company.model_dump(
+            mode="json",
+            include={
+                "legal_name",
+                "commercial_name",
+                "country",
+                "city",
+                "industry",
+                "timezone",
+                "primary_locale",
+                "business_description",
+                "service_hours",
+            },
+        ),
         "agent": agent.model_dump(mode="json"),
         "policies": configuration.policies_identity.model_dump(mode="json"),
         "human_operations": human.model_dump(mode="json"),
-        "approval_routes": configuration.approval_routes.model_dump(mode="json"),
+        "approval_routes": configuration.approval_routes.model_dump(
+            mode="json", exclude={"approver_emails", "route_notes"}
+        ),
     }
     context = ApprovedBusinessContext(
         **knowledge.model_dump(exclude={"id", "tenant_id", "created_at"})
@@ -76,7 +113,7 @@ def project_onboarding(
         ),
         policy=VersionReference(name="customer_service", version="1"),
         identity_policy=VersionReference(
-            name=configuration.policies_identity.customer_identity_method.lower(),
+            name=identity_method.lower(),
             version="1",
         ),
         approval_routes=VersionReference(name="no_high_risk_actions", version="1"),

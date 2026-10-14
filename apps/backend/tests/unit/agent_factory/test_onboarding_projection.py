@@ -142,6 +142,25 @@ def test_unavailable_operational_settings_are_blocked(section, changes):
         project(config, knowledge)
 
 
+def test_internal_operator_contacts_are_not_added_to_customer_context():
+    config, knowledge = inputs()
+    config = config.model_copy(
+        update={
+            "company": config.company.model_copy(
+                update={"incident_contact": "private-incident@internal.test"}
+            ),
+            "approval_routes": config.approval_routes.model_copy(
+                update={"approver_emails": ["private-approver@internal.test"]}
+            ),
+        }
+    )
+    runtime = spec(project(config, knowledge), knowledge.tenant_id).to_runtime_snapshot(
+        active=True
+    )
+    assert "private-incident@internal.test" not in runtime.instructions
+    assert "private-approver@internal.test" not in runtime.instructions
+
+
 def test_old_spec_digest_does_not_gain_empty_context_field():
     from agents_factory.modules.agent_factory.models import AgentSpecConfiguration
 

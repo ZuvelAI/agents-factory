@@ -80,7 +80,8 @@ class AgentConfiguration(WizardModel):
     greeting: str = Field(default="", max_length=1_000)
     instructions: str = Field(default="", max_length=50_000)
     supported_languages: list[Literal["es-CO", "en-US"]] = Field(
-        default_factory=lambda: ["es-CO"], max_length=2
+        default_factory=lambda: cast(list[Literal["es-CO", "en-US"]], ["es-CO"]),
+        max_length=2,
     )
     brand_vocabulary: str = Field(default="", max_length=2_000)
 
@@ -202,6 +203,8 @@ class UpdateOnboardingStepRequest(BaseModel):
 
 class DomainFacts(BaseModel):
     knowledge_frozen: bool = False
+    test_checks_passed: bool = False
+    quality_gate_passed: bool = False
     healthy_whatsapp: bool = False
     whatsapp_configured: bool = False
     latest_agent_state: (
@@ -311,7 +314,7 @@ class OnboardingRepository:
             updated_at=row["updated_at"],
         )
 
-    async def domain_facts(self) -> DomainFacts:
+    async def domain_facts(self, *, code_digest: str | None = None) -> DomainFacts:
         await self._scope()
         from agents_factory.modules.agent_factory.approved_knowledge import (
             ApprovedKnowledgeDocument,
@@ -366,6 +369,67 @@ class OnboardingRepository:
                 {"tenant": self._context.tenant_id, "digest": digest},
             )
             facts.knowledge_frozen = bool(frozen)
+        if stored is not None and code_digest is not None:
+            candidate = await self._session.execute(
+                text(
+                    "SELECT v.id,v.state,v.compiled_digest,v.configuration->'knowledge'->>'digest' AS knowledge_digest "
+                    "FROM public.panel_agent_candidates c JOIN public.agent_spec_versions v ON v.tenant_id=c.tenant_id AND v.id=c.version_id "
+                    "WHERE c.tenant_id=:tenant AND c.onboarding_revision=:revision AND c.code_digest=:code "
+                    "ORDER BY c.created_at DESC LIMIT 1"
+                ),
+                {
+                    "tenant": self._context.tenant_id,
+                    "revision": stored.revision,
+                    "code": code_digest,
+                },
+            )
+            candidate_row = candidate.mappings().one_or_none()
+            facts.latest_agent_state = (
+                None if candidate_row is None else candidate_row["state"]
+            )
+            facts.production_deployed = False
+            if candidate_row is not None:
+                facts.test_checks_passed = bool(
+                    await self._session.scalar(
+                        text(
+                            "SELECT exists(SELECT 1 FROM public.agent_publication_test_runs run JOIN public.agent_publication_test_results r "
+                            "ON r.tenant_id=run.tenant_id AND r.run_id=run.id WHERE run.tenant_id=:tenant AND run.version_id=:version "
+                            "AND run.code_digest=:code AND run.expires_at>now() AND r.result->>'checks_passed'='true')"
+                        ),
+                        {
+                            "tenant": self._context.tenant_id,
+                            "version": candidate_row["id"],
+                            "code": code_digest,
+                        },
+                    )
+                )
+                from agents_factory.modules.agent_factory.publication_evidence import (
+                    PersistedPanelQualityGate,
+                )
+
+                facts.quality_gate_passed = (
+                    await PersistedPanelQualityGate(
+                        self._session, self._context
+                    ).evaluate(
+                        agent_spec_digest=candidate_row["compiled_digest"],
+                        knowledge_digest=candidate_row["knowledge_digest"],
+                        code_digest=code_digest,
+                    )
+                ) is not None
+                facts.production_deployed = bool(
+                    await self._session.scalar(
+                        text(
+                            "SELECT exists(SELECT 1 FROM public.account_agent_bindings WHERE tenant_id=:tenant AND version_id=:version)"
+                        ),
+                        {
+                            "tenant": self._context.tenant_id,
+                            "version": candidate_row["id"],
+                        },
+                    )
+                )
+        else:
+            facts.latest_agent_state = None
+            facts.production_deployed = False
         return facts
 
     async def _scope(self) -> None:
@@ -373,10 +437,17 @@ class OnboardingRepository:
 
 
 class OnboardingService:
-    def __init__(self, session: AsyncSession, context: TenantContext) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        context: TenantContext,
+        *,
+        code_digest: str | None = None,
+    ) -> None:
         self._session = session
         self._context = context
         self._repository = OnboardingRepository(session, context)
+        self._code_digest = code_digest
 
     async def read(self) -> OnboardingResponse:
         tenant = await TenantRepository(self._session).get(self._context.tenant_id)
@@ -390,7 +461,7 @@ class OnboardingService:
             revision=0 if stored is None else stored.revision,
             updated_at=None if stored is None else stored.updated_at,
             config=config,
-            facts=await self._repository.domain_facts(),
+            facts=await self._repository.domain_facts(code_digest=self._code_digest),
         )
 
     async def update(
@@ -428,7 +499,7 @@ class OnboardingService:
             revision=stored.revision,
             updated_at=stored.updated_at,
             config=stored.configuration,
-            facts=await self._repository.domain_facts(),
+            facts=await self._repository.domain_facts(code_digest=self._code_digest),
         )
 
 
@@ -552,7 +623,7 @@ def _build_response(
         manifest.stable_name for manifest in V1_CAPABILITY_REGISTRY.list()
     }
     unavailable = sorted(
-        set(config.capabilities.selected_capabilities) - available_capabilities
+        set[str](config.capabilities.selected_capabilities) - available_capabilities
     )
     if unavailable:
         capability_blockers.append(
@@ -736,7 +807,7 @@ def _build_response(
         tests=["Probar un mensaje entrante y uno saliente observable."],
     )
 
-    test_complete = facts.latest_agent_state in {"TEST", "QUALITY_GATE", "PRODUCTION"}
+    test_complete = facts.test_checks_passed
     add(
         key="test",
         title="Test",
@@ -749,7 +820,7 @@ def _build_response(
         domain_blockers=(
             []
             if test_complete
-            else ["Todavía no existe un AgentSpec compilado y promovido a Test."]
+            else ["Prepara un candidato y ejecuta sus pruebas antes de continuar."]
         ),
         dependencies=("whatsapp",),
         fact_complete=test_complete,
@@ -762,10 +833,11 @@ def _build_response(
         instructions="Verifica evidencia persistida para los digests exactos de AgentSpec, conocimiento y código.",
         required=["Decisión aprobada y vigente del Quality Gate"],
         missing=[],
-        domain_blockers=[
-            "El Quality Gate de producción todavía opera en modo fail-closed y no tiene evidencia persistida."
-        ],
+        domain_blockers=[]
+        if facts.quality_gate_passed
+        else ["Falta revisar y aprobar pruebas vigentes de la versión exacta."],
         dependencies=("test",),
+        fact_complete=facts.quality_gate_passed,
     )
 
     add(
@@ -875,4 +947,5 @@ def _service(
             actor_type="platform_admin",
             correlation_id=request.state.correlation_id,
         ),
+        code_digest=request.app.state.settings.agent_publication_code_digest,
     )

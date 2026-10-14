@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { handleAgentPublication } from "./fake-agent-publication.mjs";
 
 const port = Number(process.env.FAKE_WHATSAPP_BACKEND_PORT ?? "3132");
 const tenantId = "019c2000-0000-7000-8000-000000000102";
@@ -51,6 +52,8 @@ createServer(async (request, response) => {
     return;
   }
   const pathname = url.pathname.replace(stalledAvailabilityPath, accountPath);
+  if (await handleAgentPublication(request, response, pathname, readJson, json))
+    return;
   if (
     request.method === "GET" &&
     pathname === `${accountPath}/signup/availability`

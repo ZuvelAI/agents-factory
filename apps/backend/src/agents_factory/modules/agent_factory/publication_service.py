@@ -21,6 +21,7 @@ from agents_factory.modules.agent_factory.channel_binding import (
 )
 from agents_factory.modules.agent_factory.onboarding_projection import (
     project_onboarding,
+    projection_blockers,
 )
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
 from agents_factory.modules.agent_factory.service import AgentSpecLifecycleService
@@ -84,6 +85,7 @@ class PanelPublicationService:
         if stored is None:
             blockers.append("Guarda la configuración antes de preparar el agente.")
         else:
+            blockers.extend(projection_blockers(stored.configuration))
             knowledge = stored.configuration.knowledge
             if (
                 not knowledge.review_confirmed
@@ -330,6 +332,8 @@ class PanelPublicationService:
                 )
             return version
         try:
+            if self.code_digest is None:
+                raise ValueError("deployed code digest is required")
             knowledge = await ApprovedKnowledgeRepository(
                 self.session, self.context
             ).freeze(stored.configuration.knowledge)

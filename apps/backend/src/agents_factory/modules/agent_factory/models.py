@@ -158,7 +158,7 @@ class AgentSpecConfiguration(FrozenModel):
     def omit_absent_context(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, object]:
-        result = handler(self)
+        result: dict[str, object] = handler(self)
         if self.approved_business_context is None:
             result.pop("approved_business_context", None)
         return result

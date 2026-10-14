@@ -30,6 +30,7 @@ class PublicationTestRun(BaseModel):
     expires_at: datetime
     result: CandidateTestResult | None = None
     approved: bool | None = None
+    is_current: bool = False
 
 
 class PublicationEvidenceService:
@@ -54,10 +55,19 @@ class PublicationEvidenceService:
         row = result.mappings().one_or_none()
         if row is None:
             raise publication_problem("test_run_not_found", "Test run not found", 404)
-        return PublicationTestRun(**row)
+        stored = await OnboardingRepository(self.session, self.context).read()
+        current = (
+            stored is not None
+            and stored.revision == row["onboarding_revision"]
+            and row["code_digest"] == self.code_digest
+            and row["expires_at"] > datetime.now(UTC)
+        )
+        return PublicationTestRun(**dict(row), is_current=current)
 
     async def request_tests(self, version_id: UUID) -> PublicationTestRun:
         await set_tenant_context(self.session, self.context.tenant_id)
+        await self.session.execute(text("SELECT tenant_id FROM public.tenant_onboarding_configs WHERE tenant_id=:tenant FOR UPDATE"),
+                                   {"tenant":self.context.tenant_id})
         version = await AgentSpecRepository(self.session, self.context).get_version(
             version_id
         )
@@ -72,7 +82,7 @@ class PublicationEvidenceService:
         if version is None or revision is None:
             raise publication_problem("candidate_not_found", "Candidate not found", 404)
         if (
-            version.state not in ("TEST", "QUALITY_GATE")
+            version.state not in ("TEST", "QUALITY_GATE", "PRODUCTION")
             or version.compiled_spec is None
         ):
             raise publication_problem(
@@ -94,6 +104,15 @@ class PublicationEvidenceService:
             raise publication_problem(
                 "candidate_integrity_failed", "Candidate integrity failed"
             )
+        pending=await self.session.scalar(text(
+            "SELECT run.id FROM public.agent_publication_test_runs run "
+            "JOIN public.outbox_jobs job ON job.tenant_id=run.tenant_id AND job.idempotency_key='agent.publication.test:'||run.id::text "
+            "LEFT JOIN public.agent_publication_test_results result ON result.tenant_id=run.tenant_id AND result.run_id=run.id "
+            "WHERE run.tenant_id=:tenant AND run.version_id=:version AND run.expires_at>now() AND result.run_id IS NULL "
+            "AND job.status IN ('pending','dispatching','queued','processing','failed') ORDER BY run.created_at DESC LIMIT 1"),
+            {"tenant":self.context.tenant_id,"version":version_id})
+        if pending is not None:
+            return await self.read_run(pending)
         run_id = uuid4()
         await self.session.execute(
             text(

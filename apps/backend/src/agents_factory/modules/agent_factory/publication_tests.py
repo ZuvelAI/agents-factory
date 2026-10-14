@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -48,7 +49,7 @@ class CandidateTestResult(BaseModel):
     checks_passed: bool
 
     @model_validator(mode="after")
-    def passing_requires_all_scenarios(self):
+    def passing_requires_all_scenarios(self) -> Self:
         expected = {key for key, _ in SCENARIOS} | {"human_control"}
         if self.checks_passed and (
             len(self.scenarios) != 6

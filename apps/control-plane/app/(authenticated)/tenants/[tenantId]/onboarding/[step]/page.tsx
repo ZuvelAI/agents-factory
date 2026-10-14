@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { StepForm } from "../../../../../../components/onboarding/step-form";
+import { AgentPublication } from "../../../../../../components/onboarding/agent-publication";
 import { StepStatus } from "../../../../../../components/onboarding/step-status";
 import { TestAction } from "../../../../../../components/onboarding/test-action";
 import { ValidationSummary } from "../../../../../../components/onboarding/validation-summary";
@@ -18,7 +19,13 @@ export default async function OnboardingStepPage({
   searchParams,
 }: {
   params: Promise<{ tenantId: string; step: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    error?: string;
+    run?: string;
+    candidate?: string;
+    publicationError?: string;
+  }>;
 }) {
   const [{ tenantId, step: stepKey }, query] = await Promise.all([
     params,
@@ -114,6 +121,21 @@ export default async function OnboardingStepPage({
             revision={onboarding.revision}
             step={step}
           />
+          {[
+            "knowledge",
+            "whatsapp",
+            "test",
+            "quality-gate",
+            "production",
+          ].includes(step.key) ? (
+            <AgentPublication
+              tenantId={tenantId}
+              step={step.key}
+              runId={query.run}
+              candidateId={query.candidate}
+              error={query.publicationError}
+            />
+          ) : null}
           <TestAction actions={step.test_actions} />
 
           <div className="documentation-links">
