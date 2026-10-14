@@ -131,6 +131,26 @@ def test_configuration_and_knowledge_changes_alter_digest():
         ("policies_identity", {"customer_identity_method": "ONE_TIME_CODE"}),
         ("approval_routes", {"high_risk_actions_expected": True}),
         ("human_operations", {"handoff_enabled": True, "response_surface": "NONE"}),
+        (
+            "human_operations",
+            {
+                "handoff_enabled": True,
+                "response_surface": "WHATSAPP_COEXISTENCE",
+                "awaiting_human_policy": "ACKNOWLEDGE",
+            },
+        ),
+        (
+            "human_operations",
+            {
+                "handoff_enabled": True,
+                "response_surface": "WHATSAPP_COEXISTENCE",
+                "awaiting_human_policy": "SILENT",
+            },
+        ),
+        (
+            "human_operations",
+            {"handoff_enabled": False, "awaiting_human_policy": "ACKNOWLEDGE"},
+        ),
     ],
 )
 def test_unavailable_operational_settings_are_blocked(section, changes):

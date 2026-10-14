@@ -29,9 +29,43 @@ const state = {
   ],
   bindings: [],
   blockers: [],
+  test_runs: [],
+  rollback_targets: [],
 };
 beforeEach(() => {
   backend.mockReset();
+});
+
+it("offers saved results after normal navigation and independent rollback targets", async () => {
+  backend.mockResolvedValue({
+    ...state,
+    test_runs: [
+      {
+        id: runId,
+        version_id: version,
+        onboarding_revision: 3,
+        approved: true,
+        completed: true,
+      },
+    ],
+    bindings: [
+      { whatsapp_account_id: account, version_id: version, revision: 1 },
+    ],
+    rollback_targets: [
+      {
+        whatsapp_account_id: account,
+        id: "019c2000-0000-7000-8000-000000000555",
+        version_number: 9,
+      },
+    ],
+  });
+  const markup = renderToStaticMarkup(
+    await AgentPublication({ tenantId: tenant, step: "production" }),
+  );
+  expect(markup).toContain(`?run=${runId}`);
+  expect(markup).toContain("Ver resultados guardados");
+  expect(markup).toContain("Versión 9");
+  expect(backend).toHaveBeenCalledTimes(1);
 });
 
 it("separates saved draft from active version and requires account selection", async () => {

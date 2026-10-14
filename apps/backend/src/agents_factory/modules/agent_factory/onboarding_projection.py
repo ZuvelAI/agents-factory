@@ -43,11 +43,10 @@ def projection_blockers(configuration: OnboardingConfiguration) -> list[str]:
             "La aprobación de acciones de alto riesgo aún no está conectada."
         )
     human = configuration.human_operations
-    if human.handoff_enabled is None or (
-        human.handoff_enabled and human.response_surface != "WHATSAPP_COEXISTENCE"
-    ):
+    if human.handoff_enabled is not False or human.awaiting_human_policy != "SILENT":
         unsupported.append(
-            "La atención humana requiere una superficie de coexistencia compatible."
+            "La derivación automática y el acuse de espera todavía no están implementados. "
+            "Desactiva la derivación automática y usa SILENT; los controles manuales de atención humana se conservan."
         )
     if configuration.capabilities.unsupported_requirements:
         unsupported.append("Revisa las necesidades declaradas como no soportadas.")

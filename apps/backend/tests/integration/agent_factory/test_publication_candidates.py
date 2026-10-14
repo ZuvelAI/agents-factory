@@ -116,6 +116,16 @@ async def test_prepare_candidate_preserves_saved_config_and_reuses_revision(
         assert state.saved_revision == 1
         assert state.candidates[0].id == first.id
         assert state.accounts == []
+        from agents_factory.modules.agent_factory.publication_evidence import (
+            PublicationEvidenceService,
+        )
+
+        run = await PublicationEvidenceService(
+            session, context(tenant), code_digest="a" * 64
+        ).request_tests(first.id)
+        reopened = await service.read_state()
+        assert reopened.test_runs[0].id == run.id
+        assert reopened.test_runs[0].version_id == first.id
         from agents_factory.modules.tenants.onboarding import OnboardingService
 
         wizard = await OnboardingService(session, context(tenant)).read()

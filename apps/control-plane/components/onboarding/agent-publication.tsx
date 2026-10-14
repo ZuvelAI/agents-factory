@@ -26,6 +26,18 @@ type State = {
   accounts: Account[];
   bindings: Binding[];
   blockers: string[];
+  test_runs: {
+    id: string;
+    version_id: string;
+    onboarding_revision: number;
+    approved: boolean | null;
+    completed: boolean;
+  }[];
+  rollback_targets: {
+    whatsapp_account_id: string;
+    id: string;
+    version_number: number;
+  }[];
 };
 type Run = {
   id: string;
@@ -172,6 +184,29 @@ export async function AgentPublication({
           Preparar candidato
         </button>
       </form>
+      <h3>Pruebas guardadas</h3>
+      <p>
+        Consultar resultados no vuelve a ejecutar OpenAI. Se muestran las 100
+        pruebas más recientes.
+      </p>
+      <ul>
+        {(state.test_runs ?? []).map((saved) => (
+          <li key={saved.id}>
+            <Link
+              href={`/tenants/${tenantId}/onboarding/${step}?run=${saved.id}`}
+            >
+              Ver resultados guardados · revisión {saved.onboarding_revision} ·{" "}
+              {saved.approved === true
+                ? "aprobada"
+                : saved.approved === false
+                  ? "rechazada"
+                  : saved.completed
+                    ? "por revisar"
+                    : "pendiente"}
+            </Link>
+          </li>
+        ))}
+      </ul>
       <form action={testAgentCandidate}>
         {hidden}
         <label>
@@ -186,7 +221,7 @@ export async function AgentPublication({
           </select>
         </label>
         <button type="submit" disabled={state.candidates.length === 0}>
-          Probar respuestas
+          Ejecutar nuevas pruebas
         </button>
         <p>
           Las pruebas usan OpenAI y pueden generar consumo de API. No envían
@@ -310,10 +345,9 @@ export async function AgentPublication({
               ?.display_phone_number ?? binding.whatsapp_account_id}
             <select name="versionId" defaultValue="" required>
               <option value="">Elige versión anterior compatible</option>
-              {state.candidates
+              {(state.rollback_targets ?? [])
                 .filter(
-                  (v) =>
-                    v.state === "PRODUCTION" && v.id !== binding.version_id,
+                  (v) => v.whatsapp_account_id === binding.whatsapp_account_id,
                 )
                 .map((v) => (
                   <option key={v.id} value={v.id}>

@@ -21,7 +21,12 @@ test("admin saves, prepares, reviews and explicitly publishes without reconnecti
   await expect(page.getByText("Paso guardado correctamente.")).toBeVisible();
   await page.goto(`/tenants/${tenant}/onboarding/test`);
   await page.getByRole("button", { name: "Preparar candidato" }).click();
-  await page.getByRole("button", { name: "Probar respuestas" }).click();
+  await page.getByRole("button", { name: "Ejecutar nuevas pruebas" }).click();
+  await expect(
+    page.getByText("Bienvenido a Zuvel, tu aliado digital.", { exact: true }),
+  ).toBeVisible();
+  await page.goto(`/tenants/${tenant}/onboarding/quality-gate`);
+  await page.getByRole("link", { name: /Ver resultados guardados/ }).click();
   await expect(
     page.getByText("Bienvenido a Zuvel, tu aliado digital.", { exact: true }),
   ).toBeVisible();
@@ -29,6 +34,8 @@ test("admin saves, prepares, reviews and explicitly publishes without reconnecti
     .getByRole("checkbox", { name: /Revisé todas las respuestas/ })
     .check();
   await page.getByRole("button", { name: "Aprobar revisión" }).click();
+  await page.goto(`/tenants/${tenant}/onboarding/production`);
+  await page.getByRole("link", { name: /Ver resultados guardados/ }).click();
   await page
     .getByLabel("Elige la cuenta de WhatsApp", { exact: false })
     .selectOption(account);
@@ -38,7 +45,9 @@ test("admin saves, prepares, reviews and explicitly publishes without reconnecti
   await page
     .getByRole("button", { name: "Publicar versión en WhatsApp" })
     .click();
-  await expect(page.getByText(/^Cuenta 15550783881: versión activa/)).toBeVisible();
+  await expect(
+    page.getByText(/^Cuenta 15550783881: versión activa/),
+  ).toBeVisible();
   await page.goto(`/tenants/${tenant}/onboarding/agent`);
   await page
     .getByRole("textbox", { name: /^Saludo/ })
@@ -46,7 +55,9 @@ test("admin saves, prepares, reviews and explicitly publishes without reconnecti
   await page.getByRole("button", { name: "Guardar este paso" }).click();
   await page.goto(`/tenants/${tenant}/onboarding/whatsapp`);
   await expect(page.getByText(/No necesitas reconectar/)).toBeVisible();
-  await expect(page.getByText(/^Cuenta 15550783881: versión activa/)).toBeVisible();
+  await expect(
+    page.getByText(/^Cuenta 15550783881: versión activa/),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Connect with Meta" }),
   ).toHaveCount(0);

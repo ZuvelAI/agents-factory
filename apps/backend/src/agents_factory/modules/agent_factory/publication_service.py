@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -39,12 +40,29 @@ class PublicationAccount(BaseModel):
     health_status: str
 
 
+class TestRunReference(BaseModel):
+    id: UUID
+    version_id: UUID
+    onboarding_revision: int
+    created_at: datetime
+    approved: bool | None
+    completed: bool
+
+
+class RollbackTarget(BaseModel):
+    whatsapp_account_id: UUID
+    id: UUID
+    version_number: int
+
+
 class PublicationState(BaseModel):
     saved_revision: int
     candidates: list[AgentSpecVersion]
     accounts: list[PublicationAccount]
     blockers: list[str]
     bindings: list[AccountAgentBinding] = []
+    test_runs: list[TestRunReference] = []
+    rollback_targets: list[RollbackTarget] = []
 
 
 def publication_problem(code: str, detail: str, status: int = 409) -> DomainError:
@@ -126,6 +144,38 @@ class PanelPublicationService:
             candidates=candidates,
             accounts=[PublicationAccount(**row) for row in accounts.mappings()],
             blockers=list(dict.fromkeys(blockers)),
+            test_runs=[
+                TestRunReference(**row)
+                for row in (
+                    await self.session.execute(
+                        text(
+                            "SELECT run.id,run.version_id,run.onboarding_revision,run.created_at,review.approved,"
+                            "(result.run_id IS NOT NULL) AS completed FROM public.agent_publication_test_runs run "
+                            "LEFT JOIN public.agent_publication_reviews review ON review.tenant_id=run.tenant_id AND review.run_id=run.id "
+                            "LEFT JOIN public.agent_publication_test_results result ON result.tenant_id=run.tenant_id AND result.run_id=run.id "
+                            "WHERE run.tenant_id=:tenant ORDER BY run.created_at DESC,run.id DESC LIMIT 100"
+                        ),
+                        {"tenant": self.context.tenant_id},
+                    )
+                ).mappings()
+            ],
+            rollback_targets=[
+                RollbackTarget(**row)
+                for row in (
+                    await self.session.execute(
+                        text(
+                            "SELECT binding.whatsapp_account_id,version.id,version.version_number "
+                            "FROM public.account_agent_bindings binding "
+                            "JOIN public.agent_spec_versions version ON version.tenant_id=binding.tenant_id AND version.agent_instance_id=binding.agent_instance_id "
+                            "WHERE binding.tenant_id=:tenant AND version.state='PRODUCTION' AND version.id<>binding.version_id "
+                            "AND version.configuration->>'code_digest'=:code "
+                            "AND EXISTS(SELECT 1 FROM public.agent_spec_deployments deployment WHERE deployment.tenant_id=version.tenant_id AND deployment.version_id=version.id AND deployment.action='PUBLISH') "
+                            "ORDER BY binding.whatsapp_account_id,version.version_number DESC"
+                        ),
+                        {"tenant": self.context.tenant_id, "code": self.code_digest},
+                    )
+                ).mappings()
+            ],
             bindings=[
                 AccountAgentBinding(**row)
                 for row in (

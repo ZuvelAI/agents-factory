@@ -6,9 +6,17 @@ Local implementation is ready for independent review. Production has NOT been
 migrated, deployed or published by this work. Zuvel's saved configuration,
 credentials, account ownership and coexistence connection remain unchanged.
 
-Independent review dispatch could not start because the reviewing agent hit the
-account usage limit. No review verdict exists yet; this is not review approval.
-Resume the same review after capacity is available, before production activation.
+Independent review resumed after the account usage limit cleared. It found no
+Critical issue and three Important gaps: accepted unsupported handoff settings,
+results inaccessible after navigation, and rollback choices hidden by recent
+drafts. All three were reproduced as failing tests and corrected in one fix pass.
+Post-fix verification: backend620, panel105, full synthetic browser11 passed;
+TypeScript, production build, scoped ESLint/Ruff and diff checks passed.
+Production activation authorization remains outstanding.
+
+Deferred Minor findings: concurrent approve/reject can produce a uniqueness
+error (no gate bypass); result UI lacks the complete timestamp/digest presentation
+although backend evidence is persisted and checked. These are not silently fixed.
 
 Implementation: approved-summary knowledge versions; deterministic onboarding
 projection; preparation, durable background tests, immutable human review;
@@ -23,9 +31,8 @@ verification; Daniel authorized reuse of the existing key for actual panel tests
 
 ## Local verification
 
-- Backend baseline: 577 passed. Final local run: 617 passed; any independent
-  review repairs require a fresh verification run.
-- Panel: 104 unit tests passed; TypeScript passed; production build passed.
+- Backend baseline: 577 passed. Final post-review local run: 620 passed.
+- Panel: 105 unit tests passed; TypeScript passed; production build passed.
 - Full synthetic browser suite: 11 passed, including authentication and existing
   WhatsApp controls. Scoped ESLint and Ruff check passed; git diff check passed.
 - Authenticated browser flow with synthetic local services: save → prepare →

@@ -144,6 +144,21 @@ async def test_account_publication_explicit_atomic_and_rollback_preserves_other_
             expected_binding_revision=1,
         )
         assert updated.revision == 2
+        for revision in range(3, 24):
+            await session.execute(
+                text(
+                    "UPDATE public.tenant_onboarding_configs SET revision=:revision WHERE tenant_id=:tenant"
+                ),
+                {"revision": revision, "tenant": tenant},
+            )
+            await service.prepare_candidate(expected_revision=revision)
+        state = await service.read_state()
+        assert first.id not in [v.id for v in state.candidates]
+        assert first.id in [
+            v.id
+            for v in state.rollback_targets
+            if v.whatsapp_account_id == first_account
+        ]
         from agents_factory.modules.agent_factory.repository import (
             ProductionAgentSpecProvider,
         )

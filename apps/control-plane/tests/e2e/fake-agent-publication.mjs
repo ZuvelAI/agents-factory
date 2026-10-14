@@ -99,6 +99,18 @@ export async function handleAgentPublication(
       ],
       bindings: binding ? [binding] : [],
       blockers: [],
+      test_runs: run
+        ? [
+            {
+              id: run.id,
+              version_id: run.version_id,
+              onboarding_revision: run.onboarding_revision,
+              approved: run.approved,
+              completed: !!run.result,
+            },
+          ]
+        : [],
+      rollback_targets: [],
     });
     return true;
   }
