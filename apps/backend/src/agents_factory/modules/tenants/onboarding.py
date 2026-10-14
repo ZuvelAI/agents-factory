@@ -71,6 +71,7 @@ class CompanyConfiguration(WizardModel):
 
 
 class AgentConfiguration(WizardModel):
+    model: Literal["gpt-5.6-luna", "gpt-6-luna"] = "gpt-5.6-luna"
     agent_name: str = Field(default="", max_length=100)
     greeting_style: Literal["NAMED", "BRAND_ONLY"] = "BRAND_ONLY"
     tone: Literal["PROFESSIONAL_WARM", "PROFESSIONAL_DIRECT", "FRIENDLY"] = (

@@ -29,8 +29,13 @@ class ModelConfiguration:
     reasoning_effort: ReasoningEffort = "low"
 
     def __post_init__(self) -> None:
-        if self.model != "gpt-5.6-luna" or self.reasoning_effort != "low":
-            raise ValueError("v1 runtime model configuration is fixed")
+        if (
+            self.model not in {"gpt-5.6-luna", "gpt-6-luna"}
+            or self.reasoning_effort != "low"
+        ):
+            raise ValueError(
+                "runtime requires a supported Luna model with low reasoning"
+            )
 
 
 @dataclass(frozen=True, slots=True)

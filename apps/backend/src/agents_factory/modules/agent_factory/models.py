@@ -75,7 +75,7 @@ class ConnectorBinding(FrozenModel):
 
 
 class AgentModelConfiguration(FrozenModel):
-    model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    model: Literal["gpt-5.6-luna", "gpt-6-luna"] = "gpt-5.6-luna"
     reasoning_effort: Literal["low"] = "low"
 
 

@@ -7,6 +7,7 @@ from agents_factory.modules.agent_factory.approved_knowledge import (
 )
 from agents_factory.modules.agent_factory.models import (
     AgentSpecConfiguration,
+    AgentModelConfiguration,
     ApprovedBusinessContext,
     HumanOperationsConfiguration,
     LanguagePolicy,
@@ -102,6 +103,7 @@ def project_onboarding(
         **knowledge.model_dump(exclude={"id", "tenant_id", "created_at"})
     )
     return AgentSpecConfiguration(
+        model=AgentModelConfiguration(model=agent.model),
         product_version="1.0.0",
         persona=PersonaConfiguration(
             version="panel-v1",

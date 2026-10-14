@@ -203,6 +203,14 @@ class OutboundMessageService:
             if not isinstance(body, str) or not body.strip():
                 raise OutboundMessageNotFound(message_id)
 
+            from agents_factory.modules.whatsapp.text_format import (
+                format_whatsapp_ai_text,
+            )
+
+            body = format_whatsapp_ai_text(body)
+            if not body.strip():
+                raise OutboundMessageNotFound(message_id)
+
             outbound_id = new_uuid7()
             history = [_history_entry("PREPARED", occurred_at=now)]
             created_id = await session.scalar(
@@ -482,18 +490,33 @@ class OutboundMessageService:
                 row["status_history"],
                 _history_entry("SENDING", occurred_at=now),
             )
+            payload = dict(row["payload"])
+            if row["kind"] == "text":
+                from agents_factory.modules.whatsapp.text_format import (
+                    format_whatsapp_ai_text,
+                )
+
+                body = payload.get("body")
+                if not isinstance(body, str):
+                    raise ValueError("invalid persisted text payload")
+                payload["body"] = format_whatsapp_ai_text(body)
+                if not payload["body"].strip():
+                    raise ValueError("empty formatted text payload")
             await session.execute(
                 text(
                     "UPDATE public.outbound_messages SET status = 'SENDING', "
                     "attempt_count = attempt_count + 1, last_attempt_at = :now, "
-                    "status_history = :history, updated_at = :now "
+                    "status_history = :history, payload=:payload, updated_at = :now "
                     "WHERE tenant_id = :tenant_id AND id = :message_id"
-                ).bindparams(bindparam("history", type_=JSONB)),
+                ).bindparams(
+                    bindparam("history", type_=JSONB), bindparam("payload", type_=JSONB)
+                ),
                 {
                     "tenant_id": self._context.tenant_id,
                     "message_id": message_id,
                     "history": history,
                     "now": now,
+                    "payload": payload,
                 },
             )
             kind = row["kind"]
@@ -506,7 +529,7 @@ class OutboundMessageService:
                     whatsapp_account_id=cast(UUID, row["whatsapp_account_id"]),
                     phone_number_id=cast(str, row["phone_number_id"]),
                     recipient_wa_id=cast(str, row["recipient_wa_id"]),
-                    payload=cast(dict[str, object], row["payload"]),
+                    payload=payload,
                 ),
                 None,
             )

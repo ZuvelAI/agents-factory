@@ -29,6 +29,7 @@ class ConversationAgentSpecProvider:
         legacy_provider: AgentSpecProvider,
         *,
         code_digest: str | None,
+        compatible_versions: dict[UUID, str] | None = None,
     ):
         self.session, self.context, self.conversation_id = (
             session,
@@ -36,6 +37,7 @@ class ConversationAgentSpecProvider:
             conversation_id,
         )
         self.legacy_provider, self.code_digest = legacy_provider, code_digest
+        self.compatible_versions = dict(compatible_versions or {})
 
     async def get_active(self, *, tenant_id: UUID) -> AgentSpecSnapshot | None:
         if tenant_id != self.context.tenant_id:
@@ -62,7 +64,12 @@ class ConversationAgentSpecProvider:
             version is None
             or version.state != "PRODUCTION"
             or version.agent_instance_id != binding.agent_instance_id
-            or version.configuration.code_digest != self.code_digest
+            or self.code_digest is None
+            or (
+                version.configuration.code_digest != self.code_digest
+                and self.compatible_versions.get(version.id)
+                != version.configuration.code_digest
+            )
             or version.configuration.approved_business_context is None
         ):
             raise RuntimeError("published account agent integrity failed")

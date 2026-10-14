@@ -163,7 +163,9 @@ async def test_publication_routes_require_admin_and_existing_tenant(session_fact
             return AdminPrincipal(user_id=uuid4(), session_id=uuid4())
 
     app.state.platform_admin_authorizer = PlatformAdminAuthorizer(Verifier())
-    app.state.settings = SimpleNamespace(agent_publication_code_digest=None)
+    app.state.settings = SimpleNamespace(
+        agent_publication_code_digest=None, agent_publication_compatible_versions={}
+    )
 
     async def transaction() -> AsyncIterator:
         async with session_factory.begin() as session:

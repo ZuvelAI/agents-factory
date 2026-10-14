@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -94,6 +94,25 @@ def _turn() -> AgentTurnInput:
             agent_spec_digest=spec.digest,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_selected_gpt6_luna_is_used_by_sdk_with_existing_reasoning_limits():
+    turn = _turn()
+    selected = replace(
+        turn,
+        agent_spec=replace(
+            turn.agent_spec, model=ModelConfiguration(model="gpt-6-luna")
+        ),
+    )
+    runner = _CapturedRunner()
+    result = await OpenAIAgentsRuntime(runner=runner, require_api_key=False).run(
+        selected
+    )
+    assert result.output_text == "Tu pedido está en preparación."
+    agent = runner.calls[0]["agent"]
+    assert agent.model == "gpt-6-luna"
+    assert agent.model_settings.reasoning.effort == "low"
 
 
 @pytest.mark.asyncio

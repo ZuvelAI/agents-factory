@@ -93,6 +93,31 @@ async def test_published_context_reaches_runtime_and_draft_changes_do_not_replac
     assert runtime.turns[0].agent_spec.id == candidate.id
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        compatible = await ConversationAgentSpecProvider(
+            session,
+            operation,
+            conversation,
+            Milestone2AgentSpecProvider(),
+            code_digest="c" * 64,
+            compatible_versions={candidate.id: "a" * 64},
+        ).get_active(tenant_id=tenant)
+        assert compatible.id == candidate.id
+        for digest, versions in (
+            (None, {candidate.id: "a" * 64}),
+            ("c" * 64, {candidate.id: "b" * 64}),
+            ("c" * 64, {uuid4(): "a" * 64}),
+        ):
+            with pytest.raises(RuntimeError, match="integrity"):
+                await ConversationAgentSpecProvider(
+                    session,
+                    operation,
+                    conversation,
+                    Milestone2AgentSpecProvider(),
+                    code_digest=digest,
+                    compatible_versions=versions,
+                ).get_active(tenant_id=tenant)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         with pytest.raises(RuntimeError, match="integrity"):
             await ConversationAgentSpecProvider(
                 session,

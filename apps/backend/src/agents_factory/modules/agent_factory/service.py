@@ -168,6 +168,7 @@ class AgentSpecLifecycleService:
         agent_instance_id: UUID,
         target_version_id: UUID,
         current_code_digest: str,
+        compatible_versions: dict[UUID, str] | None = None,
     ) -> AgentSpecVersion:
         target = await self._required(target_version_id)
         active = await self._repository.active_version(
@@ -177,7 +178,12 @@ class AgentSpecLifecycleService:
         if (
             target.agent_instance_id != agent_instance_id
             or target.state != "PRODUCTION"
-            or target.configuration.code_digest != current_code_digest
+            or not current_code_digest
+            or (
+                target.configuration.code_digest != current_code_digest
+                and (compatible_versions or {}).get(target.id)
+                != target.configuration.code_digest
+            )
             or evidence is None
         ):
             raise DomainError(

@@ -29,10 +29,10 @@ def test_schema_keeps_v1_product_model_and_languages_closed() -> None:
     definitions = schema["$defs"]
 
     assert schema["properties"]["product"]["const"] == "Agent Customer Service"
-    assert (
-        definitions["AgentModelConfiguration"]["properties"]["model"]["const"]
-        == "gpt-5.6-luna"
-    )
+    assert definitions["AgentModelConfiguration"]["properties"]["model"]["enum"] == [
+        "gpt-5.6-luna",
+        "gpt-6-luna",
+    ]
     assert (
         definitions["AgentModelConfiguration"]["properties"]["reasoning_effort"][
             "const"

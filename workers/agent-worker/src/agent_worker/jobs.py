@@ -223,6 +223,7 @@ async def handle_agent_turn(
                     conversation_id,
                     agent_specs,
                     code_digest=load_settings().agent_publication_code_digest,
+                    compatible_versions=load_settings().agent_publication_compatible_versions,
                 )
                 if isinstance(agent_specs, Milestone2AgentSpecProvider)
                 else agent_specs

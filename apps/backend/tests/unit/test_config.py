@@ -34,6 +34,23 @@ def _valid_environment() -> dict[str, str]:
     }
 
 
+def test_release_compatibility_configuration_validates_version_and_digest(monkeypatch):
+    import json
+
+    version = UUID("11111111-1111-4111-8111-111111111111")
+    for name, value in _valid_environment().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(
+        "AGENT_PUBLICATION_COMPATIBLE_VERSIONS", json.dumps({str(version): "a" * 64})
+    )
+    assert load_settings().agent_publication_compatible_versions == {version: "a" * 64}
+    monkeypatch.setenv(
+        "AGENT_PUBLICATION_COMPATIBLE_VERSIONS", json.dumps({str(version): "bad"})
+    )
+    with pytest.raises(ConfigurationError):
+        load_settings()
+
+
 @pytest.mark.parametrize(
     "binding", ["complete", "tenant_only", "phone_only", "absent", "blank"]
 )

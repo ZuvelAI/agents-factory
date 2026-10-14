@@ -59,6 +59,7 @@ def service(
             correlation_id=request.state.correlation_id,
         ),
         code_digest=request.app.state.settings.agent_publication_code_digest,
+        compatible_versions=request.app.state.settings.agent_publication_compatible_versions,
     )
 
 

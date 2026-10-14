@@ -5,7 +5,8 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_factory.common.audit import AuditService
@@ -77,9 +78,15 @@ def publication_problem(code: str, detail: str, status: int = 409) -> DomainErro
 
 class PanelPublicationService:
     def __init__(
-        self, session: AsyncSession, context: TenantContext, *, code_digest: str | None
+        self,
+        session: AsyncSession,
+        context: TenantContext,
+        *,
+        code_digest: str | None,
+        compatible_versions: dict[UUID, str] | None = None,
     ) -> None:
         self.session, self.context, self.code_digest = session, context, code_digest
+        self.compatible_versions = dict(compatible_versions or {})
         self.onboarding = OnboardingRepository(session, context)
         self.specs = AgentSpecRepository(session, context)
 
@@ -168,11 +175,19 @@ class PanelPublicationService:
                             "FROM public.account_agent_bindings binding "
                             "JOIN public.agent_spec_versions version ON version.tenant_id=binding.tenant_id AND version.agent_instance_id=binding.agent_instance_id "
                             "WHERE binding.tenant_id=:tenant AND version.state='PRODUCTION' AND version.id<>binding.version_id "
-                            "AND version.configuration->>'code_digest'=:code "
+                            "AND CAST(:code AS text) IS NOT NULL AND (version.configuration->>'code_digest'=:code "
+                            "OR version.configuration->>'code_digest'=(CAST(:compatible AS jsonb)->>CAST(version.id AS text))) "
                             "AND EXISTS(SELECT 1 FROM public.agent_spec_deployments deployment WHERE deployment.tenant_id=version.tenant_id AND deployment.version_id=version.id AND deployment.action='PUBLISH') "
                             "ORDER BY binding.whatsapp_account_id,version.version_number DESC"
-                        ),
-                        {"tenant": self.context.tenant_id, "code": self.code_digest},
+                        ).bindparams(bindparam("compatible", type_=JSONB)),
+                        {
+                            "tenant": self.context.tenant_id,
+                            "code": self.code_digest,
+                            "compatible": {
+                                str(key): value
+                                for key, value in self.compatible_versions.items()
+                            },
+                        },
                     )
                 ).mappings()
             ],
@@ -324,6 +339,7 @@ class PanelPublicationService:
             agent_instance_id=current.agent_instance_id,
             target_version_id=target_version_id,
             current_code_digest=self.code_digest or "",
+            compatible_versions=self.compatible_versions,
         )
         binding = await bindings.bind(
             whatsapp_account_id,

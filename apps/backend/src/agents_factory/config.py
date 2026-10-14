@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     agent_publication_code_digest: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$"
     )
+    agent_publication_compatible_versions: dict[
+        UUID, Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    ] = Field(default_factory=dict)
     meta_app_id: NonEmptyString | None = None
     meta_configuration_id: NonEmptyString | None = None
     meta_redirect_uri: NonEmptyString | None = None

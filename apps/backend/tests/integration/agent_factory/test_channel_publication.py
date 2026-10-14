@@ -6,7 +6,9 @@ from sqlalchemy import text
 from agents_factory.common.errors import DomainError
 
 
-async def prepare_reviewed(session_factory, tenant, operation, revision=1):
+async def prepare_reviewed(
+    session_factory, tenant, operation, revision=1, code_digest="a" * 64
+):
     from agents_factory.modules.agent_factory.publication_service import (
         PanelPublicationService,
     )
@@ -21,15 +23,15 @@ async def prepare_reviewed(session_factory, tenant, operation, revision=1):
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
         candidate = await PanelPublicationService(
-            session, operation, code_digest="a" * 64
+            session, operation, code_digest=code_digest
         ).prepare_candidate(expected_revision=revision)
         run = await PublicationEvidenceService(
-            session, operation, code_digest="a" * 64
+            session, operation, code_digest=code_digest
         ).request_tests(candidate.id)
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         await PublicationEvidenceService(
-            session, operation, code_digest="a" * 64
+            session, operation, code_digest=code_digest
         ).save_result(
             run.id,
             CandidateTestResult(
@@ -52,9 +54,75 @@ async def prepare_reviewed(session_factory, tenant, operation, revision=1):
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
         await PublicationEvidenceService(
-            session, operation, code_digest="a" * 64
+            session, operation, code_digest=code_digest
         ).review(run.id, approved=True, expected_revision=revision)
     return candidate, run
+
+
+async def test_release_compatibility_is_version_scoped_and_keeps_rollback_proof(
+    session_factory,
+):
+    from test_publication_candidates import configuration, context, seed
+    from agents_factory.modules.agent_factory.publication_service import (
+        PanelPublicationService,
+    )
+
+    tenant = await seed(session_factory, configuration())
+    operation = context(tenant)
+    selected = await account(session_factory, tenant)
+    first, run = await prepare_reviewed(session_factory, tenant, operation)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await PanelPublicationService(session, operation, code_digest="a" * 64).publish(
+            version_id=first.id,
+            whatsapp_account_id=selected,
+            expected_revision=1,
+            test_run_id=run.id,
+            expected_binding_revision=0,
+        )
+        await session.execute(
+            text(
+                "UPDATE public.tenant_onboarding_configs SET revision=2 WHERE tenant_id=:tenant"
+            ),
+            {"tenant": tenant},
+        )
+    second, run2 = await prepare_reviewed(
+        session_factory, tenant, operation, 2, code_digest="c" * 64
+    )
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        service = PanelPublicationService(
+            session,
+            operation,
+            code_digest="c" * 64,
+            compatible_versions={first.id: "a" * 64},
+        )
+        await service.publish(
+            version_id=second.id,
+            whatsapp_account_id=selected,
+            expected_revision=2,
+            test_run_id=run2.id,
+            expected_binding_revision=1,
+        )
+        state = await service.read_state()
+        assert first.id in [target.id for target in state.rollback_targets]
+        with pytest.raises(DomainError):
+            await PanelPublicationService(
+                session,
+                operation,
+                code_digest="c" * 64,
+                compatible_versions={first.id: "b" * 64},
+            ).rollback(
+                whatsapp_account_id=selected,
+                target_version_id=first.id,
+                expected_binding_revision=2,
+            )
+        reverted = await service.rollback(
+            whatsapp_account_id=selected,
+            target_version_id=first.id,
+            expected_binding_revision=2,
+        )
+        assert reverted.version_id == first.id and reverted.revision == 3
 
 
 async def account(session_factory, tenant, *, health="HEALTHY"):
