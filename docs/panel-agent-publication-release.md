@@ -2,8 +2,9 @@
 
 ## Status
 
-Local implementation is ready for independent review. Production has NOT been
-migrated, deployed or published by this work. Zuvel's saved configuration,
+Installed in production on 2026-10-13 (Bogotá), following Daniel's explicit
+schema/permissions activation authorization. No agent has been published and
+no paid candidate tests have been executed. Zuvel's saved configuration,
 credentials, account ownership and coexistence connection remain unchanged.
 
 Independent review resumed after the account usage limit cleared. It found no
@@ -12,7 +13,7 @@ results inaccessible after navigation, and rollback choices hidden by recent
 drafts. All three were reproduced as failing tests and corrected in one fix pass.
 Post-fix verification: backend620, panel105, full synthetic browser11 passed;
 TypeScript, production build, scoped ESLint/Ruff and diff checks passed.
-Production activation authorization remains outstanding.
+Production activation authorization was received after the review/fix pass.
 
 Deferred Minor findings: concurrent approve/reject can produce a uniqueness
 error (no gate bypass); result UI lacks the complete timestamp/digest presentation
@@ -53,17 +54,65 @@ verification; Daniel authorized reuse of the existing key for actual panel tests
 
 ## Migrations
 
-1. 20261013201305_panel_agent_publication.sql: approved knowledge snapshot table,
+1. 20261014014901_panel_agent_publication.sql: approved knowledge snapshot table,
    tenant isolation, restricted privileges, immutable history.
-2. 20261013204233_panel_publication_candidates.sql: candidate revision/code
+2. 20261014014906_panel_publication_candidates.sql: candidate revision/code
    association, tenant-qualified version FK and supporting unique constraint.
-3. 20261013212835_panel_publication_evidence.sql: append-only runs, results and
+3. 20261014014912_panel_publication_evidence.sql: append-only runs, results and
    reviews; worker can write results, administrator can request/review.
-4. 20261013214403_account_agent_bindings.sql: explicit current account binding
+4. 20261014014918_account_agent_bindings.sql: explicit current account binding
    and immutable assignment history; optimistic binding revision.
 
 Existing columns and saved onboarding records are not replaced. No dropping,
 deleting, resetting or migrating WhatsApp accounts is part of this release.
+
+Supabase's production migration applicator generated these four UTC identifiers.
+Local filenames were aligned to the actual history; SQL contents are unchanged
+from the reviewed 20261013 files. This prevents reapplying them under old names.
+
+## Production installation evidence
+
+- Backend/panel readiness200; unauthenticated publication API401; Zuvel web200.
+- Existing Safari administrator session visibly renders the new publication
+  controls and revision12. Configuration matches its pre-install backup exactly.
+- Both real coexistence and reviewer accounts retained their IDs and states.
+  New binding count0; new test-run count0. No message was sent by this install.
+- All seven new tables have enabled/forced RLS. anon/authenticated cannot select
+  them. App can insert only test results, not human reviews or account bindings.
+- Production security advisor reported only unrelated Auth leaked-password
+  protection disabled; Auth settings were not changed as part of this release.
+- Runtime image: `aiworkers-coex-runtime:publication-126ea48`,
+  `sha256:f8b2510d3bc31af9414c035febb220eb24cfdba5690072c9d39570b44538c0f3`.
+- Panel image: `aiworkers-coex-dashboard:publication-126ea48`,
+  `sha256:b85be250d4bf4276f9cde61bd511729191e466c085b90ccd990f4dc3ff63cb95`.
+- Code provenance:
+  `918589e5f24c214003b7da6673146af22c6398f7afe61f7fb7dfc4b5050970ab`.
+  Generated from source/dependency manifest plus base image ID; backend, agent
+  and scheduler environments agree. uv.lock matches the existing runtime.
+- Updated backend, panel, agent worker, scheduler only. Outbound/knowledge/Redis
+  container IDs stayed unchanged. Current environment values were preserved,
+  with only the non-secret publication digest added to relevant services.
+- Recovery location on VPS: `/opt/aiworkers/.publication-20261013-126ea48`,0700;
+  schema/data/config backup and recovery manifests0600. Initial broad schema
+  export was denied by app-role access to platform_admins; the successful export
+  is restricted to relevant tables, with no privilege bypass or extra grants.
+
+Recovery manifests `compose.recovery-web.json` and `compose.recovery-workers.json`
+contain the exact previous images/environment. Before any binding exists, they
+can restore the web pair and agent/scheduler using the same Compose project and
+original env-file/BSUID override. After a binding exists, never restore the old
+generic worker; follow the published-aware recovery rule below. New additive
+tables/history remain in place. Recovery was prepared, not executed.
+
+## Current user decision needed
+
+Revision12 has `handoff_enabled=true` and `awaiting_human_policy=SILENT`. The new
+panel correctly blocks automatic handoff because that execution is not implemented.
+Do not change this saved choice without Daniel's direction. The next supported
+informational test requires disabling automatic handoff while retaining manual
+human-control buttons. Preparation/model testing, review, explicit publication,
+authorized live message and handset receipt are still pending, so Task7 remains
+incomplete despite successful installation.
 
 ## Activation preflight and recovery
 
