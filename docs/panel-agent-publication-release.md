@@ -126,6 +126,33 @@ Saved results (viewing does not rerun OpenAI):
 
 ## Historical installation blocker
 
+## Scope restriction authorized and retested
+
+On 2026-10-14 Daniel explicitly authorized limiting the instructions to Zuvel
+and its services and repeating the tests. The normal onboarding update saved
+revision14 with only `agent.instructions` changed. Original instructions were
+preserved with an appended business-scope rule; greeting, tone and every other
+configuration field were verified unchanged. No product code or service changed.
+
+Candidate: `01a13ae8-7833-7133-a575-077253fcd74b`.
+New test run: `0b24ee95-a209-4ad9-a4cd-1a0d534a33e9`.
+Evidence is current, six technical checks passed, human approval is null and
+binding count remains0. The unrelated-mathematics answer is now:
+“Puedo ayudarte con información y servicios de Zuvel. ¿Qué solución buscas para
+tu empresa?” Greeting remains branded, unknown pricing is not invented, and
+instruction/key extraction is refused. This verifies the observed cases, not
+universal prompt-injection resistance or every possible off-topic request.
+
+Results for Daniel's review before any approval/publication:
+`https://aiworkers.zuvel.ai/tenants/c5cd8d04-01f2-49be-aa27-1075520a2a20/onboarding/test?run=0b24ee95-a209-4ad9-a4cd-1a0d534a33e9`.
+
+The temporary guard initially compared raw appended text with the panel's
+trimmed canonical string. It failed and rolled back before any new test request;
+diagnostics showed only the single trailing newline differing. Canonical input
+validation fixed the helper comparison; only one revision14 model run was made.
+
+## Historical revision12 installation blocker
+
 Revision12 has `handoff_enabled=true` and `awaiting_human_policy=SILENT`. The new
 panel correctly blocks automatic handoff because that execution is not implemented.
 Daniel subsequently authorized the change and testing as recorded above.
