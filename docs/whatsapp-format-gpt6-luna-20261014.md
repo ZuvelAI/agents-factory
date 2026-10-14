@@ -81,3 +81,41 @@ version/config/image backups are under
 `/opt/aiworkers/.format-gpt6-20261014-286a2f0` (0700/0600). Only published Zuvel
 versions14 and17 with exact digest918589e5f24c214003b7da6673146af22c6398f7afe61f7fb7dfc4b5050970ab
 have been verified eligible for compatibility; no broader allowance is intended.
+
+## Installed code and actual GPT-6 test
+
+The reviewed fix pass74b6a02 was installed with unchanged uv.lock/dependencies.
+Runtime image `aiworkers-coex-runtime:format-gpt6-286a2f0`:
+`sha256:103e86a2d8b16e157139141ff2e43dc249e6b092cb41abe8901c270002e3356d`.
+Exact source-manifest digest:
+`b52c4b0f92d2ad0401fab5395bdbdea27dde1c038926941c963157c7d2e1edf9`.
+Backend, agent worker and outbound worker changed. Panel, scheduler, knowledge
+worker and Redis retained their exact container IDs. Existing environment values,
+including credentials, were preserved except the explicitly updated code digest
+and the new nonsecret version-scoped compatibility setting. Backend readiness200.
+No database schema, grant, token, account identity or binding was changed by
+installation. Actual installed ConversationAgentSpecProvider resolved the
+compatible version17 snapshot with5.6Luna; its diagnostic audit was rolled back.
+The installed formatter passed the screenshot phrase and literal-URL probes.
+
+The normal Agent-step save changed only agent.model to `gpt-6-luna` and produced
+saved revision18; complete canonical config comparison verified every other field
+unchanged. Candidate `01a13b5a-6e08-7019-a094-e5187e2a3007` and real test run
+`5c1a9a12-f503-427c-90f5-8718a5a6914d` were prepared once. Current actual GPT-6
+results passed all six checks: branded greeting, known service list with full
+analysis name, no invented price, out-of-scope redirection, secret/instruction
+refusal, and silence under human control. Rendered channel text preserves bullets
+and single-pair bold. Existing OpenAI credential was reused, not inspected or
+regenerated. No outbound customer message was sent by these probes/tests.
+
+At this checkpoint: approval=null; live account remains version17/binding2 using
+5.6Luna plus the installed formatter. Daniel must review actual6Luna responses
+before approval/publication. New handset-rendering confirmation remains pending.
+Review link:
+`https://aiworkers.zuvel.ai/tenants/c5cd8d04-01f2-49be-aa27-1075520a2a20/onboarding/test?run=5c1a9a12-f503-427c-90f5-8718a5a6914d`.
+
+After verification, the two exact local test containers started for this work
+were stopped without deleting their data. Recovery files remain private; never
+restore an old worker while a6Luna binding is active. First use the validated
+account rollback to a certified prior version, then restore matching code/env if
+needed. Do not drop any publication history tables.
