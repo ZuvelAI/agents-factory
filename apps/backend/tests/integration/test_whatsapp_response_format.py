@@ -26,6 +26,21 @@ from agents_factory.modules.whatsapp.outbound_service import OutboundMessageServ
         ("Consulta **sin cierre\n• *Servicio*", "Consulta sin cierre\n• *Servicio*"),
         ("* Servicio uno\n* Servicio dos", "• Servicio uno\n• Servicio dos"),
         ("• *Servicio*\nConsulta sin formato.", "• *Servicio*\nConsulta sin formato."),
+        (
+            "Enlace https://example.com/search?q=a*b y **servicio**",
+            "Enlace https://example.com/search?q=a*b y *servicio*",
+        ),
+        (
+            "La fórmula es 2 * 3 = 6. **Resultado**",
+            "La fórmula es 2 * 3 = 6. *Resultado*",
+        ),
+        ("Referencia `A*B` y **Zuvel**", "Referencia `A*B` y *Zuvel*"),
+        ("La fórmula es 2*3 y 1.5 ** 2.", "La fórmula es 2*3 y 1.5 ** 2."),
+        ("**Visita https://zuvel.ai/**", "*Visita https://zuvel.ai/*"),
+        (
+            "URL https://example.com/path* y **Zuvel**",
+            "URL https://example.com/path* y *Zuvel*",
+        ),
     ],
 )
 async def test_ai_text_sent_to_meta_has_whatsapp_bold_without_surplus_markers(

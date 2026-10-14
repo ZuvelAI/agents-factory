@@ -478,7 +478,12 @@ class OnboardingService:
         current_revision = 0 if current is None else current.revision
         if request.expected_revision != current_revision:
             raise _stale_revision()
-        model = _STEP_MODELS[step].model_validate(request.data)
+        data = dict(request.data)
+        # Existing panel forms do not submit a model selector. An unrelated
+        # greeting/tone edit must not silently reset an explicitly chosen model.
+        if step == "agent" and current is not None and "model" not in data:
+            data["model"] = current.configuration.agent.model
+        model = _STEP_MODELS[step].model_validate(data)
         config = OnboardingConfiguration() if current is None else current.configuration
         updated = config.model_copy(update={_ATTRIBUTE_BY_STEP[step]: model}, deep=True)
         stored = await self._repository.save(

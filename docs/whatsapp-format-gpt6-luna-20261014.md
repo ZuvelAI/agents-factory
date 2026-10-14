@@ -54,5 +54,30 @@ pnpm11.24.0; `test_secret_tenant_isolation.py` and
 not this isolated port55322. These are not reported as passing.
 Full mypy still reports only the two unchanged history_sync.py errors239/315.
 
+## Independent review and one fix pass
+
+Read-only reviewer whatsapp_format_gpt6_review checked c974f40..286a2f0 and found
+no Critical and two Important issues. Both were reproduced before correction:
+literal URL/arithmetic/code-span asterisks were being deleted, and an ordinary
+Agent-step save without the model field reset6Luna to5.6. Protected literal spans
+now survive formatting, including closing bold next to a URL and literal trailing
+URL wildcards. The existing save path retains the selected model when omitted;
+an explicitly submitted model still changes it. Fourteen targeted integration
+cases passed and the final regression suite passed638 tests with the same three
+historical exclusions and warning. Full mypy retains only history_sync239/315.
+The repository scanner initially treated a nonsecret formatting variable named
+token as credential-like; it was renamed placeholder without relaxing the scanner.
+No Minor findings were deferred. No second review was dispatched.
+
+Rulings on declined review scopes: live API/handset and actual deployment must be
+verified in activation, not inferred from synthetic tests; unrelated dirty changes
+remain preserved; historical DB/security and typing blockers remain explicitly
+reported and are not claimed green. Cost if wrong: live behavior is not yet proven,
+and historical gates need their canonical environment for independent validation.
+
 Production activation, actual GPT-6 responses and new handset rendering are not
-yet verified. Revision17/binding2 remains active at this checkpoint.
+yet verified. Revision17/binding2 remains active at this checkpoint. Private
+version/config/image backups are under
+`/opt/aiworkers/.format-gpt6-20261014-286a2f0` (0700/0600). Only published Zuvel
+versions14 and17 with exact digest918589e5f24c214003b7da6673146af22c6398f7afe61f7fb7dfc4b5050970ab
+have been verified eligible for compatibility; no broader allowance is intended.
