@@ -181,6 +181,30 @@ The existing recovery warning now applies: never restore an old worker image
 that ignores account bindings. Live user-initiated inbound response, persisted
 delivery and actual branded handset receipt still need verification.
 
+## WhatsApp formatting and copy revision17
+
+Daniel explicitly authorized preserving bullets/bold while removing visible
+surplus asterisks, changing the service name to “Análisis de datos para toma de
+decisiones”, and removing the location from business presentation. Normal saves
+changed only company.business_description, agent.instructions and
+knowledge.approved_summary, producing revision17. Complete canonical comparison
+verified all other fields unchanged, including internal city/country/timezone,
+greeting, model and connection. Instructions specify WhatsApp single-asterisk
+bold and bullet characters; the previous exclusive Zuvel scope rule remains.
+
+Candidate `01a13b27-29d7-731e-b1c9-8b3c5ef9e638` and one real test run
+`07db876a-122d-433a-b47f-781253227855` were prepared. Fresh persisted results are
+current, all six technical checks passed, and observed format checks passed:
+no double asterisks in any answer, exact service name, bullets with single-pair
+bold, no Bogotá/Colombia in presentation. Off-topic redirection, unknown-price
+refusal, extraction refusal and human-control silence remain observed.
+
+Human review is null. The real account remains bound to published revision14,
+binding revision1, until Daniel reviews the new responses and approves publication.
+No outbound customer message was sent, no code redeployed and no key changed.
+Saved review link:
+`https://aiworkers.zuvel.ai/tenants/c5cd8d04-01f2-49be-aa27-1075520a2a20/onboarding/test?run=07db876a-122d-433a-b47f-781253227855`.
+
 ## Activation preflight and recovery
 
 Before production schema/activation: obtain approval for the security-sensitive
