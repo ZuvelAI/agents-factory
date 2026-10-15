@@ -107,3 +107,41 @@ test("agent detail expands with keyboard without publishing or starting signup",
     page.getByText("Orienta sobre los servicios de Zuvel."),
   ).toHaveCount(0);
 });
+
+test("company to agent to conversations preserves attribution and filters", async ({
+  page,
+}) => {
+  await page.goto(
+    `/tenants/${tenant}/agents/019c2000-0000-7000-8000-000000000501`,
+  );
+  await page.getByRole("link", { name: "Ver conversaciones" }).click();
+  await expect(page).toHaveURL(/agent=019c2000-0000-7000-8000-000000000501/);
+  await page
+    .getByRole("link")
+    .filter({ hasText: "Contacto de prueba" })
+    .click();
+  await expect(
+    page.getByText("En Zuvel te ayudamos a mejorar tus ventas."),
+  ).toBeVisible();
+  await expect(page.getByText("Entregado", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Versión registrada/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Enviar mensaje" }),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("Agente", { exact: true })
+    .selectOption("019c2000-0000-7000-8000-000000000502");
+  await page.getByRole("button", { name: "Aplicar filtros" }).click();
+  await expect(
+    page.getByText("No hay conversaciones para estos filtros."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("En Zuvel te ayudamos a mejorar tus ventas."),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("Empresa", { exact: true })
+    .selectOption("019c2000-0000-7000-8000-000000000103");
+  await page.getByRole("button", { name: "Aplicar filtros" }).click();
+  await expect(page.getByLabel("Agente", { exact: true })).toHaveValue("");
+  await expect(page.getByText("Contacto de prueba")).toHaveCount(0);
+});

@@ -7,7 +7,7 @@ import { UiIcon, type IconName } from "./ui-icon";
 const navigation = [
   ["Resumen", "/"],
   ["Empresas", "/tenants"],
-  ["Conversaciones", "/conversations"],
+  ["Conversaciones", "/conversation-log"],
   ["Actividad", "/operations"],
   ["Ajustes", "/settings"],
 ] as const;

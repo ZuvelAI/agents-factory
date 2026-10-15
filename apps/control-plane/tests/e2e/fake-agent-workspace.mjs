@@ -63,6 +63,58 @@ export function handleAgentWorkspace(request, response, url, json) {
     });
     return true;
   }
+  const convo = url.pathname.match(
+    /^\/admin\/agent-workspace\/companies\/([^/]+)\/conversations(?:\/([^/]+)\/messages)?$/,
+  );
+  if (convo) {
+    const conversation = "019c2000-0000-7000-8000-000000000303";
+    const account = "019c2000-0000-7000-8000-000000000202";
+    if (convo[1] !== workspaceTenant) {
+      json(response, 200, { items: [], next_cursor: null });
+      return true;
+    }
+    if (convo[2]) {
+      if (convo[2] !== conversation) {
+        json(response, 404, {});
+        return true;
+      }
+      json(response, 200, {
+        items: [
+          {
+            id: first.id,
+            arrival_sequence: 1,
+            direction: "outbound",
+            message_type: "text",
+            text: "En Zuvel te ayudamos a mejorar tus ventas.",
+            created_at: "2026-10-14T15:00:00Z",
+            agent_id: first.id,
+            agent_spec_id: first.id,
+            delivery_status: "DELIVERED",
+          },
+        ],
+        next_cursor: null,
+      });
+      return true;
+    }
+    const selected = url.searchParams.get("agent_id");
+    json(response, 200, {
+      items:
+        selected && selected !== first.id
+          ? []
+          : [
+              {
+                id: conversation,
+                account_id: account,
+                customer_wa_id: "Contacto de prueba",
+                control_state: "AI_ACTIVE",
+                updated_at: "2026-10-14T15:00:00Z",
+                agent_ids: [first.id],
+              },
+            ],
+      next_cursor: null,
+    });
+    return true;
+  }
   const match = url.pathname.match(
     /^\/admin\/agent-workspace\/companies\/([^/]+)\/agents(?:\/([^/]+))?$/,
   );

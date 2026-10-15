@@ -191,6 +191,96 @@ async def test_workspace_requires_admin(workspace):
 
 
 @pytest.mark.asyncio
+async def test_workspace_conversations_filter_by_persisted_message_not_account_binding(
+    workspace, session_factory
+):
+    client, tenants, agents, _ = workspace
+    tenant, agent = tenants[1], agents[0]
+    account_id, first, second = uuid4(), uuid4(), uuid4()
+    async with session_factory.begin() as session:
+        version = await session.scalar(
+            text(
+                "SELECT id FROM public.agent_spec_versions WHERE tenant_id=:tenant AND agent_instance_id=:agent"
+            ),
+            {"tenant": tenant, "agent": agent},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_accounts(id,tenant_id,provider,waba_id,phone_number_id) VALUES(:id,:tenant,'meta','waba','phone')"
+            ),
+            {"id": account_id, "tenant": tenant},
+        )
+        for conversation in [first, second]:
+            await session.execute(
+                text(
+                    "INSERT INTO public.conversations(id,tenant_id,whatsapp_account_id,customer_wa_id) VALUES(:id,:tenant,:account,:customer)"
+                ),
+                {
+                    "id": conversation,
+                    "tenant": tenant,
+                    "account": account_id,
+                    "customer": str(conversation),
+                },
+            )
+        for sequence in range(1, 4):
+            await session.execute(
+                text(
+                    "INSERT INTO public.messages(id,tenant_id,conversation_id,direction,sender_type,message_type,content,provider_timestamp,arrival_sequence,agent_spec_id) VALUES(:id,:tenant,:conversation,'outbound','ai','text','{\"text\":\"Respuesta guardada\"}',now(),:sequence,:version)"
+                ),
+                {
+                    "id": uuid4(),
+                    "tenant": tenant,
+                    "conversation": first,
+                    "sequence": sequence,
+                    "version": version,
+                },
+            )
+    root = f"/admin/agent-workspace/companies/{tenant}/conversations"
+    listed = await client.get(
+        root, params={"agent_id": str(agent), "account_id": str(account_id)}
+    )
+    assert listed.status_code == 200
+    assert [r["id"] for r in listed.json()["items"]] == [str(first)]
+    assert listed.json()["items"][0]["agent_ids"] == [str(agent)]
+    unfiltered = await client.get(root)
+    unknown = next(r for r in unfiltered.json()["items"] if r["id"] == str(second))
+    assert unknown["agent_ids"] == []
+    path = f"{root}/{first}/messages"
+    page = await client.get(path, params={"limit": 2})
+    assert page.status_code == 200
+    assert [m["arrival_sequence"] for m in page.json()["items"]] == [2, 3]
+    assert all(
+        m["agent_id"] == str(agent) and m["agent_spec_id"] == str(version)
+        for m in page.json()["items"]
+    )
+    older = await client.get(
+        path, params={"limit": 2, "cursor": page.json()["next_cursor"]}
+    )
+    assert [m["arrival_sequence"] for m in older.json()["items"]] == [1]
+    assert older.json()["next_cursor"] is None
+    assert (
+        await client.get(path, params={"cursor": "not-a-cursor"})
+    ).status_code == 422
+    denied = await client.get(
+        f"/admin/agent-workspace/companies/{tenants[0]}/conversations/{first}/messages"
+    )
+    assert denied.status_code == 404
+    assert (
+        await client.get(root, params={"agent_id": str(agents[1])})
+    ).status_code == 404
+    async with session_factory.begin() as session:
+        # A later account health/change cannot relabel the stored response's version.
+        await session.execute(
+            text(
+                "UPDATE public.whatsapp_accounts SET health_status='ERROR' WHERE id=:id"
+            ),
+            {"id": account_id},
+        )
+    again = await client.get(path)
+    assert {m["agent_id"] for m in again.json()["items"]} == {str(agent)}
+
+
+@pytest.mark.asyncio
 async def test_published_snapshot_is_separate_from_later_draft_and_channel_health(
     workspace, session_factory
 ):

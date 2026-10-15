@@ -8,9 +8,9 @@ export default async function AgentPage({
   params: Promise<{ tenantId: string; agentId: string }>;
 }) {
   const { tenantId, agentId } = await params;
+  let overview;
   try {
-    const overview = await readAgent(tenantId, agentId);
-    return <AgentOverviewPanel overview={overview} />;
+    overview = await readAgent(tenantId, agentId);
   } catch {
     return (
       <section className="workspace">
@@ -22,4 +22,5 @@ export default async function AgentPage({
       </section>
     );
   }
+  return <AgentOverviewPanel overview={overview} />;
 }

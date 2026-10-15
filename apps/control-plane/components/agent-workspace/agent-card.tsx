@@ -46,7 +46,7 @@ export function AgentCard({ agent }: { agent: AgentSummary }) {
         </Link>
         <Link
           className="workspace-secondary"
-          href={`/conversations?tenant=${agent.tenant_id}&agent=${agent.id}`}
+          href={`/conversation-log?tenant=${agent.tenant_id}&agent=${agent.id}`}
         >
           Conversaciones
         </Link>

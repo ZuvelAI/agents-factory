@@ -1796,6 +1796,105 @@ textarea::placeholder {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.workspace-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.workspace-filters > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-width: 140px;
+}
+.workspace-filters select {
+  background: var(--background);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px;
+  max-width: 250px;
+}
+.workspace-inbox {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+  gap: 20px;
+  margin-top: 22px;
+}
+.workspace-inbox-list {
+  align-self: start;
+}
+.workspace-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.workspace-thread span,
+.workspace-thread small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.workspace-thread-selected {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.workspace-messages {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.workspace-message {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 94%;
+  background: var(--surface-raised);
+}
+.workspace-message-outbound {
+  align-self: flex-end;
+  background: #29213c;
+}
+.workspace-message > div {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.workspace-message time,
+.workspace-message small {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.workspace-message small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.workspace-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.workspace-chat {
+  min-height: 420px;
+}
+@media (max-width: 900px) {
+  .workspace-inbox {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .workspace-back {
   color: var(--muted);
 }

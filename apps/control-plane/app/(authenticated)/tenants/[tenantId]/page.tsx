@@ -65,7 +65,7 @@ export default async function CompanyPage({
         </Link>
       ) : null}
       <div className="workspace-footer-links">
-        <Link href={`/conversations?tenant=${tenantId}`}>
+        <Link href={`/conversation-log?tenant=${tenantId}`}>
           Ver conversaciones de la empresa
         </Link>
         <details>

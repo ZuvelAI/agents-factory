@@ -185,7 +185,7 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
           )}
           <Link
             className="workspace-open"
-            href={`/conversations?tenant=${summary.tenant_id}&agent=${summary.id}`}
+            href={`/conversation-log?tenant=${summary.tenant_id}&agent=${summary.id}`}
           >
             Ver conversaciones →
           </Link>
