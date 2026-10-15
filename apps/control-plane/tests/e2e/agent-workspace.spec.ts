@@ -184,3 +184,21 @@ test("empty company and legacy routes remain explicit and recoverable", async ({
     fullPage: true,
   });
 });
+
+test("bookmarked detail remains readable outside list page during refresh", async ({
+  page,
+}) => {
+  await page.goto(
+    `/conversation-log?tenant=${tenant}&agent=019c2000-0000-7000-8000-000000000501&conversation=019c2000-0000-7000-8000-000000000303&cursor=off-page`,
+  );
+  await expect(
+    page.getByText("En Zuvel te ayudamos a mejorar tus ventas."),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Actualizar", exact: true }).click();
+  await expect(
+    page.getByText("En Zuvel te ayudamos a mejorar tus ventas."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Selecciona una conversación", { exact: true }),
+  ).toHaveCount(0);
+});

@@ -2,10 +2,12 @@ import Link from "next/link";
 import {
   isWorkspaceId,
   readAgents,
-  readCompanies,
+  readCompanyOptions,
+  readAccounts,
 } from "../../../lib/agent-workspace";
 import {
   readConversations,
+  readConversation,
   readMessages,
   controlLabels,
   deliveryLabels,
@@ -21,6 +23,9 @@ type Query = {
   conversation?: string;
   cursor?: string;
   messagesCursor?: string;
+  companiesCursor?: string;
+  agentsCursor?: string;
+  accountsCursor?: string;
 };
 const date = (value: string) =>
   new Date(value).toLocaleString("es-CO", { timeZone: "America/Bogota" });
@@ -30,8 +35,9 @@ export default async function ConversationLog({
   searchParams?: Promise<Query>;
 }) {
   const query = (await searchParams) ?? {};
-  let companies: Awaited<ReturnType<typeof readCompanies>>;
+  let companies: Awaited<ReturnType<typeof readCompanyOptions>>;
   let agents: Awaited<ReturnType<typeof readAgents>> | undefined;
+  let accounts: Awaited<ReturnType<typeof readAccounts>> | undefined;
   let conversations: Awaited<ReturnType<typeof readConversations>> | undefined;
   let tenant: string | undefined;
   let name: string | undefined;
@@ -43,15 +49,18 @@ export default async function ConversationLog({
       query.conversation,
     ])
       if (value && !isWorkspaceId(value)) throw new Error("Invalid scope");
-    companies = await readCompanies();
+    companies = await readCompanyOptions(query.companiesCursor);
     tenant = query.tenant ?? companies.items[0]?.id;
     if (tenant) {
-      agents = await readAgents(tenant);
+      [agents, accounts, conversations] = await Promise.all([
+        readAgents(tenant, query.agentsCursor),
+        readAccounts(tenant, query.accountsCursor),
+        readConversations(tenant, query),
+      ]);
       name =
         agents.company_name ??
         companies.items.find((c) => c.id === tenant)?.name ??
         "Empresa seleccionada";
-      conversations = await readConversations(tenant, query);
     }
   } catch {
     return (
@@ -65,7 +74,7 @@ export default async function ConversationLog({
       </section>
     );
   }
-  if (!tenant || !conversations || !agents)
+  if (!tenant || !conversations || !agents || !accounts)
     return (
       <section className="workspace">
         <h1>Conversaciones</h1>
@@ -73,7 +82,15 @@ export default async function ConversationLog({
         <Link href="/tenants">Ver empresas</Link>
       </section>
     );
-  const chosen = conversations.items.find((c) => c.id === query.conversation);
+  let chosen = conversations.items.find((c) => c.id === query.conversation);
+  let selectionError = false;
+  if (query.conversation && !chosen) {
+    try {
+      chosen = await readConversation(tenant, query.conversation, query);
+    } catch {
+      selectionError = true;
+    }
+  }
   let messages: ReadPage<MessageRow> | null = null,
     messageError = false;
   if (chosen) {
@@ -91,14 +108,12 @@ export default async function ConversationLog({
     return `/conversation-log?${params}`;
   }
   const accountOptions = new Map(
-    agents.items.flatMap((a) =>
-      a.channel_accounts.map(
-        (c) =>
-          [
-            c.account_id,
-            c.display_number ?? "Cuenta sin número visible",
-          ] as const,
-      ),
+    accounts.items.map(
+      (c) =>
+        [
+          c.account_id,
+          c.display_number ?? "Cuenta sin número visible",
+        ] as const,
     ),
   );
   if (query.account && !accountOptions.has(query.account))
@@ -170,6 +185,34 @@ export default async function ConversationLog({
         </button>
         <Link href={`/conversation-log?tenant=${tenant}`}>Limpiar filtros</Link>
       </ConversationFilters>
+      <nav className="workspace-badges" aria-label="Más opciones de filtros">
+        {companies.next_cursor ? (
+          <Link href={link({ companiesCursor: companies.next_cursor })}>
+            Más empresas para filtrar →
+          </Link>
+        ) : null}
+        {agents.next_cursor ? (
+          <Link href={link({ agentsCursor: agents.next_cursor })}>
+            Más agentes para filtrar →
+          </Link>
+        ) : null}
+        {accounts.next_cursor ? (
+          <Link href={link({ accountsCursor: accounts.next_cursor })}>
+            Más cuentas para filtrar →
+          </Link>
+        ) : null}
+        {query.companiesCursor || query.agentsCursor || query.accountsCursor ? (
+          <Link
+            href={link({
+              companiesCursor: undefined,
+              agentsCursor: undefined,
+              accountsCursor: undefined,
+            })}
+          >
+            Primeras opciones de filtros
+          </Link>
+        ) : null}
+      </nav>
       <p className="workspace-muted">
         Los filtros de agente incluyen conversaciones con respuestas atribuidas
         a ese agente. El historial importado de WhatsApp se conserva por
@@ -188,7 +231,7 @@ export default async function ConversationLog({
               >
                 <strong>{row.customer_wa_id}</strong>
                 <span>{controlLabels[row.control_state]}</span>
-                <small>{date(row.updated_at)}</small>
+                <small>{date(row.last_activity_at ?? row.updated_at)}</small>
                 <small>
                   {row.agent_ids.length
                     ? `${row.agent_ids.length} agente(s) con respuestas registradas`
@@ -226,7 +269,12 @@ export default async function ConversationLog({
           className="workspace-card workspace-chat"
           aria-label="Mensajes"
         >
-          {!chosen ? (
+          {selectionError ? (
+            <>
+              <h2>Conversación no disponible para estos filtros</h2>
+              <p>No se encontró el hilo dentro de esta empresa y selección.</p>
+            </>
+          ) : !chosen ? (
             <>
               <h2>Selecciona una conversación</h2>
               <p className="workspace-muted">

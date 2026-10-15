@@ -43,6 +43,13 @@ const companies = [
   { id: empty, name: "Empresa homónima", agent_count: 0, agents: [] },
 ];
 export function handleAgentWorkspace(request, response, url, json) {
+  if (url.pathname === "/admin/agent-workspace/company-options") {
+    json(response, 200, {
+      items: companies.map(({ id, name }) => ({ id, name })),
+      next_cursor: null,
+    });
+    return true;
+  }
   const root = "/admin/agent-workspace/companies";
   if (!url.pathname.startsWith(root)) return false;
   if (request.method !== "GET") {
@@ -63,8 +70,25 @@ export function handleAgentWorkspace(request, response, url, json) {
     });
     return true;
   }
+  if (
+    url.pathname.match(/^\/admin\/agent-workspace\/companies\/[^/]+\/accounts$/)
+  ) {
+    json(response, 200, {
+      items: [
+        {
+          account_id: "019c2000-0000-7000-8000-000000000202",
+          display_number: "+573000000000",
+          version_id: null,
+          connection_status: "unknown",
+          checked_at: null,
+        },
+      ],
+      next_cursor: null,
+    });
+    return true;
+  }
   const convo = url.pathname.match(
-    /^\/admin\/agent-workspace\/companies\/([^/]+)\/conversations(?:\/([^/]+)\/messages)?$/,
+    /^\/admin\/agent-workspace\/companies\/([^/]+)\/conversations(?:\/([^/]+)(?:\/messages)?)?$/,
   );
   if (convo) {
     const conversation = "019c2000-0000-7000-8000-000000000303";
@@ -76,6 +100,23 @@ export function handleAgentWorkspace(request, response, url, json) {
     if (convo[2]) {
       if (convo[2] !== conversation) {
         json(response, 404, {});
+        return true;
+      }
+      if (!url.pathname.endsWith("/messages")) {
+        const selected = url.searchParams.get("agent_id");
+        if (selected && selected !== first.id) {
+          json(response, 404, {});
+          return true;
+        }
+        json(response, 200, {
+          id: conversation,
+          account_id: account,
+          customer_wa_id: "Contacto de prueba",
+          control_state: "AI_ACTIVE",
+          updated_at: "2026-10-14T15:00:00Z",
+          last_activity_at: "2026-10-15T15:00:00Z",
+          agent_ids: [first.id],
+        });
         return true;
       }
       json(response, 200, {
@@ -99,7 +140,8 @@ export function handleAgentWorkspace(request, response, url, json) {
     const selected = url.searchParams.get("agent_id");
     json(response, 200, {
       items:
-        selected && selected !== first.id
+        url.searchParams.get("cursor") === "off-page" ||
+        (selected && selected !== first.id)
           ? []
           : [
               {

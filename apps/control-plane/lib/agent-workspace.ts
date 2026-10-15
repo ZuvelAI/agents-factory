@@ -3,6 +3,7 @@ import { callAuthenticatedBackend } from "./api";
 
 export type ChannelSummary = {
   account_id: string;
+  version_id?: string | null;
   display_number: string | null;
   connection_status:
     | "unknown"
@@ -53,6 +54,11 @@ export type AgentOverview = {
   published: AgentConfigurationView | null;
   draft: AgentConfigurationView | null;
   unavailable_sections: string[];
+  channel_versions?: {
+    version_id: string;
+    account_ids: string[];
+    configuration: AgentConfigurationView | null;
+  }[];
 };
 
 export const isWorkspaceId = (value: string): boolean =>
@@ -202,5 +208,56 @@ export async function readAgent(
     !value.unavailable_sections.every((s) => typeof s === "string")
   )
     throw new Error("Invalid agent response");
+  if (
+    value.channel_versions !== undefined &&
+    (!Array.isArray(value.channel_versions) ||
+      !value.channel_versions.every(
+        (v) =>
+          record(v) &&
+          typeof v.version_id === "string" &&
+          isWorkspaceId(v.version_id) &&
+          Array.isArray(v.account_ids) &&
+          v.account_ids.every(
+            (a) => typeof a === "string" && isWorkspaceId(a),
+          ) &&
+          (v.configuration === null || isConfiguration(v.configuration)),
+      ))
+  )
+    throw new Error("Invalid channel versions");
   return value as AgentOverview;
+}
+
+export async function readCompanyOptions(
+  cursor?: string,
+): Promise<Page<{ id: string; name: string }>> {
+  return parsePage(
+    await callAuthenticatedBackend(
+      `/admin/agent-workspace/company-options${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+    (v): v is { id: string; name: string } =>
+      record(v) &&
+      typeof v.id === "string" &&
+      isWorkspaceId(v.id) &&
+      typeof v.name === "string",
+  );
+}
+export async function readAccounts(
+  tenant: string,
+  cursor?: string,
+): Promise<Page<ChannelSummary>> {
+  if (!isWorkspaceId(tenant)) throw new Error("Invalid company");
+  return parsePage(
+    await callAuthenticatedBackend(
+      `/admin/agent-workspace/companies/${tenant}/accounts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+    (v): v is ChannelSummary =>
+      record(v) &&
+      typeof v.account_id === "string" &&
+      isWorkspaceId(v.account_id) &&
+      nullableText(v.display_number) &&
+      nullableText(v.checked_at) &&
+      ["connected", "disconnected", "review_required", "unknown"].includes(
+        String(v.connection_status),
+      ),
+  );
 }

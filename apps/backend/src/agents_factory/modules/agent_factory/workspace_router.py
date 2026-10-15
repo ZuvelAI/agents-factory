@@ -4,13 +4,40 @@ from agents_factory.common.security import PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from .workspace_models import AgentOverview, AgentPage, CompanyPage
 from .workspace_service import AgentWorkspaceService
-from .workspace_conversations import (
+from .workspace_models import AccountPage, CompanyOptionPage
+from .workspace_conversation_models import (
     ConversationPage,
     MessagePage,
-    WorkspaceConversationService,
+    ConversationSummary,
 )
+from .workspace_conversations import WorkspaceConversationService
 
 router = APIRouter(prefix="/admin/agent-workspace", tags=["platform-admin-workspace"])
+
+
+@router.get("/company-options", response_model=CompanyOptionPage)
+async def company_options(
+    principal: PlatformAdmin,
+    session: TransactionSession,
+    cursor: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> CompanyOptionPage:
+    return await AgentWorkspaceService(session, principal).list_company_options(
+        cursor=cursor, limit=limit
+    )
+
+
+@router.get("/companies/{tenant_id}/accounts", response_model=AccountPage)
+async def account_options(
+    tenant_id: UUID,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+    cursor: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> AccountPage:
+    return await AgentWorkspaceService(session, principal).list_accounts(
+        tenant_id=tenant_id, cursor=cursor, limit=limit
+    )
 
 
 @router.get("/companies", response_model=CompanyPage)
@@ -58,7 +85,7 @@ async def conversations(
     session: TransactionSession,
     agent_id: UUID | None = None,
     account_id: UUID | None = None,
-    cursor: str | None = Query(default=None, max_length=64),
+    cursor: str | None = Query(default=None, max_length=256),
     limit: int = Query(default=20, ge=1, le=50),
 ) -> ConversationPage:
     return await WorkspaceConversationService(session).list_conversations(
@@ -67,6 +94,26 @@ async def conversations(
         account_id=account_id,
         cursor=cursor,
         limit=limit,
+    )
+
+
+@router.get(
+    "/companies/{tenant_id}/conversations/{conversation_id}",
+    response_model=ConversationSummary,
+)
+async def conversation(
+    tenant_id: UUID,
+    conversation_id: UUID,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+    agent_id: UUID | None = None,
+    account_id: UUID | None = None,
+) -> ConversationSummary:
+    return await WorkspaceConversationService(session).get_conversation(
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        agent_id=agent_id,
+        account_id=account_id,
     )
 
 

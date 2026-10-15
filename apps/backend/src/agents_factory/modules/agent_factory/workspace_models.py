@@ -17,6 +17,7 @@ class FeatureSummary(BaseModel):
 
 class ChannelSummary(BaseModel):
     account_id: UUID
+    version_id: UUID | None = None
     display_number: str | None = None
     connection_status: Literal[
         "unknown", "connected", "disconnected", "review_required"
@@ -56,11 +57,18 @@ class AgentConfigurationView(BaseModel):
     integrations: list[FeatureSummary] = Field(default_factory=list)
 
 
+class ChannelVersionView(BaseModel):
+    version_id: UUID
+    account_ids: list[UUID]
+    configuration: AgentConfigurationView | None
+
+
 class AgentOverview(BaseModel):
     summary: AgentSummary
     published: AgentConfigurationView | None
     draft: AgentConfigurationView | None
     unavailable_sections: list[str]
+    channel_versions: list[ChannelVersionView] = Field(default_factory=list)
 
 
 class CompanyPage(BaseModel):
@@ -72,3 +80,18 @@ class AgentPage(BaseModel):
     items: list[AgentSummary]
     next_cursor: str | None = None
     company_name: str | None = None
+
+
+class CompanyOption(BaseModel):
+    id: UUID
+    name: str
+
+
+class CompanyOptionPage(BaseModel):
+    items: list[CompanyOption]
+    next_cursor: str | None = None
+
+
+class AccountPage(BaseModel):
+    items: list[ChannelSummary]
+    next_cursor: str | None = None

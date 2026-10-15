@@ -1,7 +1,9 @@
 # Panel operativo — entrega A local
 
 Fecha: 2026-10-14. Diseño aprobado por Daniel, implementación directa autorizada.
-Estado: implementación local verificada; revisión independiente final pendiente.
+Estado: implementación local verificada; revisión independiente realizada y sus
+cinco hallazgos importantes corregidos con pruebas de regresión. Pendiente la
+aceptación visual de Daniel y la resolución del entorno de suite completa.
 No desplegado. No hay migraciones, nuevas credenciales ni llamadas reales a Meta
 u OpenAI durante estas pruebas. Zuvel sigue atendiendo con su versión instalada.
 
@@ -77,7 +79,45 @@ la revisión visual no sustituye las pruebas de permisos ni de interacción.
 
 ## Próxima puerta
 
-Revisión independiente de ce460da..HEAD y una única pasada de correcciones si
-aparecen hallazgos importantes. Después Daniel revisa esta entrega local antes
+Revisión independiente de ce460da..0f16bc4 realizada, con una única pasada de
+correcciones. Después Daniel revisa esta entrega local antes
 de preparar B/C o autorizar cualquier instalación en producción. Railway sigue
 separado. No fusionar, subir ni archivar el checkout ni borrar datos históricos.
+
+## Correcciones finales — 2026-10-15
+
+La revisión no encontró fallos críticos y señaló cinco importantes:
+
+1. La ficha ahora muestra la versión fijada y configuración por canal. Una
+   publicación posterior no se presenta como la configuración común de dos números.
+2. Los selectores ofrecen páginas siguientes de empresas, agentes y cuentas.
+   Cuentas sin agente se consultan de forma independiente. El selector de empresa
+   usa un endpoint ligero, sin cargar tarjetas ni instrucciones de todos sus agentes.
+3. Un hilo seleccionado se resuelve por UUID y filtros, sin depender de la página
+   de conversaciones visible; enlaces y actualizaciones conservan su detalle.
+4. Orden de conversaciones y cursor usan fecha de actividad derivada de mensajes
+   y desempate por UUID. Un hilo viejo con una respuesta nueva vuelve al inicio.
+5. El resumen usa consultas agrupadas y proyecciones pequeñas dentro del contexto
+   de cada empresa. La prueba que medía462consultas ahora exige como máximo65.
+
+Pruebas de estos cinco casos observadas fallar antes de corregir. Los nuevos
+cursores también rechazan tipos incorrectos con422, no errores internos.
+El backend nuevo se separó en contratos, repositorios SQL, proyecciones puras,
+cursores y servicios. Guía de lectura: `docs/backend-guide.md`.
+
+Resultado frontend posterior:119unitarias,18recorridos de navegador, TypeScript
+y ESLint aprobados. Mypy acotado a los nueve módulos nuevos sin errores.
+Backend completo sin filtros volvió a ejecutarse:651aprobadas,1fallo y31errores
+históricos de preparación, los mismos grupos descritos arriba. La regresión
+filtrada final pasó651pruebas (1advertencia preexistente). La compilación Next.js
+corregida pasó. No se presenta esa selección como suite completa.
+
+Menor diferido de revisión: nombres muy largos sin espacios pueden desbordar los
+h1 en móvil. No afecta datos ni ejecución, pero falta ese pulido antes de prometer
+soporte completo para esos nombres. No se incluyó en la pasada de hallazgos importantes.
+
+No se volvió a auditar salud productiva, infraestructura, costos, toda la seguridad
+del sistema ni accesibilidad completa. Las instrucciones libres de un administrador
+no tienen detección automática de secretos. Los cambios sucios anteriores siguen
+preservados; no se revisaron como parte de este rango. No hubo segunda revisión
+independiente ni despliegue.

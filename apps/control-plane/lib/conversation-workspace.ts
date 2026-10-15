@@ -7,6 +7,7 @@ export type ConversationRow = {
   customer_wa_id: string;
   control_state: string;
   updated_at: string;
+  last_activity_at?: string;
   agent_ids: string[];
 };
 export type MessageRow = {
@@ -66,6 +67,20 @@ function page<T>(v: unknown, check: (item: unknown) => item is T): ReadPage<T> {
     throw new Error("Invalid conversation data");
   return { items: v.items, next_cursor: v.next_cursor as string | null };
 }
+function isConversation(r: unknown): r is ConversationRow {
+  return (
+    record(r) &&
+    id(r.id) &&
+    id(r.account_id) &&
+    typeof r.customer_wa_id === "string" &&
+    typeof r.control_state === "string" &&
+    Object.hasOwn(controlLabels, r.control_state) &&
+    date(r.updated_at) &&
+    (r.last_activity_at === undefined || date(r.last_activity_at)) &&
+    Array.isArray(r.agent_ids) &&
+    r.agent_ids.every(id)
+  );
+}
 export async function readConversations(
   tenant: string,
   filters: { agent?: string; account?: string; cursor?: string },
@@ -83,17 +98,29 @@ export async function readConversations(
     await callAuthenticatedBackend(
       `/admin/agent-workspace/companies/${tenant}/conversations${query.size ? `?${query}` : ""}`,
     ),
-    (r): r is ConversationRow =>
-      record(r) &&
-      id(r.id) &&
-      id(r.account_id) &&
-      typeof r.customer_wa_id === "string" &&
-      typeof r.control_state === "string" &&
-      Object.hasOwn(controlLabels, r.control_state) &&
-      date(r.updated_at) &&
-      Array.isArray(r.agent_ids) &&
-      r.agent_ids.every(id),
+    isConversation,
   );
+}
+export async function readConversation(
+  tenant: string,
+  conversation: string,
+  filters: { agent?: string; account?: string },
+): Promise<ConversationRow> {
+  if (
+    !isWorkspaceId(tenant) ||
+    !isWorkspaceId(conversation) ||
+    [filters.agent, filters.account].some((v) => v && !isWorkspaceId(v))
+  )
+    throw new Error("Invalid scope");
+  const query = new URLSearchParams();
+  if (filters.agent) query.set("agent_id", filters.agent);
+  if (filters.account) query.set("account_id", filters.account);
+  const value = await callAuthenticatedBackend(
+    `/admin/agent-workspace/companies/${tenant}/conversations/${conversation}${query.size ? `?${query}` : ""}`,
+  );
+  if (!isConversation(value) || value.id !== conversation)
+    throw new Error("Invalid selected conversation");
+  return value;
 }
 export async function readMessages(
   tenant: string,

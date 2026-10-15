@@ -104,6 +104,7 @@ function ConfigurationDetails({
 }
 export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
   const { summary, published, draft } = overview;
+  const channelVersions = overview.channel_versions ?? [];
   return (
     <section className="workspace">
       <Link className="workspace-back" href={`/tenants/${summary.tenant_id}`}>
@@ -126,7 +127,42 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
         <div>
           <article className="workspace-card">
             <h2>Configuración publicada</h2>
-            {published ? (
+            {channelVersions.length ? (
+              <>
+                <h3>Versiones asignadas por canal</h3>
+                <p className="workspace-muted">
+                  Cada número utiliza su versión asignada, aunque exista una
+                  publicación posterior.
+                </p>
+                {channelVersions.map((version) => (
+                  <details
+                    className="workspace-sections"
+                    key={version.version_id}
+                    open
+                  >
+                    <summary>Versión asignada {version.version_id}</summary>
+                    <p className="workspace-muted workspace-version">
+                      Cuentas:{" "}
+                      {version.account_ids
+                        .map(
+                          (id) =>
+                            summary.channel_accounts.find(
+                              (c) => c.account_id === id,
+                            )?.display_number ?? id,
+                        )
+                        .join(", ")}
+                    </p>
+                    {version.configuration ? (
+                      <ConfigurationDetails
+                        configuration={version.configuration}
+                      />
+                    ) : (
+                      <p>Configuración no disponible</p>
+                    )}
+                  </details>
+                ))}
+              </>
+            ) : published ? (
               <>
                 <p className="workspace-muted workspace-version">
                   Versión {summary.published_version_id}
@@ -139,6 +175,16 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
               </p>
             )}
           </article>
+          {channelVersions.length && published ? (
+            <details className="workspace-draft">
+              <summary>Última publicación registrada</summary>
+              <p className="workspace-muted">
+                Referencia histórica, no una asignación común para todos los
+                números.
+              </p>
+              <ConfigurationDetails configuration={published} />
+            </details>
+          ) : null}
           {draft ? (
             <details className="workspace-draft">
               <summary>Borrador sin publicar</summary>
@@ -157,6 +203,11 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
                 <strong>
                   {channel.display_number || "Número no disponible"}
                 </strong>
+                {channel.version_id ? (
+                  <p className="workspace-version">
+                    Versión asignada: {channel.version_id}
+                  </p>
+                ) : null}
                 <p>
                   {
                     {

@@ -175,3 +175,49 @@ it("rejects an agent response belonging to another company", async () => {
   expect(html).toContain("Agente no disponible");
   expect(html).not.toContain("Asistente comercial");
 });
+
+it("shows divergent account configurations instead of one common active version", async () => {
+  const config = {
+    name: "Zuvel",
+    purpose: null,
+    tone: null,
+    instructions: "Última publicada",
+    model: "gpt-6-luna",
+    knowledge_summary: null,
+    capabilities: [],
+    integrations: [],
+  };
+  backend.mockResolvedValue({
+    summary: { ...summary, published_version_id: tenant, channel_accounts: [] },
+    published: config,
+    draft: null,
+    unavailable_sections: [],
+    channel_versions: [
+      {
+        version_id: tenant,
+        account_ids: [tenant],
+        configuration: {
+          ...config,
+          instructions: "Número A conserva versión anterior",
+        },
+      },
+      {
+        version_id: agent,
+        account_ids: [agent],
+        configuration: {
+          ...config,
+          instructions: "Número B utiliza versión nueva",
+        },
+      },
+    ],
+  });
+  const html = renderToStaticMarkup(
+    await AgentPage({
+      params: Promise.resolve({ tenantId: tenant, agentId: agent }),
+    }),
+  );
+  expect(html).toContain("Versiones asignadas por canal");
+  expect(html).toContain("Número A conserva versión anterior");
+  expect(html).toContain("Número B utiliza versión nueva");
+  expect(html).toContain("Última publicación registrada");
+});

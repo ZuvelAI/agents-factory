@@ -345,3 +345,238 @@ async def test_published_snapshot_is_separate_from_later_draft_and_channel_healt
     assert value["summary"]["has_pending_changes"] is True
     assert value["summary"]["execution_status"] == "unknown"
     assert value["summary"]["channel_accounts"][0]["connection_status"] == "connected"
+
+
+@pytest.mark.asyncio
+async def test_two_accounts_expose_their_own_pinned_versions(
+    workspace, session_factory
+):
+    from apps.backend.tests.integration.agent_factory.test_publication_candidates import (
+        configuration,
+        context,
+        seed,
+    )
+    from apps.backend.tests.integration.agent_factory.test_channel_publication import (
+        account,
+        prepare_reviewed,
+    )
+    from agents_factory.modules.agent_factory.publication_service import (
+        PanelPublicationService,
+    )
+
+    client, _, _, _ = workspace
+    tenant = await seed(session_factory, configuration())
+    ctx = context(tenant)
+    first_account = await account(session_factory, tenant)
+    second_account = await account(session_factory, tenant)
+    first, run = await prepare_reviewed(session_factory, tenant, ctx)
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await PanelPublicationService(session, ctx, code_digest="a" * 64).publish(
+            version_id=first.id,
+            whatsapp_account_id=first_account,
+            expected_revision=1,
+            test_run_id=run.id,
+            expected_binding_revision=0,
+        )
+        await session.execute(
+            text(
+                "UPDATE public.tenant_onboarding_configs SET revision=2,configuration=jsonb_set(configuration,'{agent,instructions}','\"Instrucciones segunda versión\"') WHERE tenant_id=:id"
+            ),
+            {"id": tenant},
+        )
+    second, run2 = await prepare_reviewed(session_factory, tenant, ctx, revision=2)
+    assert second.agent_instance_id == first.agent_instance_id
+    async with session_factory.begin() as session:
+        await session.execute(text("SET LOCAL ROLE agents_factory_admin"))
+        await PanelPublicationService(session, ctx, code_digest="a" * 64).publish(
+            version_id=second.id,
+            whatsapp_account_id=second_account,
+            expected_revision=2,
+            test_run_id=run2.id,
+            expected_binding_revision=0,
+        )
+    response = await client.get(
+        f"/admin/agent-workspace/companies/{tenant}/agents/{first.agent_instance_id}"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    pinned = {
+        r["account_id"]: r["version_id"] for r in data["summary"]["channel_accounts"]
+    }
+    assert pinned == {
+        str(first_account): str(first.id),
+        str(second_account): str(second.id),
+    }
+    versions = {v["version_id"]: v for v in data["channel_versions"]}
+    assert (
+        versions[str(first.id)]["configuration"]["instructions"]
+        != versions[str(second.id)]["configuration"]["instructions"]
+    )
+    assert versions[str(first.id)]["account_ids"] == [str(first_account)]
+
+
+@pytest.mark.asyncio
+async def test_company_preview_query_count_is_bounded_without_loading_prompts(
+    workspace, session_factory, database_engine
+):
+    from sqlalchemy import event
+
+    client, _, _, _ = workspace
+    async with session_factory.begin() as session:
+        for _ in range(20):
+            tenant = uuid4()
+            await session.execute(
+                text(
+                    "INSERT INTO public.tenants(id,slug,name) VALUES(:id,:slug,'Escala')"
+                ),
+                {"id": tenant, "slug": str(tenant)},
+            )
+            for _ in range(3):
+                agent = uuid4()
+                await session.execute(
+                    text(
+                        "INSERT INTO public.agent_instances(id,tenant_id,product) VALUES(:id,:tenant,'Agent Customer Service')"
+                    ),
+                    {"id": agent, "tenant": tenant},
+                )
+                await session.execute(
+                    text(
+                        "INSERT INTO public.agent_spec_versions(id,tenant_id,agent_instance_id,version_number,state,configuration) VALUES(:id,:tenant,:agent,1,'DRAFT',:config)"
+                    ).bindparams(bindparam("config", type_=JSONB)),
+                    {
+                        "id": uuid4(),
+                        "tenant": tenant,
+                        "agent": agent,
+                        "config": {
+                            "persona": {
+                                "business_name": "Agente",
+                                "instructions": "LARGE_PROMPT_" * 2000,
+                            }
+                        },
+                    },
+                )
+    statements = []
+
+    def count(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(database_engine.sync_engine, "before_cursor_execute", count)
+    try:
+        response = await client.get(
+            "/admin/agent-workspace/companies", params={"query": "Escala", "limit": 20}
+        )
+    finally:
+        event.remove(database_engine.sync_engine, "before_cursor_execute", count)
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 20
+    assert len(statements) <= 65, len(statements)
+    assert "LARGE_PROMPT_" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_filter_options_are_paginated_and_include_unbound_accounts(
+    workspace, session_factory
+):
+    client, tenants, _, _ = workspace
+    tenant = tenants[0]
+    async with session_factory.begin() as session:
+        for _ in range(21):
+            id = uuid4()
+            await session.execute(
+                text(
+                    "INSERT INTO public.whatsapp_accounts(id,tenant_id,provider,waba_id,phone_number_id) VALUES(:id,:tenant,'meta',:value,:value)"
+                ),
+                {"id": id, "tenant": tenant, "value": str(id)},
+            )
+    root = f"/admin/agent-workspace/companies/{tenant}/accounts"
+    first = await client.get(root)
+    assert first.status_code == 200
+    assert len(first.json()["items"]) == 20
+    assert all(row["version_id"] is None for row in first.json()["items"])
+    second = await client.get(root, params={"cursor": first.json()["next_cursor"]})
+    assert len(second.json()["items"]) == 1
+    assert second.json()["next_cursor"] is None
+    companies = await client.get(
+        "/admin/agent-workspace/company-options", params={"limit": 1}
+    )
+    assert companies.status_code == 200
+    assert set(companies.json()["items"][0]) == {"id", "name"}
+    assert companies.json()["next_cursor"]
+
+
+async def seed_active_old_conversation(session_factory, tenant):
+    account, old = uuid4(), UUID("00000000-0000-4000-8000-000000000001")
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.whatsapp_accounts(id,tenant_id,provider,waba_id,phone_number_id) VALUES(:id,:tenant,'meta','waba-activity','phone-activity')"
+            ),
+            {"id": account, "tenant": tenant},
+        )
+        for id in [old] + [uuid4() for _ in range(24)]:
+            await session.execute(
+                text(
+                    "INSERT INTO public.conversations(id,tenant_id,whatsapp_account_id,customer_wa_id,created_at,updated_at) VALUES(:id,:tenant,:account,:customer,'2026-01-01','2026-01-01')"
+                ),
+                {"id": id, "tenant": tenant, "account": account, "customer": str(id)},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO public.messages(id,tenant_id,conversation_id,direction,sender_type,message_type,content,provider_timestamp,arrival_sequence,created_at) VALUES(:id,:tenant,:conversation,'inbound','customer','text','{\"text\":\"Actividad reciente\"}','2026-10-16',1,'2026-10-16')"
+            ),
+            {"id": uuid4(), "tenant": tenant, "conversation": old},
+        )
+    return account, old
+
+
+@pytest.mark.asyncio
+async def test_selected_conversation_is_resolved_independently_and_checks_filters(
+    workspace, session_factory
+):
+    client, tenants, agents, _ = workspace
+    tenant = tenants[1]
+    account, old = await seed_active_old_conversation(session_factory, tenant)
+    root = f"/admin/agent-workspace/companies/{tenant}/conversations"
+    response = await client.get(f"{root}/{old}")
+    assert response.status_code == 200
+    assert response.json()["id"] == str(old)
+    assert (
+        await client.get(f"{root}/{old}", params={"agent_id": str(agents[0])})
+    ).status_code == 404
+    assert (
+        await client.get(f"{root}/{old}", params={"account_id": str(uuid4())})
+    ).status_code == 404
+    assert (
+        await client.get(
+            f"/admin/agent-workspace/companies/{tenants[0]}/conversations/{old}"
+        )
+    ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_old_thread_with_new_message_leads_activity_order_and_cursor_is_stable(
+    workspace, session_factory
+):
+    client, tenants, _, _ = workspace
+    tenant = tenants[0]
+    _, old = await seed_active_old_conversation(session_factory, tenant)
+    root = f"/admin/agent-workspace/companies/{tenant}/conversations"
+    first = await client.get(root)
+    assert first.status_code == 200
+    assert first.json()["items"][0]["id"] == str(old)
+    assert first.json()["items"][0]["last_activity_at"].startswith("2026-10-16")
+    second = await client.get(root, params={"cursor": first.json()["next_cursor"]})
+    ids = [r["id"] for r in first.json()["items"] + second.json()["items"]]
+    assert len(ids) == len(set(ids)) == 25
+    assert (await client.get(root, params={"cursor": "malformed"})).status_code == 422
+    import base64
+    import json
+
+    for value in [
+        {"at": "2026-10-16T00:00:00+00:00", "id": 1},
+        {"at": 1, "id": str(old)},
+        {"at": "2026-10-16", "id": str(old)},
+    ]:
+        cursor = base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+        assert (await client.get(root, params={"cursor": cursor})).status_code == 422

@@ -1,0 +1,101 @@
+# Guía del backend de AI Workers
+
+Esta guía describe el código, no certifica el estado actual del servidor.
+El panel operativo nuevo sigue siendo una entrega local, sin instalar.
+
+## Las piezas y sus responsabilidades
+
+- `apps/backend`: API Python/FastAPI. Autentica administradores, recibe eventos,
+  valida reglas y coordina servicios. Entrada: `src/agents_factory/main.py`.
+- `workers/agent-worker`: ejecuta turnos del agente fuera de las peticiones web.
+- `workers/outbound-worker`: envía las respuestas y gestiona sus intentos.
+- `workers/knowledge-worker`: tareas de conocimiento implementadas; no implica
+  que toda fuente/URL/PDF ya se ingiera automáticamente.
+- `workers/scheduler`: coordinación de trabajos programados existentes.
+- `apps/control-plane`: panel Next.js. Consume la API; no es el motor del agente.
+- PostgreSQL/Supabase: persistencia duradera de empresas, mensajes, configuraciones,
+  versiones, publicaciones, trabajos y auditoría. Redis coordina trabajo temporal;
+  no sustituye esa persistencia.
+- `openai-agents`: biblioteca instalada en el backend/worker. La biblioteca no
+  aloja el producto ni es la base de datos. El modelo se ejecuta mediante la API.
+
+## Recorrido de una respuesta
+
+```text
+Mensaje de WhatsApp → evento de Meta → webhook del backend
+  → trabajo persistido / cola → agent-worker
+  → versión asignada a la cuenta → AgentTurnService → adaptador OpenAI
+  → respuesta persistida → outbound-worker → API de Meta
+  → eventos de entrega → estado guardado del mensaje
+```
+
+Archivos para seguirlo, en ese orden:
+
+1. `apps/backend/src/agents_factory/modules/whatsapp/webhook.py`.
+2. `workers/agent-worker/src/agent_worker/jobs.py`.
+3. `modules/agent_factory/channel_provider.py`: elige la versión fijada por cuenta.
+4. `modules/runtime/turn_service.py`: reglas y persistencia del turno.
+5. `modules/runtime/openai_adapter.py`: frontera con el modelo.
+6. `modules/whatsapp/outbound_service.py` y
+   `workers/outbound-worker/src/outbound_worker/jobs.py`: preparación y envío.
+
+Los mensajes no toman sus instrucciones del historial de este chat de Codex.
+Usan el snapshot publicado y asignado en la base de datos. Un borrador nuevo no
+altera ese snapshot. Un número puede conservar una versión anterior, por lo que
+la publicación más reciente y la versión asignada se muestran por separado.
+
+## Estructura de los módulos nuevos de lectura
+
+Todos están en `apps/backend/src/agents_factory/modules/agent_factory/`:
+
+| Archivo | Responsabilidad | No debe hacer |
+|---|---|---|
+| `workspace_router.py` | Rutas HTTP, autorización y validación de entrada | SQL o lógica de publicación |
+| `workspace_models.py` | Contratos de empresas, agentes, canales y versiones | Consultar servicios externos |
+| `workspace_conversation_models.py` | Contratos de conversaciones y mensajes | Exponer payloads/credenciales |
+| `workspace_service.py` | Coordinar lecturas y contexto por empresa | Compilar o publicar borradores |
+| `workspace_conversations.py` | Alcance, filtros, selección y paginación | Atribuir mensajes por el binding actual |
+| `workspace_repository.py` | Consultas de resumen y detalle | Cambiar datos o llamar proveedores |
+| `workspace_conversation_repository.py` | Consultas de mensajes y actividad | Enviar mensajes |
+| `workspace_projection.py` | Transformaciones puras y campos permitidos | Inventar salud o ejecutar consultas |
+| `workspace_cursor.py` | Cursores opacos y validación | Autorizar acceso por sí solo |
+
+El flujo de dependencia es ruta → servicio → repositorio → base de datos;
+servicio → proyección → contrato de salida. Los repositorios no dependen de
+las rutas ni de componentes visuales. Los modelos no dependen de SQL.
+
+## Conceptos que no deben mezclarse
+
+- Empresa: frontera de aislamiento, identificada por tenant_id.
+- Instancia de agente: identidad estable dentro de una empresa.
+- Versión: configuración inmutable que puede probarse/publicarse.
+- Binding: asignación de una cuenta de WhatsApp a una instancia y versión.
+- Conversación: hilo por cuenta/contacto. Sus respuestas conservan la versión
+  realmente utilizada; no se reetiquetan al cambiar el binding.
+- Entregado: evento de entrega persistido. Aceptado por Meta no significa entregado.
+- Salud de conexión: última comprobación de la cuenta, con fecha. No demuestra
+  que el worker esté respondiendo ni que el agente esté bien configurado.
+
+## Reglas para mantenerlo entendible
+
+Agregar contratos explícitos antes de una ruta; dejar SQL en repositorios y
+reglas en servicios; usar funciones puras para proyecciones; probar primero el
+comportamiento. Evitar duplicar motores de publicación, ampliar permisos para
+sortear errores o crear tablas sin un consumidor identificado.
+
+Las pantallas y Codex deben invocar los mismos servicios autorizados. Nunca
+considerar editar filas directamente como API administrativa. No registrar
+tokens, claves ni entornos completos. Mantener comentarios que expliquen una
+restricción real, no que repitan cada línea de código.
+
+## Verificar un cambio
+
+Pruebas nuevas: `apps/backend/tests/integration/test_agent_workspace.py`.
+Requieren PostgreSQL/Redis locales desechables; no apuntarlas a producción.
+Ejecutar además la regresión del proyecto, Ruff y Mypy; documentar expresamente
+los errores de entorno existentes. La evidencia concreta está en
+`docs/panel-operativo-entrega-a.md`.
+
+No borrar tablas solo por su cantidad: antes identificar consumidores, claves,
+políticas, trabajos e historial. Cualquier migración productiva necesita ensayo,
+respaldo y autorización separados del rediseño de la interfaz.
