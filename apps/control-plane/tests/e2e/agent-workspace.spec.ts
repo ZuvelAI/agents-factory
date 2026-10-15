@@ -145,3 +145,42 @@ test("company to agent to conversations preserves attribution and filters", asyn
   await expect(page.getByLabel("Agente", { exact: true })).toHaveValue("");
   await expect(page.getByText("Contacto de prueba")).toHaveCount(0);
 });
+
+test("empty company and legacy routes remain explicit and recoverable", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/tenants");
+  await expect(page.getByText("Sin agentes", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("empresas.png"),
+    fullPage: true,
+  });
+  await page.goto("/tenants/019c2000-0000-7000-8000-000000000104");
+  await expect(
+    page.getByText("Esta empresa todavía no tiene agentes"),
+  ).toBeVisible();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Administración avanzada" })
+    .click();
+  await expect(
+    page.getByRole("link", { name: "Configuración anterior" }),
+  ).toHaveAttribute(
+    "href",
+    "/tenants/019c2000-0000-7000-8000-000000000104/onboarding/company",
+  );
+  await page.goto(`/tenants/${tenant}/onboarding/agent`);
+  await expect(
+    page.getByRole("button", { name: "Guardar este paso" }),
+  ).toBeVisible();
+  await page.goto(
+    `/tenants/${tenant}/agents/019c2000-0000-7000-8000-000000000501`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Configuración publicada" }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("agente.png"),
+    fullPage: true,
+  });
+});
