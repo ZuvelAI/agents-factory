@@ -24,7 +24,13 @@ from .workspace_models import (
     CompanyOption,
     CompanyOptionPage,
 )
-from .workspace_projection import agent_summary, channel_summary, configuration_view
+from .workspace_projection import (
+    agent_summary,
+    channel_summary,
+    configuration_view,
+    editable_configuration_view,
+)
+from .configuration_repository import ConfigurationRepository
 from .workspace_repository import WorkspaceRepository
 
 
@@ -144,6 +150,11 @@ class AgentWorkspaceService:
             ).account_ids.append(row["id"])
         active = configuration_view(published["configuration"] if published else None)
         candidate = configuration_view(draft["configuration"] if draft else None)
+        editable = await ConfigurationRepository(self.session, context).read_draft(
+            agent_id
+        )
+        if editable is not None:
+            candidate = editable_configuration_view(editable["configuration"])
         display = active or candidate
         summary = AgentSummary(
             id=agent_id,
@@ -152,7 +163,8 @@ class AgentWorkspaceService:
             published_name=active.name if active else None,
             published_version_id=published["id"] if published else None,
             draft_version_id=draft["id"] if draft else None,
-            has_pending_changes=draft is not None,
+            has_pending_changes=draft is not None or editable is not None,
+            purpose=candidate.purpose if candidate else None,
             execution_status="unknown" if channels else "unassigned",
             channel_accounts=channels,
         )
@@ -161,8 +173,9 @@ class AgentWorkspaceService:
             published=active,
             draft=candidate,
             channel_versions=list(versions.values()),
+            editable_revision=editable["revision"] if editable else None,
             unavailable_sections=[
-                "Edición independiente por agente: próxima entrega.",
+                "Publicar y probar el nuevo borrador: siguiente entrega.",
                 "Tono y propósito no disponibles como campos independientes en versiones heredadas.",
             ],
         )

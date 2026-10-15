@@ -8,8 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 AGENT_SUMMARIES = """
 SELECT i.id,i.tenant_id,count(*) OVER() AS agent_count,p.id AS published_id,p.name AS published_name,
-       d.id AS draft_id,d.name AS draft_name,coalesce(ch.items,'[]'::jsonb) AS channels
+       d.id AS draft_id,coalesce(e.configuration#>>'{agent,agent_name}',d.name) AS draft_name,
+       e.revision AS editable_revision,e.configuration->>'purpose' AS purpose,
+       coalesce(ch.items,'[]'::jsonb) AS channels
 FROM public.agent_instances i
+LEFT JOIN public.agent_configuration_drafts e ON (e.tenant_id,e.agent_instance_id)=(i.tenant_id,i.id)
 LEFT JOIN LATERAL (
   SELECT v.id,v.version_number,v.configuration#>>'{persona,business_name}' AS name
   FROM public.agent_spec_deployments deployment

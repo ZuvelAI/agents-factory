@@ -69,6 +69,7 @@ class AgentOverview(BaseModel):
     draft: AgentConfigurationView | None
     unavailable_sections: list[str]
     channel_versions: list[ChannelVersionView] = Field(default_factory=list)
+    editable_revision: int | None = None
 
 
 class CompanyPage(BaseModel):

@@ -8,6 +8,39 @@ from .workspace_models import (
     ChannelSummary,
     FeatureSummary,
 )
+from .configuration_models import AgentEditableConfiguration
+
+
+def editable_configuration_view(config: dict[str, Any]) -> AgentConfigurationView:
+    draft = AgentEditableConfiguration.model_validate(config)
+    return AgentConfigurationView(
+        name=draft.agent.agent_name or "Agente sin nombre",
+        purpose=draft.purpose or None,
+        tone=draft.agent.tone,
+        instructions=draft.agent.instructions or None,
+        model=draft.agent.model,
+        knowledge_summary=draft.knowledge.approved_summary or None,
+        capabilities=[
+            FeatureSummary(
+                key=key,
+                label=key,
+                availability="unavailable",
+                enabled=False,
+                reason="Requiere conexión y validación operativa.",
+            )
+            for key in draft.capabilities.selected_capabilities
+        ],
+        integrations=[
+            FeatureSummary(
+                key=key,
+                label=key,
+                availability="unavailable",
+                enabled=False,
+                reason="Conexión no verificada; no habilitada por este borrador.",
+            )
+            for key in draft.integrations.required_connectors
+        ],
+    )
 
 
 def configuration_view(config: dict[str, Any] | None) -> AgentConfigurationView | None:
@@ -82,7 +115,9 @@ def agent_summary(row: dict[str, Any]) -> AgentSummary:
         published_name=row["published_name"],
         published_version_id=row["published_id"],
         draft_version_id=row["draft_id"],
-        has_pending_changes=row["draft_id"] is not None,
+        has_pending_changes=row["draft_id"] is not None
+        or row.get("editable_revision") is not None,
+        purpose=row.get("purpose"),
         execution_status="unknown" if channels else "unassigned",
         channel_accounts=channels,
     )
