@@ -8,6 +8,8 @@ const paths = {
   capabilities: "m13 2-9 12h7l-1 8 10-13h-7z",
   integrations:
     "m8 3 3 3 M3 8l3 3 M5 10l5-5 5 5-5 5z M12 13l3 3 M14 19l5-5 M17 17l4 4",
+  whatsapp:
+    "M21 11a9 9 0 0 1-13 8l-6 3 2-6A9 9 0 1 1 21 11 M8 7l2 3 2 2 3 2 2-2",
   knowledge:
     "M12 5c-3-2-6-2-10-1v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1v15",
   conversations:

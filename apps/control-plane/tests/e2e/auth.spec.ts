@@ -54,20 +54,15 @@ test("a platform admin reaches the shell, then server logout clears access", asy
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: "Clientes" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Tu operación" }),
+  ).toBeVisible();
   const labels = [
-    "Dashboard",
-    "Tenants",
-    "Agents",
-    "Capabilities",
-    "Integrations",
-    "Knowledge",
-    "Conversations",
-    "Cases",
-    "Evals",
-    "Usage & Costs",
-    "Operations",
-    "Settings",
+    "Resumen",
+    "Empresas",
+    "Conversaciones",
+    "Actividad",
+    "Ajustes",
   ];
   const navigation = page.getByRole("navigation", { name: "Control Plane" });
   await expect(navigation.getByRole("link")).toHaveText(labels);

@@ -5,18 +5,11 @@ import { usePathname } from "next/navigation";
 import { UiIcon, type IconName } from "./ui-icon";
 
 const navigation = [
-  ["Dashboard", "/"],
-  ["Tenants", "/tenants"],
-  ["Agents", "/agents"],
-  ["Capabilities", "/capabilities"],
-  ["Integrations", "/integrations"],
-  ["Knowledge", "/knowledge"],
-  ["Conversations", "/conversations"],
-  ["Cases", "/cases"],
-  ["Evals", "/evals"],
-  ["Usage & Costs", "/usage"],
-  ["Operations", "/operations"],
-  ["Settings", "/settings"],
+  ["Resumen", "/"],
+  ["Empresas", "/tenants"],
+  ["Conversaciones", "/conversations"],
+  ["Actividad", "/operations"],
+  ["Ajustes", "/settings"],
 ] as const;
 
 export function ControlPlaneNavigation() {
@@ -24,14 +17,7 @@ export function ControlPlaneNavigation() {
   const icons: IconName[] = [
     "dashboard",
     "tenants",
-    "agents",
-    "capabilities",
-    "integrations",
-    "knowledge",
     "conversations",
-    "cases",
-    "evals",
-    "usage",
     "operations",
     "settings",
   ];
@@ -46,7 +32,7 @@ export function ControlPlaneNavigation() {
               : pathname === href || pathname.startsWith(`${href}/`);
           return (
             <li key={href}>
-              {index === 0 || index === 6 || index === 9 ? (
+              {index === 0 ? (
                 <p className="nav-group-label">
                   {index === 0
                     ? "WORKSPACE"

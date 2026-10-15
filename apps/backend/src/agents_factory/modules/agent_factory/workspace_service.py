@@ -116,17 +116,19 @@ class AgentWorkspaceService:
             else None,
         )
 
-    async def _tenant(self, tenant_id: UUID) -> None:
+    async def _tenant(self, tenant_id: UUID) -> str:
         await set_tenant_context(self.session, tenant_id)
-        if await TenantRepository(self.session).get(tenant_id) is None:
+        tenant = await TenantRepository(self.session).get(tenant_id)
+        if tenant is None:
             raise publication_problem(
                 "workspace_not_found", "Empresa o agente no encontrado.", 404
             )
+        return tenant.name
 
     async def list_agents(
         self, *, tenant_id: UUID, cursor: str | None = None, limit: int = 20
     ) -> AgentPage:
-        await self._tenant(tenant_id)
+        company_name = await self._tenant(tenant_id)
         after = decode_cursor(cursor)
         result = await self.session.execute(
             text(
@@ -142,6 +144,7 @@ class AgentWorkspaceService:
         ]
         return AgentPage(
             items=items,
+            company_name=company_name,
             next_cursor=encode_cursor(ids[limit - 1]) if len(ids) > limit else None,
         )
 
