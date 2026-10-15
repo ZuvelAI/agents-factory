@@ -65,3 +65,45 @@ test("workspace fits narrow and desktop viewports with long company names", asyn
     await expect(page.getByLabel("Buscar empresa")).toBeFocused();
   }
 });
+
+test("agent detail expands with keyboard without publishing or starting signup", async ({
+  page,
+}) => {
+  await page.goto(
+    `/tenants/${tenant}/agents/019c2000-0000-7000-8000-000000000501`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Configuración publicada" }),
+  ).toBeVisible();
+  const knowledge = page
+    .locator("summary")
+    .filter({ hasText: "Conocimiento de la empresa" })
+    .first();
+  await knowledge.focus();
+  await page.keyboard.press("Enter");
+  await expect(knowledge).toBeFocused();
+  await expect(
+    page
+      .getByText("Análisis de datos para toma de decisiones.", { exact: true })
+      .first(),
+  ).toBeVisible();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Borrador sin publicar" })
+    .click();
+  await expect(
+    page.getByText("Cambio de instrucciones sin publicar", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Probar cambios" }),
+  ).toBeDisabled();
+  await page.goto(
+    "/tenants/019c2000-0000-7000-8000-000000000103/agents/019c2000-0000-7000-8000-000000000501",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Agente no disponible" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Orienta sobre los servicios de Zuvel."),
+  ).toHaveCount(0);
+});

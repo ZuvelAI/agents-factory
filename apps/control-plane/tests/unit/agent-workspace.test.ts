@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import CompaniesPage from "../../app/(authenticated)/tenants/page";
 import CompanyPage from "../../app/(authenticated)/tenants/[tenantId]/page";
+import AgentPage from "../../app/(authenticated)/tenants/[tenantId]/agents/[agentId]/page";
 import { callAuthenticatedBackend } from "../../lib/api";
 
 vi.mock("../../lib/api", () => ({ callAuthenticatedBackend: vi.fn() }));
@@ -87,4 +88,90 @@ it("rejects invalid path identifiers before backend requests", async () => {
   );
   expect(html).toContain("Empresa no disponible");
   expect(backend).not.toHaveBeenCalled();
+});
+
+it("keeps published content apart from draft and makes unavailable tools explicit", async () => {
+  const config = {
+    name: "Agente publicado",
+    purpose: null,
+    tone: null,
+    instructions: "Instrucciones publicadas",
+    model: "gpt-6-luna",
+    knowledge_summary: "Servicios aprobados",
+    capabilities: [],
+    integrations: [
+      {
+        key: "crm",
+        label: "CRM",
+        availability: "unavailable",
+        enabled: false,
+        reason: "Conector todavía no implementado",
+      },
+    ],
+  };
+  backend.mockResolvedValue({
+    summary: {
+      ...summary,
+      published_name: "Agente publicado",
+      published_version_id: tenant,
+    },
+    published: config,
+    draft: { ...config, name: "Nombre nuevo", instructions: "Solo borrador" },
+    unavailable_sections: [],
+  });
+  const html = renderToStaticMarkup(
+    await AgentPage({
+      params: Promise.resolve({ tenantId: tenant, agentId: agent }),
+    }),
+  );
+  expect(html).toContain("Configuración publicada");
+  expect(html).toContain("Instrucciones publicadas");
+  expect(html).toContain("Borrador sin publicar");
+  expect(html).toContain("Solo borrador");
+  expect(html).toContain("Conector todavía no implementado");
+  expect(html).not.toContain("CRM · Activo");
+  expect(html).toContain("No hay capacidades declaradas");
+});
+
+it("shows a draft-only agent without promising knowledge ingestion or testing", async () => {
+  backend.mockResolvedValue({
+    summary,
+    published: null,
+    draft: {
+      name: "Agente",
+      purpose: null,
+      tone: null,
+      instructions: null,
+      model: null,
+      knowledge_summary: null,
+      capabilities: [],
+      integrations: [],
+    },
+    unavailable_sections: [],
+  });
+  const html = renderToStaticMarkup(
+    await AgentPage({
+      params: Promise.resolve({ tenantId: tenant, agentId: agent }),
+    }),
+  );
+  expect(html).toContain("Este agente aún no tiene una versión publicada");
+  expect(html).toContain("No disponible en esta versión");
+  expect(html).toContain("Pruebas interactivas en la siguiente entrega");
+  expect(html).not.toContain("Escanear código QR");
+});
+
+it("rejects an agent response belonging to another company", async () => {
+  backend.mockResolvedValue({
+    summary: { ...summary, tenant_id: agent },
+    published: null,
+    draft: null,
+    unavailable_sections: [],
+  });
+  const html = renderToStaticMarkup(
+    await AgentPage({
+      params: Promise.resolve({ tenantId: tenant, agentId: agent }),
+    }),
+  );
+  expect(html).toContain("Agente no disponible");
+  expect(html).not.toContain("Asistente comercial");
 });

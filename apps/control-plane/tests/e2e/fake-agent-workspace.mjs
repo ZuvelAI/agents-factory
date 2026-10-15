@@ -79,6 +79,42 @@ export function handleAgentWorkspace(request, response, url, json) {
     });
     return true;
   }
+  const selected = company.agents.find((a) => a.id === match[2]);
+  if (selected) {
+    const config = {
+      name: selected.display_name,
+      purpose: null,
+      tone: null,
+      instructions: "Orienta sobre los servicios de Zuvel.",
+      model: "gpt-6-luna",
+      knowledge_summary: "Análisis de datos para toma de decisiones.",
+      capabilities: [],
+      integrations: [
+        {
+          key: "crm",
+          label: "CRM",
+          availability: "unavailable",
+          enabled: false,
+          reason: "Conector no implementado",
+        },
+      ],
+    };
+    json(response, 200, {
+      summary: {
+        ...selected,
+        published_version_id: selected.id,
+        published_name: selected.display_name,
+      },
+      published: config,
+      draft: {
+        ...config,
+        name: "Nombre pendiente",
+        instructions: "Cambio de instrucciones sin publicar",
+      },
+      unavailable_sections: [],
+    });
+    return true;
+  }
   json(response, 404, {});
   return true;
 }

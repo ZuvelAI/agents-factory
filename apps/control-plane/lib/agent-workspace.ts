@@ -156,3 +156,51 @@ export async function readAgents(
         : null,
   };
 }
+
+function isFeature(v: unknown): v is FeatureSummary {
+  return (
+    record(v) &&
+    typeof v.key === "string" &&
+    typeof v.label === "string" &&
+    ["available", "unavailable", "unknown"].includes(String(v.availability)) &&
+    typeof v.enabled === "boolean" &&
+    nullableText(v.reason)
+  );
+}
+function isConfiguration(v: unknown): v is AgentConfigurationView {
+  return (
+    record(v) &&
+    typeof v.name === "string" &&
+    nullableText(v.purpose) &&
+    nullableText(v.tone) &&
+    nullableText(v.instructions) &&
+    nullableText(v.model) &&
+    nullableText(v.knowledge_summary) &&
+    Array.isArray(v.capabilities) &&
+    v.capabilities.every(isFeature) &&
+    Array.isArray(v.integrations) &&
+    v.integrations.every(isFeature)
+  );
+}
+export async function readAgent(
+  tenant: string,
+  agent: string,
+): Promise<AgentOverview> {
+  if (!isWorkspaceId(tenant) || !isWorkspaceId(agent))
+    throw new Error("Invalid agent");
+  const value = await callAuthenticatedBackend(
+    `/admin/agent-workspace/companies/${tenant}/agents/${agent}`,
+  );
+  if (
+    !record(value) ||
+    !isAgent(value.summary) ||
+    value.summary.tenant_id !== tenant ||
+    value.summary.id !== agent ||
+    (value.published !== null && !isConfiguration(value.published)) ||
+    (value.draft !== null && !isConfiguration(value.draft)) ||
+    !Array.isArray(value.unavailable_sections) ||
+    !value.unavailable_sections.every((s) => typeof s === "string")
+  )
+    throw new Error("Invalid agent response");
+  return value as AgentOverview;
+}
