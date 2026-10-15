@@ -132,7 +132,7 @@ Usar TenantContext y repositorios existentes por tenant; no ampliar grants para
 facilitar consultas. Leer snapshots y versiones exactas, no compilar borradores
 ni crear instancias durante GET. Sin datos fiables, devolver None/unknown.
 
-## Task A1: Lectura administrativa verificable
+### Task 1: A1 — Lectura administrativa verificable
 
 **Interfaces:** produce contratos anteriores; consume AgentSpecRepository,
 AccountAgentBindingRepository y TenantRepository existentes.
@@ -153,7 +153,7 @@ AccountAgentBindingRepository y TenantRepository existentes.
   en JSON incluso con fixtures que los contengan. No añadir dependencias.
 - [ ] Commit solo archivos de esta tarea: `feat: add read-only agent workspace`.
 
-## Task A2: Empresas y navegación visual
+### Task 2: A2 — Empresas y navegación visual
 
 **Interfaces:** consume CompanyPage/AgentPage; produce componentes
 `CompanyCard({company:CompanySummary})` y `AgentCard({agent:AgentSummary})`.
@@ -172,7 +172,7 @@ AccountAgentBindingRepository y TenantRepository existentes.
   390/1440px y enlace de dos empresas homónimas; ejecutar ese spec: PASS.
 - [ ] Commit acotado: `feat: simplify company and agent navigation`.
 
-## Task A3: Ficha del agente con activo y borrador separados
+### Task 3: A3 — Ficha del agente con activo y borrador separados
 
 **Interfaces:** consume AgentOverview; produce
 `AgentOverviewPanel({overview:AgentOverview})` en agent-overview.tsx.
@@ -188,7 +188,7 @@ AccountAgentBindingRepository y TenantRepository existentes.
   abrir/cerrar secciones, URL tenant/agente ajeno denegada por servidor.
 - [ ] Commit acotado: `feat: show published agent overview and pending changes`.
 
-## Task A4: Conversaciones filtradas y atribución honesta
+### Task 4: A4 — Conversaciones filtradas y atribución honesta
 
 **Interfaces:** reutiliza lectura administrativa actual; filtros tenant_id,
 agent_id, account_id, cursor y limit. Un filtro de agente usa evidencia persistida
@@ -208,7 +208,7 @@ de selección/versión del mensaje, nunca el binding actual como atribución his
   PASS. Confirmar que otra empresa no aparece en respuesta ni DOM.
 - [ ] Commit acotado: `feat: scope conversation views to company and agent`.
 
-## Task A5: Verificación integrada y entrega sin producción
+### Task 5: A5 — Verificación integrada y entrega sin producción
 
 **Interfaces:** integra A1–A4; produce evidencia y guía de revisión de la entrega A.
 
