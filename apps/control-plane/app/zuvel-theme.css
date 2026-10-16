@@ -1983,3 +1983,55 @@ textarea::placeholder {
 .configuration-editor h1 {
   overflow-wrap: anywhere;
 }
+
+.preview-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 24px 0;
+  max-height: 480px;
+  overflow-y: auto;
+}
+.preview-user,
+.preview-agent {
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  max-width: 92%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.preview-user {
+  align-self: flex-end;
+  background: #8d64ff20;
+}
+.preview-agent {
+  align-self: flex-start;
+  background: #ffffff06;
+}
+.workspace-card pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.workspace-card select,
+.workspace-card textarea {
+  max-width: 100%;
+  min-width: 0;
+}
+.publication-panel {
+  display: grid;
+  gap: 16px;
+}
+.publication-panel .workspace-card {
+  min-width: 0;
+}
+.publication-panel label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.publication-panel button,
+.publication-panel details {
+  margin-top: 12px;
+}

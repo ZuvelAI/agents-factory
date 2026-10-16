@@ -156,7 +156,7 @@ it("shows a draft-only agent without promising knowledge ingestion or testing", 
   );
   expect(html).toContain("Este agente aún no tiene una versión publicada");
   expect(html).toContain("No disponible en esta versión");
-  expect(html).toContain("Pruebas interactivas en la siguiente entrega");
+  expect(html).toContain(`/tenants/${tenant}/agents/${agent}/test`);
   expect(html).not.toContain("Escanear código QR");
 });
 

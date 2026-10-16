@@ -183,6 +183,8 @@ async def test_publication_route_is_scoped_and_confirms_destination(
     response = await client.post(path + "/publish", json=payload)
     assert response.status_code == 200, response.text
     assert response.json()["version_id"] == str(candidate.version.id)
+    state = (await client.get(path)).json()
+    assert state["accounts"][0]["current_version"]["id"] == str(candidate.version.id)
 
 
 @pytest.mark.asyncio

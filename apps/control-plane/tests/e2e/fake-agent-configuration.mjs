@@ -99,6 +99,16 @@ function reset() {
   );
 }
 reset();
+export function fixtureDraft(agentId) {
+  const draft = drafts.get(agentId);
+  return draft
+    ? structuredClone({
+        ...draft,
+        current_company_revision: profile.revision,
+        company_update_available: profile.revision !== draft.company_revision,
+      })
+    : null;
+}
 export async function handleAgentConfiguration(
   request,
   response,

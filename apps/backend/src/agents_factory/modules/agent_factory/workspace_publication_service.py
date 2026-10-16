@@ -349,6 +349,9 @@ class WorkspacePublicationService:
                             "status": item["status"],
                             "health_status": item["health_status"],
                             "binding": binding,
+                            "current_version": None
+                            if binding is None
+                            else await self.specs.get_version(binding["version_id"]),
                         }
                     )
         state["bindings"] = await self.repository.bindings_for_agent(agent_id)

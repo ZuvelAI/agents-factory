@@ -16,6 +16,7 @@ class PublicationAccountView(BaseModel):
     status: str
     health_status: str
     binding: AccountAgentBinding | None
+    current_version: AgentSpecVersion | None = None
 
 
 class WorkspacePublicationState(BaseModel):

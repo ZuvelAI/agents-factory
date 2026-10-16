@@ -326,13 +326,12 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
           <button type="submit" disabled={pending || refreshPending}>
             {pending ? "Guardando…" : "Guardar borrador"}
           </button>
-          <button
-            type="button"
-            disabled
-            title="Disponible tras adaptar pruebas y publicación"
+          <Link
+            className="workspace-secondary"
+            href={`/tenants/${draft.tenant_id}/agents/${draft.agent_instance_id}/test`}
           >
             Probar y publicar
-          </button>
+          </Link>
         </div>
       </form>
       <aside className="workspace-card">

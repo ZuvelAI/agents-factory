@@ -217,8 +217,8 @@ test("editor fits mobile and presents supported model choices without publishing
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(edit(first));
   await expect(
-    page.getByRole("button", { name: "Probar y publicar" }),
-  ).toBeDisabled();
+    page.getByRole("link", { name: "Probar y publicar" }),
+  ).toHaveAttribute("href", `/tenants/${tenant}/agents/${first}/test`);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

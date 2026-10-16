@@ -123,9 +123,14 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
           >
             Editar borrador
           </Link>
-          <button disabled>Probar cambios</button>
+          <Link
+            className="workspace-secondary"
+            href={`/tenants/${summary.tenant_id}/agents/${summary.id}/test`}
+          >
+            Probar cambios
+          </Link>
           <small className="workspace-block workspace-muted">
-            Pruebas interactivas en la siguiente entrega
+            Pruebas aisladas; publicar requiere revisión y confirmación
           </small>
         </div>
       </header>

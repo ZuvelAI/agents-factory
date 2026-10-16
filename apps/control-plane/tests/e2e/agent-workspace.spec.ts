@@ -95,8 +95,8 @@ test("agent detail expands with keyboard without publishing or starting signup",
     page.getByText("Cambio de instrucciones sin publicar", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Probar cambios" }),
-  ).toBeDisabled();
+    page.getByRole("link", { name: "Probar cambios" }),
+  ).toHaveAttribute("href", /\/agents\/.+\/test$/);
   await page.goto(
     "/tenants/019c2000-0000-7000-8000-000000000103/agents/019c2000-0000-7000-8000-000000000501",
   );
