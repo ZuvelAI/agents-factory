@@ -93,9 +93,27 @@ async def test_account_update_alerts_require_platform_admin(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("identifier_order", "expected_wabas"),
+    [((1, 2, 3), {"waba-1", "waba-2"}),
+     ((2, 1, 3), {"waba-0", "waba-2"})],
+)
 async def test_platform_admin_can_read_bounded_account_update_alerts(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    identifier_order: tuple[int, int, int],
+    expected_wabas: set[str],
 ) -> None:
+    # now() is identical throughout this transaction. The route breaks ties by
+    # UUID, not insertion order; UUIDv7 randomness within a millisecond can vary.
+    identifiers = iter(
+        UUID(f"019c2000-0000-7000-8000-00000000000{value}")
+        for value in identifier_order
+    )
+    monkeypatch.setattr(
+        "agents_factory.modules.whatsapp.repository.new_uuid7",
+        lambda: next(identifiers),
+    )
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         repository = WhatsAppWebhookRepository(session)
@@ -130,7 +148,7 @@ async def test_platform_admin_can_read_bounded_account_update_alerts(
     assert invalid.status_code == 422
     alerts = response.json()
     assert len(alerts) == 2
-    assert {alert["waba_id"] for alert in alerts} == {"waba-1", "waba-2"}
+    assert {alert["waba_id"] for alert in alerts} == expected_wabas
     assert all(alert["reason"] == "unsupported_event" for alert in alerts)
     assert all("event_fingerprint" not in alert for alert in alerts)
 
