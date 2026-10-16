@@ -3,6 +3,30 @@ const tenant = "019c2000-0000-7000-8000-000000000102";
 const first = "019c2000-0000-7000-8000-000000000501";
 const second = "019c2000-0000-7000-8000-000000000502";
 const edit = (agent: string) => `/tenants/${tenant}/agents/${agent}/edit`;
+test("required choices cannot be cleared while optional policies can remain pending", async ({
+  page,
+}) => {
+  await page.goto(edit(first));
+  for (const label of [
+    /^Modelo del borrador/,
+    /^Tono/,
+    /^He revisado este contenido exacto/,
+  ]) {
+    const control = page.getByLabel(label);
+    await expect(control).toHaveCount(1);
+    await expect(control.locator('option[value=""]')).toHaveCount(0);
+  }
+  await page.getByText("Políticas y operación", { exact: true }).click();
+  const pricing = page.getByLabel(/^Respuesta sobre precios/);
+  await expect(pricing.locator('option[value=""]')).toHaveCount(1);
+  await pricing.selectOption("");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Borrador guardado");
+  await page.reload();
+  await expect(pricing).toHaveValue("");
+});
 test("company fields are protected until the save response arrives", async ({
   page,
 }) => {

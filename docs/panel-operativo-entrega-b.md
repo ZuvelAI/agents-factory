@@ -32,7 +32,7 @@ permisos ni consulta estas tablas. No hay DELETE ni modificación de tablas viej
 ## Evidencia local
 
 - Backend de configuración:15 pruebas pasan, más2 de importación y13 de workspace.
-- Panel:121 pruebas unitarias y27 recorridos de navegador pasan; lint, tipos y
+- Panel:125 pruebas unitarias y28 recorridos de navegador pasan; lint, tipos y
   compilación final pasan.
 - Suite completa backend definitiva:709 pruebas pasan,0 fallos,0 errores,
   1 advertencia conocida de Starlette/AnyIO. Ejecutada en copia temporal del
@@ -76,9 +76,11 @@ La protección422 está acotada a las rutas nuevas de configuración. Una variab
 de navegación llamada token disparó el detector del repositorio; se renombró
 guardId (no era credencial); las91 pruebas de ese control vuelven a pasar.
 
-Menor diferido: algunos selectores ofrecen «Sin definir» aunque el contrato no
-acepta null. El backend rechaza el valor sin guardarlo; se necesita pulir esa
-opción y su explicación antes de la aceptación productiva.
+Menor corregido: «Sin definir» solo se ofrece cuando el contrato acepta null.
+Modelo, tono, presentación, tratamiento, idioma, revisión y opciones operativas
+obligatorias ya no permiten vaciar su selección. Las políticas y decisiones
+opcionales conservan el valor pendiente. Cuatro pruebas de renderizado y un
+recorrido de navegador protegen la distinción y el guardado de valores pendientes.
 
 Instancia antigua sin origen estructurado verificable: no se inventa ni se parsea
 el prompt. Puede crearse un agente manual independiente; iniciar manualmente el

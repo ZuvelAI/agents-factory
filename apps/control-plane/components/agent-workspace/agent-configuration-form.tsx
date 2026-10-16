@@ -194,16 +194,19 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
                 fields={[
                   {
                     key: "pricing_response",
+                    nullable: true,
                     label: "Respuesta sobre precios",
                     options: ["QUOTE_REQUIRED", "APPROVED_PRICES_ONLY"],
                   },
                   {
                     key: "privacy_policy_status",
+                    nullable: true,
                     label: "Política de privacidad",
                     options: ["NOT_DEFINED", "DRAFT", "APPROVED"],
                   },
                   {
                     key: "customer_identity_method",
+                    nullable: true,
                     label: "Método de identidad",
                     options: [
                       "NONE",
@@ -229,6 +232,7 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
                 fields={[
                   {
                     key: "handoff_enabled",
+                    nullable: true,
                     label:
                       "Solicitar derivación automática (requiere implementación)",
                     kind: "boolean",
@@ -261,6 +265,7 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
                 fields={[
                   {
                     key: "high_risk_actions_expected",
+                    nullable: true,
                     label: "Requiere acciones de alto riesgo",
                     kind: "boolean",
                   },

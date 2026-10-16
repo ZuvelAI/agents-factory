@@ -10,6 +10,7 @@ export type FieldDefinition = {
   label: string;
   max?: number;
   options?: string[];
+  nullable?: boolean;
   kind?: "text" | "multiline" | "boolean" | "list" | "number";
 };
 const optionLabels: Record<string, string> = {
@@ -83,7 +84,7 @@ export function ConfigurationFields({
                   )
                 }
               >
-                <option value="">Sin definir</option>
+                {field.nullable && <option value="">Sin definir</option>}
                 <option value="false">No</option>
                 <option value="true">Sí</option>
               </select>
@@ -95,7 +96,7 @@ export function ConfigurationFields({
                   onChange(field.key, event.target.value || null)
                 }
               >
-                <option value="">Sin definir</option>
+                {field.nullable && <option value="">Sin definir</option>}
                 {field.options.map((option) => (
                   <option key={option} value={option}>
                     {optionLabels[option] ?? option}
