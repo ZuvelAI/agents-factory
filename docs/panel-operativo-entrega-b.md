@@ -1,8 +1,8 @@
 # Entrega B — configuración independiente por agente
 
 Estado: editor implementado localmente y revisado; cinco hallazgos importantes
-corregidos con regresiones reproducidas. Verificación global de entorno y
-aceptación visual pendientes. No instalada en producción ni lista para fusionar.
+corregidos con regresiones reproducidas. Verificación global local completada
+sin excluir pruebas. Aceptación visual e instalación productiva pendientes.
 
 ## Qué se puede hacer
 
@@ -34,10 +34,11 @@ permisos ni consulta estas tablas. No hay DELETE ni modificación de tablas viej
 - Backend de configuración:15 pruebas pasan, más2 de importación y13 de workspace.
 - Panel:121 pruebas unitarias y27 recorridos de navegador pasan; lint, tipos y
   compilación final pasan.
-- Suite completa backend:668 pasan,1 falla,31 errores de preparación,1 advertencia.
-  El fallo es `test_database_gate_removes_stale_schema_state` (tabla residual de
-  ensayo); los31 errores corresponden a suites que exigen el puerto canónico y
-  rechazan55322. No presentar esta suite completa como aprobada.
+- Suite completa backend definitiva:709 pruebas pasan,0 fallos,0 errores,
+  1 advertencia conocida de Starlette/AnyIO. Ejecutada en copia temporal del
+  código actual con PostgreSQL local estándar54322, sin exclusiones.
+- La ejecución anterior en55322 tuvo668 aprobadas,1 fallo y31 errores; se conserva
+  como evidencia histórica, pero ya no es el resultado final de validación.
 - Advisors de seguridad de la base de prueba: sin hallazgos.
 - Ensayo desde cero: todas las migraciones de aplicación aplicadas a
   `configuration_b_migration_20261015` dentro del contenedor local existente,
@@ -84,3 +85,30 @@ el prompt. Puede crearse un agente manual independiente; iniciar manualmente el
 mismo UUID requiere una operación de aplicación adicional, no definida en B.
 Cambios compartidos hechos por otro administrador se detectan al leer/guardar o
 comparar, no mediante polling continuo en una pantalla inactiva.
+
+## Cierre de validación global — 2026-10-15
+
+Se creó el proyecto local independiente `aiworkers-b-verification-6dupvo` en una
+copia temporal. Solo se inició PostgreSQL; la CLI de Supabase aplicó todas las
+migraciones y el propio test comprobó que su reinicio elimina tablas residuales.
+No se reinició el proyecto anterior ni se cambió el puerto esperado por las
+pruebas. El esquema Auth es el creado por Supabase, no el stub del ensayo inicial;
+no se afirma haber probado el servicio Auth/OAuth productivo.
+
+La copia reutilizó las dependencias instaladas y fijadas. Se desactivó únicamente
+la reinstalación automática de pnpm al detectar una carpeta trasladada; no se
+desactivaron controles de versión, seguridad ni validación de la base local.
+La prueba de cifrado recibió una clave aleatoria efímera, no una clave de producción.
+
+El catálogo estricto detectó9 tablas recientes sin registro de cobertura. Se
+añadió `apps/backend/tests/security/agent_table_contracts.py` y una matriz de roles
+para conocimiento/publicación, asignaciones, perfiles y borradores. Ambas matrices
+forman el catálogo completo; una tabla nueva desconocida sigue haciendo fallar
+el guardián. Se verifican lectura propia/ajena, contexto vacío/inválido, rechazo
+de reasignación de empresa, borrado e inserción de fila ajena para admin/runtime.
+Los borradores solo administrativos prueban la denegación completa al runtime.
+No se cambió ninguna política ni permiso de la aplicación para hacer pasar tests.
+
+Resultado del comando completo `python -m pytest -q`:709 passed,1 warning.
+Los121 tests unitarios y27 recorridos del panel permanecen aprobados; no hubo
+cambios de frontend en este cierre. Los datos de los ensayos son sintéticos.

@@ -27,6 +27,13 @@ el AgentSpec publicado y fijado a la cuenta, no estas tablas. Las rutas antiguas
 no leen automáticamente estos borradores. La adaptación del flujo de pruebas y
 publicación corresponde a la entrega C; ver `docs/panel-operativo-entrega-b.md`.
 
+La cobertura de aislamiento mantiene dos contratos explícitos: matriz de DML del
+runtime y contratos de tablas de publicación/edición en
+`tests/security/agent_table_contracts.py`. Los perfiles y borradores no se abren al
+runtime para acomodar una prueba. El catálogo falla si aparece una tabla de empresa
+sin cobertura registrada. La suite completa de cierre B pasa709 pruebas en un
+proyecto local Supabase independiente con el puerto canónico.
+
 ## Las piezas y sus responsabilidades
 
 - `apps/backend`: API Python/FastAPI. Autentica administradores, recibe eventos,
