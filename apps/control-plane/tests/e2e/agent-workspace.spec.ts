@@ -33,8 +33,8 @@ test("company cards retain identity, support zero/one/many agents and keyboard s
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Abrir agente" })).toHaveCount(2);
   await expect(
-    page.getByRole("button", { name: "Nuevo agente" }),
-  ).toBeDisabled();
+    page.getByRole("link", { name: "Nuevo agente" }),
+  ).toHaveAttribute("href", `/tenants/${tenant}/agents/new`);
 });
 test("backend failure is not reported as zero companies and retry works", async ({
   page,

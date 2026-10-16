@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 
-from apps.backend.tests.integration.test_agent_configuration import configuration_client  # noqa: F401
+from apps.backend.tests.integration.test_agent_configuration import (
+    configuration_client as _shared_configuration_client,
+)
+
+configuration_client = _shared_configuration_client
 
 
 async def legacy_fixture(session_factory):

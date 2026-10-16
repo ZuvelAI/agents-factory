@@ -3,6 +3,29 @@
 Esta guía describe el código, no certifica el estado actual del servidor.
 El panel operativo nuevo sigue siendo una entrega local, sin instalar.
 
+## Configuración editable: entrega B
+
+La configuración nueva sigue dentro del mismo backend, en `modules/agent_factory`:
+
+- `configuration_router.py`: autenticación y contratos HTTP; no contiene SQL.
+- `configuration_models.py`: modelos estrictos y límites de campos.
+- `configuration_repository.py`: consultas con contexto de empresa y revisión.
+- `configuration_service.py`: creación, guardado, validación y auditoría.
+- `configuration_import.py`: copia dirigida y verificable del asistente anterior.
+
+Flujo: panel o cliente administrativo autorizado → servicio → actualización con
+revisión esperada → auditoría → commit transaccional. Si la revisión ya cambió,
+devuelve409 y el panel conserva el texto. Si falla auditoría, se revierte el guardado.
+
+`company_profiles` contiene información compartida. Cada fila de
+`agent_configuration_drafts` pertenece a una instancia y guarda el snapshot de
+empresa incorporado explícitamente. Editar uno no modifica otros agentes.
+
+Un borrador incompleto NO es una versión ejecutable. La ejecución sigue leyendo
+el AgentSpec publicado y fijado a la cuenta, no estas tablas. Las rutas antiguas
+no leen automáticamente estos borradores. La adaptación del flujo de pruebas y
+publicación corresponde a la entrega C; ver `docs/panel-operativo-entrega-b.md`.
+
 ## Las piezas y sus responsabilidades
 
 - `apps/backend`: API Python/FastAPI. Autentica administradores, recibe eventos,

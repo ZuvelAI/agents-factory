@@ -42,12 +42,9 @@ export async function CompaniesWorkspace({
           </p>
         </div>
         <div>
-          <button disabled title="Disponible en la siguiente entrega">
+          <Link className="workspace-secondary" href="/tenants/new">
             + Nueva empresa
-          </button>
-          <small className="workspace-muted workspace-block">
-            Creación disponible en la siguiente entrega
-          </small>
+          </Link>
         </div>
       </header>
       <form className="workspace-search" action="/tenants">

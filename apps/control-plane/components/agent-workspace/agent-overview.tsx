@@ -117,6 +117,12 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
           <StatusSummary agent={summary} />
         </div>
         <div>
+          <Link
+            className="workspace-secondary"
+            href={`/tenants/${summary.tenant_id}/agents/${summary.id}/edit`}
+          >
+            Editar borrador
+          </Link>
           <button disabled>Probar cambios</button>
           <small className="workspace-block workspace-muted">
             Pruebas interactivas en la siguiente entrega

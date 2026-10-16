@@ -73,7 +73,9 @@ class DraftView(ConfigurationModel):
 
 class CreateCompanyRequest(ConfigurationModel):
     name: str = Field(min_length=1, max_length=200)
-    slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9][a-z0-9-]*$")
+    slug: str = Field(
+        min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    )
 
 
 class CreateAgentRequest(ConfigurationModel):

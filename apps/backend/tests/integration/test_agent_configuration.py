@@ -209,6 +209,26 @@ async def test_invalid_model_and_tools_rejected(configuration_client):
 
 
 @pytest.mark.asyncio
+async def test_unsupported_operation_is_saved_but_reported_as_unavailable(
+    configuration_client,
+):
+    client, _ = configuration_client
+    root, draft = await create_company_and_agent(client)
+    config = draft["configuration"]
+    config["human_operations"]["handoff_enabled"] = True
+    config["knowledge"]["approved_summary"] = "Contenido nuevo sin aprobación"
+    config["knowledge"]["review_confirmed"] = False
+    response = await client.put(
+        root + f"/agents/{draft['agent_instance_id']}/configuration",
+        json={"expected_revision": 1, "configuration": config},
+    )
+    assert response.status_code == 200
+    issues = response.json()["validation_issues"]
+    assert any(issue["code"] == "unsupported_configuration" for issue in issues)
+    assert any(issue["field"] == "knowledge.review_confirmed" for issue in issues)
+
+
+@pytest.mark.asyncio
 async def test_read_and_edit_reject_other_tenant(configuration_client):
     client, app = configuration_client
     root, draft = await create_company_and_agent(client)

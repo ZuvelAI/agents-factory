@@ -12,7 +12,11 @@ from agents_factory.common.security import AdminPrincipal
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.tenants.models import Tenant
 from agents_factory.modules.tenants.repository import TenantRepository
-from agents_factory.modules.tenants.onboarding import CompanyConfiguration
+from agents_factory.modules.tenants.onboarding import (
+    CompanyConfiguration,
+    OnboardingConfiguration,
+)
+from .onboarding_projection import projection_blockers
 from .configuration_models import (
     AgentEditableConfiguration,
     CompanyProfileView,
@@ -204,6 +208,20 @@ class AgentConfigurationService:
                     message="El conocimiento requiere revisión.",
                 )
             )
+        combined = OnboardingConfiguration.model_validate(
+            {
+                "company": row["company_snapshot"],
+                **config.model_dump(mode="json", exclude={"schema_version", "purpose"}),
+            }
+        )
+        issues.extend(
+            ValidationIssue(
+                field=f"operation.{index}",
+                code="unsupported_configuration",
+                message=message,
+            )
+            for index, message in enumerate(projection_blockers(combined))
+        )
         return DraftView(
             **{
                 k: row[k]

@@ -37,12 +37,18 @@ export default async function CompanyPage({
           </p>
         </div>
         <div>
-          <button disabled title="Disponible en la siguiente entrega">
+          <Link
+            className="workspace-secondary"
+            href={`/tenants/${tenantId}/agents/new`}
+          >
             + Nuevo agente
-          </button>
-          <small className="workspace-muted workspace-block">
-            Edición independiente en la siguiente entrega
-          </small>
+          </Link>
+          <Link
+            className="workspace-secondary"
+            href={`/tenants/${tenantId}/settings`}
+          >
+            Información empresarial
+          </Link>
         </div>
       </header>
       <div className="workspace-grid">

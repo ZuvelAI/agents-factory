@@ -79,7 +79,7 @@ it("opens the selected company and escapes long names", async () => {
   expect(html).toContain(`/tenants/${tenant}/agents/${agent}`);
   expect(html).toContain(`tenant=${tenant}`);
   expect(html).toContain("Nuevo agente");
-  expect(html).toContain("disabled");
+  expect(html).toContain(`/tenants/${tenant}/agents/new`);
 });
 
 it("rejects invalid path identifiers before backend requests", async () => {

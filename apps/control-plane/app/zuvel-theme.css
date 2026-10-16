@@ -1931,3 +1931,49 @@ textarea::placeholder {
     animation: none !important;
   }
 }
+.configuration-editor label {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0;
+}
+.configuration-editor input:not([type="checkbox"]),
+.configuration-editor textarea,
+.configuration-editor select {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--border, #34313f);
+  border-radius: 12px;
+  background: #121118;
+  color: #f5f3fa;
+  padding: 0.85rem 1rem;
+  font: inherit;
+}
+.configuration-editor textarea {
+  resize: vertical;
+}
+.configuration-editor input[type="checkbox"] {
+  width: auto;
+}
+.configuration-editor pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.configuration-fields {
+  display: grid;
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 0 1.4rem;
+}
+.configuration-field-wide {
+  grid-column: 1 / -1;
+}
+.configuration-save {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1.4rem 0;
+}
+.configuration-editor h1 {
+  overflow-wrap: anywhere;
+}
