@@ -58,13 +58,25 @@ export async function saveAgentConfiguration(
       agent = input(form, "agentId");
     const path = configurationPath(tenant, agent);
     submitted = input(form, "configuration", 100000);
+    const configuration = JSON.parse(submitted);
+    for (const [section, key] of [
+      ["agent", "supported_languages"],
+      ["approval_routes", "approver_emails"],
+    ]) {
+      if (Array.isArray(configuration?.[section]?.[key]))
+        configuration[section][key] = configuration[section][key]
+          .map((item: unknown) =>
+            typeof item === "string" ? item.trim() : item,
+          )
+          .filter((item: unknown) => item !== "");
+    }
     const draft = parseDraft(
       await callAuthenticatedBackend(path, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           expected_revision: number(form, "revision"),
-          configuration: JSON.parse(submitted),
+          configuration,
         }),
       }),
     );

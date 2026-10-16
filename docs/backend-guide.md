@@ -12,6 +12,7 @@ La configuración nueva sigue dentro del mismo backend, en `modules/agent_factor
 - `configuration_repository.py`: consultas con contexto de empresa y revisión.
 - `configuration_service.py`: creación, guardado, validación y auditoría.
 - `configuration_import.py`: copia dirigida y verificable del asistente anterior.
+- `configuration_errors.py`: errores de petición seguros, sin devolver valores rechazados.
 
 Flujo: panel o cliente administrativo autorizado → servicio → actualización con
 revisión esperada → auditoría → commit transaccional. Si la revisión ya cambió,

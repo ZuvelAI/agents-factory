@@ -146,6 +146,8 @@ export async function handleAgentConfiguration(
       return true;
     }
     const body = await readJson(request);
+    if (body.configuration?.agent?.instructions === "guardado-lento-controlado")
+      await new Promise((resolve) => setTimeout(resolve, 1200));
     if (body.expected_revision !== draft.revision) {
       conflict();
       return true;
@@ -177,6 +179,8 @@ export async function handleAgentConfiguration(
   if (url.pathname === root + "/profile") {
     if (request.method === "PUT") {
       const body = await readJson(request);
+      if (body.configuration?.business_description === "guardado-empresa-lento")
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       if (body.expected_revision !== profile.revision) {
         conflict();
         return true;

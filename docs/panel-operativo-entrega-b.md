@@ -1,6 +1,8 @@
 # Entrega B — configuración independiente por agente
 
-Estado: implementada localmente; revisión final en curso. No instalada en producción.
+Estado: editor implementado localmente y revisado; cinco hallazgos importantes
+corregidos con regresiones reproducidas. Verificación global de entorno y
+aceptación visual pendientes. No instalada en producción ni lista para fusionar.
 
 ## Qué se puede hacer
 
@@ -29,9 +31,10 @@ permisos ni consulta estas tablas. No hay DELETE ni modificación de tablas viej
 
 ## Evidencia local
 
-- Backend de configuración, importación y workspace:27 pruebas pasan.
-- Panel:121 pruebas unitarias y22 recorridos de navegador pasan.
-- Suite completa backend:665 pasan,1 falla,31 errores de preparación,1 advertencia.
+- Backend de configuración:15 pruebas pasan, más2 de importación y13 de workspace.
+- Panel:121 pruebas unitarias y27 recorridos de navegador pasan; lint, tipos y
+  compilación final pasan.
+- Suite completa backend:668 pasan,1 falla,31 errores de preparación,1 advertencia.
   El fallo es `test_database_gate_removes_stale_schema_state` (tabla residual de
   ensayo); los31 errores corresponden a suites que exigen el puerto canónico y
   rechazan55322. No presentar esta suite completa como aprobada.
@@ -64,3 +67,20 @@ No se descargan fuentes automáticamente, no se añade RAG ni conectores nuevos.
 Los campos libres son visibles a administradores autorizados; no se promete
 detectar automáticamente credenciales pegadas dentro de instrucciones. Auditoría
 registra revisiones y secciones, no el texto de instrucciones/conocimiento.
+
+Revisión independiente: ningún hallazgo crítico. Se reprodujeron y corrigieron:
+edición durante guardado, pérdida de texto al navegar (incluido Atrás), Enter en
+listas, requisitos de validación omitidos y valores rechazados expuestos en422.
+La protección422 está acotada a las rutas nuevas de configuración. Una variable
+de navegación llamada token disparó el detector del repositorio; se renombró
+guardId (no era credencial); las91 pruebas de ese control vuelven a pasar.
+
+Menor diferido: algunos selectores ofrecen «Sin definir» aunque el contrato no
+acepta null. El backend rechaza el valor sin guardarlo; se necesita pulir esa
+opción y su explicación antes de la aceptación productiva.
+
+Instancia antigua sin origen estructurado verificable: no se inventa ni se parsea
+el prompt. Puede crearse un agente manual independiente; iniciar manualmente el
+mismo UUID requiere una operación de aplicación adicional, no definida en B.
+Cambios compartidos hechos por otro administrador se detectan al leer/guardar o
+comparar, no mediante polling continuo en una pantalla inactiva.

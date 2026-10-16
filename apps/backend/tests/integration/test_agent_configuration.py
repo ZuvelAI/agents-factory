@@ -9,6 +9,59 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 
+@pytest.mark.asyncio
+async def test_validation_reports_all_known_prerequisites(configuration_client):
+    client, _ = configuration_client
+    root, draft = await create_company_and_agent(client)
+    config = draft["configuration"]
+    config["agent"].update(
+        greeting="Hola", instructions="Ayuda", supported_languages=[]
+    )
+    config["knowledge"].update(
+        approved_summary="Servicios",
+        review_confirmed=True,
+        source_name="",
+        source_reference="",
+        critical_conflicts=5,
+    )
+    config["policies_identity"]["customer_identity_method"] = "NONE"
+    config["human_operations"]["handoff_enabled"] = False
+    config["approval_routes"]["high_risk_actions_expected"] = False
+    response = await client.put(
+        root + f"/agents/{draft['agent_instance_id']}/configuration",
+        json={"expected_revision": 1, "configuration": config},
+    )
+    assert response.status_code == 200
+    fields = {issue["field"] for issue in response.json()["validation_issues"]}
+    assert {
+        "agent.supported_languages",
+        "knowledge.source_name",
+        "knowledge.source_reference",
+        "knowledge.critical_conflicts",
+    } <= fields
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["model", "extra"])
+async def test_request_validation_does_not_echo_rejected_secrets(
+    configuration_client, invalid
+):
+    client, _ = configuration_client
+    root, draft = await create_company_and_agent(client)
+    config = draft["configuration"]
+    if invalid == "model":
+        config["agent"]["model"] = "SENTINEL_SECRET_REJECTED"
+    else:
+        config["api_key"] = "SENTINEL_SECRET_REJECTED"
+    response = await client.put(
+        root + f"/agents/{draft['agent_instance_id']}/configuration",
+        json={"expected_revision": 1, "configuration": config},
+    )
+    assert response.status_code == 422
+    assert "SENTINEL_SECRET_REJECTED" not in response.text
+    assert "input" not in response.json()
+
+
 @pytest_asyncio.fixture
 async def configuration_client(session_factory):
     from agents_factory.common.security import (

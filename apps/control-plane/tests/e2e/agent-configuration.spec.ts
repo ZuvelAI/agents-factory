@@ -3,6 +3,88 @@ const tenant = "019c2000-0000-7000-8000-000000000102";
 const first = "019c2000-0000-7000-8000-000000000501";
 const second = "019c2000-0000-7000-8000-000000000502";
 const edit = (agent: string) => `/tenants/${tenant}/agents/${agent}/edit`;
+test("company fields are protected until the save response arrives", async ({
+  page,
+}) => {
+  await page.goto(`/tenants/${tenant}/settings`);
+  const description = page.getByLabel("Descripción de la empresa");
+  await description.fill("guardado-empresa-lento");
+  await page
+    .getByRole("button", { name: "Guardar información empresarial" })
+    .click();
+  await expect(description).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText(
+    "Datos compartidos guardados",
+  );
+  await expect(description).toBeEnabled();
+});
+test("multiline language input preserves a typed newline and saves two languages", async ({
+  page,
+}) => {
+  await page.goto(edit(first));
+  const languages = page.getByLabel("Idiomas (es-CO o en-US, uno por línea)");
+  await languages.fill("es-CO");
+  await languages.press("End");
+  await languages.press("Enter");
+  await languages.pressSequentially("en-US");
+  await expect(languages).toHaveValue("es-CO\nen-US");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Borrador guardado");
+  await page.reload();
+  await expect(languages).toHaveValue("es-CO\nen-US");
+});
+test("fields are protected while a save is in flight", async ({ page }) => {
+  await page.goto(edit(first));
+  const instructions = page.getByLabel("Instrucciones del agente");
+  await instructions.fill("guardado-lento-controlado");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await expect(instructions).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("Borrador guardado");
+  await expect(instructions).toBeEnabled();
+});
+test("company edits are not silently discarded by navigating away", async ({
+  page,
+}) => {
+  await page.goto(`/tenants/${tenant}/settings`);
+  await page
+    .getByLabel("Descripción de la empresa")
+    .fill("Texto empresarial sin guardar");
+  let prompted = false;
+  page.on("dialog", (dialog) => {
+    prompted = true;
+    return dialog.dismiss();
+  });
+  await page.getByRole("link", { name: "← Empresa", exact: true }).click();
+  await expect.poll(() => prompted).toBe(true);
+  await expect(page).toHaveURL(`/tenants/${tenant}/settings`);
+  await expect(page.getByLabel("Descripción de la empresa")).toHaveValue(
+    "Texto empresarial sin guardar",
+  );
+});
+test("browser Back asks before discarding company edits", async ({ page }) => {
+  await page.goto(`/tenants/${tenant}`);
+  await page
+    .getByRole("link", { name: "Información empresarial", exact: true })
+    .click();
+  await page
+    .getByLabel("Descripción de la empresa")
+    .fill("Texto protegido al volver");
+  let prompted = false;
+  page.on("dialog", (dialog) => {
+    prompted = true;
+    return dialog.dismiss();
+  });
+  await page.evaluate(() => history.back());
+  await expect.poll(() => prompted).toBe(true);
+  await expect(page).toHaveURL(`/tenants/${tenant}/settings`);
+  await expect(page.getByLabel("Descripción de la empresa")).toHaveValue(
+    "Texto protegido al volver",
+  );
+});
 test("company changes require explicit incorporation into the agent draft", async ({
   page,
 }) => {

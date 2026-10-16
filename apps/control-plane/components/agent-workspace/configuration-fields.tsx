@@ -116,7 +116,7 @@ export function ConfigurationFields({
                   onChange(
                     field.key,
                     field.kind === "list"
-                      ? event.target.value.split("\n").filter(Boolean)
+                      ? event.target.value.split("\n")
                       : event.target.value,
                   )
                 }

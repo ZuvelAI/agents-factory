@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
+import { useUnsavedConfiguration } from "./use-unsaved-configuration";
 import type {
   ConfigurationActionState,
   Draft,
@@ -44,28 +45,7 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
     },
     { status: "idle" } as ConfigurationActionState,
   );
-  useEffect(() => {
-    if (!dirty) return;
-    const before = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    const navigate = (event: MouseEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest("a[href]") &&
-        !window.confirm(
-          "Tienes cambios sin guardar. ¿Quieres salir y descartarlos?",
-        )
-      )
-        event.preventDefault();
-    };
-    window.addEventListener("beforeunload", before);
-    document.addEventListener("click", navigate, true);
-    return () => {
-      window.removeEventListener("beforeunload", before);
-      document.removeEventListener("click", navigate, true);
-    };
-  }, [dirty]);
+  useUnsavedConfiguration(dirty);
   function update(section: string, key: string, value: JsonValue) {
     setDraft((current) => ({
       ...current,
@@ -121,205 +101,222 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
           name="configuration"
           value={JSON.stringify(draft.configuration)}
         />
-        <div className="workspace-sections">
-          <details open>
-            <summary>Identidad y comportamiento</summary>
-            <label>
-              Propósito
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={String(draft.configuration.purpose ?? "")}
-                onChange={(event) => {
-                  setDraft({
-                    ...draft,
-                    configuration: {
-                      ...draft.configuration,
-                      purpose: event.target.value,
-                    },
-                  });
-                  setDirty(true);
-                }}
+        <fieldset
+          disabled={pending || refreshPending}
+          className="configuration-fieldset"
+        >
+          <div className="workspace-sections">
+            <details open>
+              <summary>Identidad y comportamiento</summary>
+              <label>
+                Propósito
+                <textarea
+                  rows={3}
+                  maxLength={2000}
+                  value={String(draft.configuration.purpose ?? "")}
+                  onChange={(event) => {
+                    setDraft({
+                      ...draft,
+                      configuration: {
+                        ...draft.configuration,
+                        purpose: event.target.value,
+                      },
+                    });
+                    setDirty(true);
+                  }}
+                />
+              </label>
+              <ConfigurationFields
+                prefix="agent"
+                fields={agentFields}
+                value={draft.configuration.agent}
+                onChange={(key, value) => update("agent", key, value)}
               />
-            </label>
-            <ConfigurationFields
-              prefix="agent"
-              fields={agentFields}
-              value={draft.configuration.agent}
-              onChange={(key, value) => update("agent", key, value)}
-            />
-          </details>
-          <details>
-            <summary>Conocimiento de la empresa</summary>
-            <p>
-              Escribe el contenido que podrá usar el agente. Registrar una URL o
-              un PDF no descarga su contenido.
-            </p>
-            <ConfigurationFields
-              prefix="knowledge"
-              value={draft.configuration.knowledge}
-              onChange={(key, value) => update("knowledge", key, value)}
-              fields={[
-                { key: "source_name", label: "Nombre de la fuente", max: 300 },
-                {
-                  key: "source_type",
-                  label: "Tipo de fuente",
-                  options: ["INTERNAL_TEXT", "WEBSITE", "PDF"],
-                },
-                {
-                  key: "source_reference",
-                  label: "Referencia de la fuente",
-                  max: 2000,
-                },
-                {
-                  key: "authority",
-                  label: "Autoridad de la fuente",
-                  options: ["OFFICIAL", "OPERATIONAL", "REFERENCE"],
-                },
-                {
-                  key: "approved_summary",
-                  label: "Conocimiento empresarial",
-                  kind: "multiline",
-                  max: 10000,
-                },
-                {
-                  key: "critical_conflicts",
-                  label: "Conflictos críticos pendientes",
-                  kind: "number",
-                },
-                {
-                  key: "review_confirmed",
-                  label: "He revisado este contenido exacto",
-                  kind: "boolean",
-                },
-              ]}
-            />
-          </details>
-          <details>
-            <summary>Políticas y operación</summary>
-            <ConfigurationFields
-              prefix="policies"
-              value={draft.configuration.policies_identity}
-              onChange={(key, value) => update("policies_identity", key, value)}
-              fields={[
-                {
-                  key: "pricing_response",
-                  label: "Respuesta sobre precios",
-                  options: ["QUOTE_REQUIRED", "APPROVED_PRICES_ONLY"],
-                },
-                {
-                  key: "privacy_policy_status",
-                  label: "Política de privacidad",
-                  options: ["NOT_DEFINED", "DRAFT", "APPROVED"],
-                },
-                {
-                  key: "customer_identity_method",
-                  label: "Método de identidad",
-                  options: [
-                    "NONE",
-                    "WHATSAPP_NUMBER",
-                    "ORDER_DATA",
-                    "ONE_TIME_CODE",
-                  ],
-                },
-                {
-                  key: "policy_notes",
-                  label: "Notas de políticas",
-                  kind: "multiline",
-                  max: 5000,
-                },
-              ]}
-            />
-            <ConfigurationFields
-              prefix="human"
-              value={draft.configuration.human_operations}
-              onChange={(key, value) => update("human_operations", key, value)}
-              fields={[
-                {
-                  key: "handoff_enabled",
-                  label:
-                    "Solicitar derivación automática (requiere implementación)",
-                  kind: "boolean",
-                },
-                {
-                  key: "response_surface",
-                  label: "Superficie humana",
-                  options: [
-                    "NONE",
-                    "WHATSAPP_COEXISTENCE",
-                    "EXTERNAL_HELPDESK",
-                  ],
-                },
-                { key: "support_hours", label: "Horario de soporte", max: 500 },
-                {
-                  key: "awaiting_human_policy",
-                  label: "Mientras espera atención humana",
-                  options: ["SILENT", "ACKNOWLEDGE"],
-                },
-              ]}
-            />
-            <ConfigurationFields
-              prefix="approval"
-              value={draft.configuration.approval_routes}
-              onChange={(key, value) => update("approval_routes", key, value)}
-              fields={[
-                {
-                  key: "high_risk_actions_expected",
-                  label: "Requiere acciones de alto riesgo",
-                  kind: "boolean",
-                },
-                {
-                  key: "approver_emails",
-                  label: "Correos de aprobadores (uno por línea)",
-                  kind: "list",
-                },
-                {
-                  key: "route_notes",
-                  label: "Responsables y reglas de aprobación",
-                  kind: "multiline",
-                  max: 2000,
-                },
-              ]}
-            />
-            <p>
-              Declarar una operación no la habilita. Los requisitos no
-              soportados impedirán preparar una versión hasta su integración.
-            </p>
-          </details>
-          <details>
-            <summary>Modelo</summary>
-            <ConfigurationFields
-              prefix="model"
-              value={draft.configuration.agent}
-              onChange={(key, value) => update("agent", key, value)}
-              fields={[
-                {
-                  key: "model",
-                  label: "Modelo del borrador",
-                  options: ["gpt-5.6-luna", "gpt-6-luna"],
-                },
-              ]}
-            />
-            <p>No se hacen llamadas al modelo al guardar.</p>
-          </details>
-          <details>
-            <summary>Capacidades e integraciones</summary>
-            <p>
-              Solo lectura en esta fase. Una preferencia heredada no confirma
-              que la herramienta esté conectada ni habilitada.
-            </p>
-            <pre>
-              {JSON.stringify(
-                {
-                  capacidades: draft.configuration.capabilities,
-                  integraciones: draft.configuration.integrations,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </details>
-        </div>
+            </details>
+            <details>
+              <summary>Conocimiento de la empresa</summary>
+              <p>
+                Escribe el contenido que podrá usar el agente. Registrar una URL
+                o un PDF no descarga su contenido.
+              </p>
+              <ConfigurationFields
+                prefix="knowledge"
+                value={draft.configuration.knowledge}
+                onChange={(key, value) => update("knowledge", key, value)}
+                fields={[
+                  {
+                    key: "source_name",
+                    label: "Nombre de la fuente",
+                    max: 300,
+                  },
+                  {
+                    key: "source_type",
+                    label: "Tipo de fuente",
+                    options: ["INTERNAL_TEXT", "WEBSITE", "PDF"],
+                  },
+                  {
+                    key: "source_reference",
+                    label: "Referencia de la fuente",
+                    max: 2000,
+                  },
+                  {
+                    key: "authority",
+                    label: "Autoridad de la fuente",
+                    options: ["OFFICIAL", "OPERATIONAL", "REFERENCE"],
+                  },
+                  {
+                    key: "approved_summary",
+                    label: "Conocimiento empresarial",
+                    kind: "multiline",
+                    max: 10000,
+                  },
+                  {
+                    key: "critical_conflicts",
+                    label: "Conflictos críticos pendientes",
+                    kind: "number",
+                  },
+                  {
+                    key: "review_confirmed",
+                    label: "He revisado este contenido exacto",
+                    kind: "boolean",
+                  },
+                ]}
+              />
+            </details>
+            <details>
+              <summary>Políticas y operación</summary>
+              <ConfigurationFields
+                prefix="policies"
+                value={draft.configuration.policies_identity}
+                onChange={(key, value) =>
+                  update("policies_identity", key, value)
+                }
+                fields={[
+                  {
+                    key: "pricing_response",
+                    label: "Respuesta sobre precios",
+                    options: ["QUOTE_REQUIRED", "APPROVED_PRICES_ONLY"],
+                  },
+                  {
+                    key: "privacy_policy_status",
+                    label: "Política de privacidad",
+                    options: ["NOT_DEFINED", "DRAFT", "APPROVED"],
+                  },
+                  {
+                    key: "customer_identity_method",
+                    label: "Método de identidad",
+                    options: [
+                      "NONE",
+                      "WHATSAPP_NUMBER",
+                      "ORDER_DATA",
+                      "ONE_TIME_CODE",
+                    ],
+                  },
+                  {
+                    key: "policy_notes",
+                    label: "Notas de políticas",
+                    kind: "multiline",
+                    max: 5000,
+                  },
+                ]}
+              />
+              <ConfigurationFields
+                prefix="human"
+                value={draft.configuration.human_operations}
+                onChange={(key, value) =>
+                  update("human_operations", key, value)
+                }
+                fields={[
+                  {
+                    key: "handoff_enabled",
+                    label:
+                      "Solicitar derivación automática (requiere implementación)",
+                    kind: "boolean",
+                  },
+                  {
+                    key: "response_surface",
+                    label: "Superficie humana",
+                    options: [
+                      "NONE",
+                      "WHATSAPP_COEXISTENCE",
+                      "EXTERNAL_HELPDESK",
+                    ],
+                  },
+                  {
+                    key: "support_hours",
+                    label: "Horario de soporte",
+                    max: 500,
+                  },
+                  {
+                    key: "awaiting_human_policy",
+                    label: "Mientras espera atención humana",
+                    options: ["SILENT", "ACKNOWLEDGE"],
+                  },
+                ]}
+              />
+              <ConfigurationFields
+                prefix="approval"
+                value={draft.configuration.approval_routes}
+                onChange={(key, value) => update("approval_routes", key, value)}
+                fields={[
+                  {
+                    key: "high_risk_actions_expected",
+                    label: "Requiere acciones de alto riesgo",
+                    kind: "boolean",
+                  },
+                  {
+                    key: "approver_emails",
+                    label: "Correos de aprobadores (uno por línea)",
+                    kind: "list",
+                  },
+                  {
+                    key: "route_notes",
+                    label: "Responsables y reglas de aprobación",
+                    kind: "multiline",
+                    max: 2000,
+                  },
+                ]}
+              />
+              <p>
+                Declarar una operación no la habilita. Los requisitos no
+                soportados impedirán preparar una versión hasta su integración.
+              </p>
+            </details>
+            <details>
+              <summary>Modelo</summary>
+              <ConfigurationFields
+                prefix="model"
+                value={draft.configuration.agent}
+                onChange={(key, value) => update("agent", key, value)}
+                fields={[
+                  {
+                    key: "model",
+                    label: "Modelo del borrador",
+                    options: ["gpt-5.6-luna", "gpt-6-luna"],
+                  },
+                ]}
+              />
+              <p>No se hacen llamadas al modelo al guardar.</p>
+            </details>
+            <details>
+              <summary>Capacidades e integraciones</summary>
+              <p>
+                Solo lectura en esta fase. Una preferencia heredada no confirma
+                que la herramienta esté conectada ni habilitada.
+              </p>
+              <pre>
+                {JSON.stringify(
+                  {
+                    capacidades: draft.configuration.capabilities,
+                    integraciones: draft.configuration.integrations,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
+          </div>
+        </fieldset>
         <div className="configuration-save">
           <button type="submit" disabled={pending || refreshPending}>
             {pending ? "Guardando…" : "Guardar borrador"}

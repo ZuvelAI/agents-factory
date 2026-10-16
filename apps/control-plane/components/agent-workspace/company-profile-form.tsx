@@ -14,6 +14,7 @@ import {
   importLegacyConfiguration,
 } from "./configuration-actions";
 import { ConfigurationFields, companyFields } from "./configuration-fields";
+import { useUnsavedConfiguration } from "./use-unsaved-configuration";
 
 export function CompanyProfileForm({
   tenant,
@@ -33,12 +34,17 @@ export function CompanyProfileForm({
   );
   const [revision, setRevision] = useState(initial?.revision ?? 0),
     [comparison, setComparison] = useState<CompanyProfile | null>(null);
+  const [savedConfiguration, setSavedConfiguration] = useState(configuration);
+  useUnsavedConfiguration(
+    JSON.stringify(configuration) !== JSON.stringify(savedConfiguration),
+  );
   const [state, action, pending] = useActionState(
     async (previous: ConfigurationActionState, form: FormData) => {
       const result = await saveCompanyProfile(previous, form);
       if (result.profile) {
         setRevision(result.profile.revision);
         setConfiguration(result.profile.configuration);
+        setSavedConfiguration(result.profile.configuration);
         setComparison(null);
       }
       return result;
@@ -61,14 +67,16 @@ export function CompanyProfileForm({
           name="configuration"
           value={JSON.stringify(configuration)}
         />
-        <ConfigurationFields
-          prefix="company"
-          fields={companyFields}
-          value={configuration}
-          onChange={(key, value) =>
-            setConfiguration({ ...configuration, [key]: value })
-          }
-        />
+        <fieldset disabled={pending} className="configuration-fieldset">
+          <ConfigurationFields
+            prefix="company"
+            fields={companyFields}
+            value={configuration}
+            onChange={(key, value) =>
+              setConfiguration({ ...configuration, [key]: value })
+            }
+          />
+        </fieldset>
         <button disabled={pending}>
           {pending ? "Guardando…" : "Guardar información empresarial"}
         </button>
@@ -98,6 +106,7 @@ export function CompanyProfileForm({
                     )
                   ) {
                     setConfiguration(comparison.configuration);
+                    setSavedConfiguration(comparison.configuration);
                     setRevision(comparison.revision);
                   }
                 }}

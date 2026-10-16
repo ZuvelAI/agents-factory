@@ -16,9 +16,12 @@ from .configuration_models import (
 from .configuration_service import AgentConfigurationService
 from .configuration_import import LegacyConfigurationImportService
 from .configuration_models import ImportLegacyRequest
+from .configuration_errors import SafeConfigurationRoute
 
 router = APIRouter(
-    prefix="/admin/agent-workspace", tags=["platform-admin-configuration"]
+    prefix="/admin/agent-workspace",
+    tags=["platform-admin-configuration"],
+    route_class=SafeConfigurationRoute,
 )
 
 

@@ -191,6 +191,9 @@ class AgentConfigurationService:
             ("agent.greeting", config.agent.greeting),
             ("agent.instructions", config.agent.instructions),
             ("knowledge.approved_summary", config.knowledge.approved_summary),
+            ("agent.supported_languages", config.agent.supported_languages),
+            ("knowledge.source_name", config.knowledge.source_name),
+            ("knowledge.source_reference", config.knowledge.source_reference),
         ):
             if not value:
                 issues.append(
@@ -206,6 +209,14 @@ class AgentConfigurationService:
                     field="knowledge.review_confirmed",
                     code="review_required",
                     message="El conocimiento requiere revisión.",
+                )
+            )
+        if config.knowledge.critical_conflicts:
+            issues.append(
+                ValidationIssue(
+                    field="knowledge.critical_conflicts",
+                    code="unresolved_conflicts",
+                    message="Resuelve los conflictos críticos de conocimiento antes de preparar pruebas.",
                 )
             )
         combined = OnboardingConfiguration.model_validate(
