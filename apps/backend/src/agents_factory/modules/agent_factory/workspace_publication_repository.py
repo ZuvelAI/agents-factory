@@ -70,3 +70,52 @@ class WorkspacePublicationRepository:
         )
         assert row is not None
         return row
+
+    async def request_by_key(self, actor: UUID, key: UUID) -> dict[str, Any] | None:
+        return await self.one(
+            "SELECT * FROM public.agent_publication_test_runs WHERE tenant_id=:tenant AND requested_by=:actor AND request_key=:key",
+            actor=actor,
+            key=key,
+        )
+
+    async def pending_run(
+        self, agent: UUID, version: UUID, kind: str
+    ) -> dict[str, Any] | None:
+        return await self.one(
+            "SELECT run.id FROM public.agent_publication_test_runs run LEFT JOIN public.agent_publication_test_results result ON result.tenant_id=run.tenant_id AND result.run_id=run.id WHERE run.tenant_id=:tenant AND run.agent_instance_id=:agent AND run.version_id=:version AND run.run_kind=:kind AND run.expires_at>now() AND result.run_id IS NULL ORDER BY run.created_at DESC LIMIT 1",
+            agent=agent,
+            version=version,
+            kind=kind,
+        )
+
+    async def recent_count(self, agent: UUID, kind: str) -> int:
+        row = await self.one(
+            "SELECT count(*) AS count FROM public.agent_publication_test_runs WHERE tenant_id=:tenant AND agent_instance_id=:agent AND run_kind=:kind AND created_at>now()-interval '1 hour'",
+            agent=agent,
+            kind=kind,
+        )
+        assert row is not None
+        return int(row["count"])
+
+    async def insert_run(self, **params: Any) -> None:
+        await self.one(
+            "INSERT INTO public.agent_publication_test_runs (id,tenant_id,version_id,onboarding_revision,source_kind,run_kind,agent_instance_id,draft_revision,company_revision,input_messages,requested_by,request_key,agent_spec_digest,knowledge_digest,code_digest) VALUES (:id,:tenant,:version,NULL,'AGENT_CONFIGURATION',:kind,:agent,:revision,:company_revision,CAST(:messages AS jsonb),:actor,:key,:spec,:knowledge,:code) RETURNING id",
+            **params,
+        )
+
+    async def lock_review(self, run_id: UUID) -> None:
+        await self.one(
+            "SELECT pg_advisory_xact_lock(hashtextextended(:key,0))",
+            key=f"publication-review:{self.context.tenant_id}:{run_id}",
+        )
+
+    async def insert_review(
+        self, run_id: UUID, actor_id: UUID, approved: bool, decision_id: UUID
+    ) -> None:
+        await self.one(
+            "INSERT INTO public.agent_publication_reviews (id,tenant_id,run_id,reviewer_id,approved) VALUES(:id,:tenant,:run,:actor,:approved) RETURNING id",
+            id=decision_id,
+            run=run_id,
+            actor=actor_id,
+            approved=approved,
+        )

@@ -160,7 +160,7 @@ class PanelPublicationService:
                             "(result.run_id IS NOT NULL) AS completed FROM public.agent_publication_test_runs run "
                             "LEFT JOIN public.agent_publication_reviews review ON review.tenant_id=run.tenant_id AND review.run_id=run.id "
                             "LEFT JOIN public.agent_publication_test_results result ON result.tenant_id=run.tenant_id AND result.run_id=run.id "
-                            "WHERE run.tenant_id=:tenant ORDER BY run.created_at DESC,run.id DESC LIMIT 100"
+                            "WHERE run.tenant_id=:tenant AND run.source_kind='LEGACY' ORDER BY run.created_at DESC,run.id DESC LIMIT 100"
                         ),
                         {"tenant": self.context.tenant_id},
                     )
@@ -252,6 +252,8 @@ class PanelPublicationService:
         run = await PublicationEvidenceService(
             self.session, self.context, code_digest=self.code_digest
         ).read_run(test_run_id)
+        if run.source_kind != "LEGACY" or run.run_kind != "SCENARIOS":
+            raise publication_problem("test_run_not_found", "Test run not found", 404)
         if (
             stored is None
             or stored.revision != expected_revision

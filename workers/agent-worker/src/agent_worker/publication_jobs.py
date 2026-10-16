@@ -15,6 +15,12 @@ from agents_factory.modules.agent_factory.publication_tests import (
 )
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
 from agents_factory.modules.runtime.contracts import AgentRuntime
+from agents_factory.modules.runtime.contracts import TurnMessage
+from agents_factory.modules.agent_factory.publication_preview import (
+    PreviewResult,
+    run_candidate_preview,
+)
+from uuid import uuid4
 
 
 async def handle_publication_test(
@@ -51,7 +57,7 @@ async def handle_publication_test(
             correlation_id=envelope.job_id,
         )
         service = PublicationEvidenceService(session, context, code_digest=code_digest)
-        run = await service.read_run(envelope.aggregate_id)
+        run = await service.read_run(envelope.aggregate_id, check_current=False)
         if run.result is not None:
             return
         version = await AgentSpecRepository(session, context).get_version(
@@ -65,16 +71,29 @@ async def handle_publication_test(
             or run.code_digest != code_digest
             or run.expires_at <= datetime.now(UTC)
         ):
-            result = CandidateTestResult(
-                scenarios=[
-                    ScenarioResult(
-                        key="integrity",
-                        prompt="Verificar candidato",
-                        passed=False,
-                        error_code="candidate_integrity_failed",
-                    )
-                ],
-                checks_passed=False,
+            result: CandidateTestResult | PreviewResult = (
+                PreviewResult(error_code="candidate_integrity_failed")
+                if run.run_kind == "PREVIEW"
+                else CandidateTestResult(
+                    scenarios=[
+                        ScenarioResult(
+                            key="integrity",
+                            prompt="Verificar candidato",
+                            passed=False,
+                            error_code="candidate_integrity_failed",
+                        )
+                    ],
+                    checks_passed=False,
+                )
+            )
+        elif run.run_kind == "PREVIEW":
+            result = await run_candidate_preview(
+                version.compiled_spec,
+                tuple(
+                    TurnMessage(uuid4(), m.role, m.text)
+                    for m in (run.input_messages or [])
+                ),
+                runtime,
             )
         else:
             result = await run_candidate_tests(version.compiled_spec, runtime)

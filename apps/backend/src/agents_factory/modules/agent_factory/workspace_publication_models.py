@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Self
+from .publication_preview import PreviewMessage
 from .models import AgentSpecVersion, Sha256Digest
 
 
@@ -24,3 +26,32 @@ class WorkspaceCandidateView(BaseModel):
     version: AgentSpecVersion
     source: PublicationSource
     created_at: datetime
+
+
+class WorkspaceTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_kind: Literal["SCENARIOS", "PREVIEW"] = "SCENARIOS"
+    expected_revision: int = Field(ge=1)
+    request_key: UUID
+    messages: list[PreviewMessage] | None = Field(
+        default=None, min_length=1, max_length=20
+    )
+
+    @model_validator(mode="after")
+    def valid_conversation(self) -> Self:
+        if self.run_kind == "SCENARIOS":
+            if self.messages is not None:
+                raise ValueError("scenario inputs are fixed")
+        else:
+            if (
+                not self.messages
+                or len(self.messages) % 2 == 0
+                or sum(len(m.text) for m in self.messages) > 20000
+            ):
+                raise ValueError("invalid preview history")
+            if any(
+                m.role != ("user" if i % 2 == 0 else "assistant")
+                for i, m in enumerate(self.messages)
+            ):
+                raise ValueError("history must alternate from and end with user")
+        return self
