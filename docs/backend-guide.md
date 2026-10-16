@@ -25,7 +25,43 @@ empresa incorporado explícitamente. Editar uno no modifica otros agentes.
 Un borrador incompleto NO es una versión ejecutable. La ejecución sigue leyendo
 el AgentSpec publicado y fijado a la cuenta, no estas tablas. Las rutas antiguas
 no leen automáticamente estos borradores. La adaptación del flujo de pruebas y
-publicación corresponde a la entrega C; ver `docs/panel-operativo-entrega-b.md`.
+publicación está implementada localmente en la entrega C; ver
+`docs/panel-operativo-entrega-c.md`. No está instalada en producción.
+
+## Pruebas y publicación por agente: entrega C
+
+```text
+Perfil incorporado + borrador de instancia y revisión exactas
+  -> proyección pura -> candidato compilado y conocimiento congelado
+  -> prueba en outbox -> resultado inmutable -> revisión humana explícita
+  -> gate vigente -> confirmación del número -> binding con revisión esperada
+```
+
+- `configuration_projection.py`: snapshot canónico y adaptación pura al compilador.
+- `publication_source.py`: diferencia LEGACY de AGENT_CONFIGURATION; valida
+  revisiones y digest sin confundir dos agentes con el mismo número de revisión.
+- `workspace_publication_repository.py`: SQL acotado, locks y procedencia.
+- `workspace_publication_service.py`: preparación, lectura, publicación y rollback.
+- `workspace_publication_gate.py`: exige evidencia vigente, completa y aprobada.
+- `workspace_publication_models.py` / `workspace_publication_views.py`: comandos
+  estrictos y contratos de lectura separados.
+- `workspace_publication_router.py`: autorización y rutas administrativas por
+  empresa/instancia; no SQL ni llamadas al modelo.
+- `publication_evidence.py`: solicitudes/revisiones y persistencia de evidencia;
+  el worker reutiliza `publication_jobs.py`, con integridad pero sin acceso a borradores.
+- `publication_preview.py`: conversación sintética aislada, sin herramientas,
+  mensajes de clientes ni envío WhatsApp; fallo seguro, nunca respuesta de respaldo.
+
+Hay una sola tabla nueva de procedencia: `workspace_agent_candidates`.
+Se amplían los runs existentes con origen/tipo/revisiones y clave de solicitud.
+Versiones, conocimiento, resultados, revisiones, outbox, auditoría y bindings se
+reutilizan. No hay un segundo backend ni un segundo motor de respuesta.
+
+Guardar, preparar, probar, aprobar y publicar son operaciones distintas. Solo la
+última modifica la asignación del número, con control de concurrencia y auditoría.
+Un cambio de empresa o borrador invalida pruebas antiguas para publicar, pero no
+borra sus resultados. Rollback recupera una versión publicada compatible de la
+misma instancia y no sobrescribe el borrador editable.
 
 La cobertura de aislamiento mantiene dos contratos explícitos: matriz de DML del
 runtime y contratos de tablas de publicación/edición en

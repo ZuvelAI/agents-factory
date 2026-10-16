@@ -6,7 +6,10 @@ import {
   readPublication,
   parsePublicationRun,
 } from "../../lib/workspace-publication";
-import type { PublicationActionState } from "../../lib/workspace-publication";
+import type {
+  PublicationActionState,
+  PublicationState,
+} from "../../lib/workspace-publication";
 import { isWorkspaceId } from "../../lib/agent-workspace";
 function field(form: FormData, key: string, max = 200) {
   const v = form.get(key);
@@ -23,6 +26,29 @@ function rev(form: FormData, key: string, min = 1) {
   if (!/^\d+$/.test(v) || !Number.isSafeInteger(Number(v)) || Number(v) < min)
     throw new Error("invalid_input");
   return Number(v);
+}
+async function focusedState(
+  tenant: string,
+  agent: string,
+  cursor: string | undefined,
+  section: string,
+  runs: string[],
+): Promise<PublicationState> {
+  const state = await readPublication(tenant, agent, cursor, section);
+  if (runs.length > 2 || runs.some((run) => !isWorkspaceId(run)))
+    throw new Error("invalid_input");
+  for (const runId of new Set(runs)) {
+    if (state.runs.some((run) => run.id === runId)) continue;
+    const run = parsePublicationRun(
+      await callAuthenticatedBackend(
+        `${publicationPath(tenant, agent)}/tests/${runId}`,
+      ),
+    );
+    if (run.agent_instance_id !== agent || run.id !== runId)
+      throw new Error("invalid_input");
+    state.runs.unshift(run);
+  }
+  return state;
 }
 export async function publicationAction(
   _previous: PublicationActionState,
@@ -120,7 +146,26 @@ export async function publicationAction(
       if (["test", "preview", "review"].includes(command))
         run = parsePublicationRun(result);
     }
-    const state = await readPublication(tenant, agent);
+    let state;
+    try {
+      state = await focusedState(
+        tenant,
+        agent,
+        String(form.get("pageCursor") ?? "") || undefined,
+        String(form.get("pageSection") ?? "candidates"),
+        [form.get("focusedSuite"), form.get("focusedPreview")].filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        ),
+      );
+    } catch {
+      // A successful write is not undone by an unavailable read projection.
+      return {
+        status: "success",
+        message: `${message} No se pudo refrescar el estado; consulta sin repetir la operación.`,
+        run,
+      };
+    }
     revalidatePath(`/tenants/${tenant}/agents/${agent}`);
     revalidatePath(`/tenants/${tenant}`);
     return { status: "success", message, state, run };
@@ -147,9 +192,15 @@ export async function publicationAction(
 export async function refreshPublication(
   tenant: string,
   agent: string,
+  cursor?: string,
+  section = "candidates",
+  runIds: string[] = [],
 ): Promise<PublicationActionState> {
   try {
-    return { status: "success", state: await readPublication(tenant, agent) };
+    return {
+      status: "success",
+      state: await focusedState(tenant, agent, cursor, section, runIds),
+    };
   } catch {
     return {
       status: "error",

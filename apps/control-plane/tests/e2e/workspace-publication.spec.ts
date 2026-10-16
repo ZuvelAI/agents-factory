@@ -154,3 +154,137 @@ test("testing panel fits mobile and desktop", async ({ page }, testInfo) => {
     fullPage: true,
   });
 });
+
+test("published legacy versions can be recovered without preparing a workspace candidate", async ({
+  page,
+  request,
+}) => {
+  await page.goto(path);
+  await page
+    .getByRole("button", { name: "Preparar versión de prueba" })
+    .click();
+  await expect(
+    page.getByLabel("Versión para probar").locator("option"),
+  ).toHaveCount(2);
+  await request.post(
+    "http://127.0.0.1:3132/__workspace-publication/legacy-recovery",
+    {
+      headers: {
+        Authorization: `Bearer e30.${Buffer.from(JSON.stringify({ app_metadata: { platform_role: "platform_admin" } })).toString("base64url")}.test`,
+      },
+    },
+  );
+  await page.reload();
+  await expect(
+    page.getByLabel("Versión para probar").locator("option"),
+  ).toHaveCount(1);
+  await page
+    .getByRole("combobox", { name: /^Número destino/ })
+    .selectOption({ index: 1 });
+  await page
+    .getByText("Volver a una versión anterior", { exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: /^Versión anterior/ })
+    .selectOption({ index: 1 });
+  await expect(
+    page.getByText("Conocimiento aprobado", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator("pre")
+      .filter({ hasText: "Conocimiento congelado para comparar" })
+      .first(),
+  ).toBeVisible();
+  await page.getByLabel("Confirmo recuperar esta versión").check();
+  await expect(
+    page.getByRole("button", { name: "Recuperar versión" }),
+  ).toBeEnabled();
+});
+
+test("an accepted preview with lost response is retried with the same identity", async ({
+  page,
+}) => {
+  await page.goto(path);
+  await page
+    .getByRole("button", { name: "Preparar versión de prueba" })
+    .click();
+  await page.getByLabel("Versión para probar").selectOption({ index: 1 });
+  await page.getByLabel("Mensaje de prueba").fill("respuesta-perdida");
+  await page.getByRole("button", { name: "Enviar prueba aislada" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "No se pudo confirmar" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Mensaje de prueba")).toHaveValue(
+    "respuesta-perdida",
+  );
+  await page.getByRole("button", { name: "Enviar prueba aislada" }).click();
+  await expect(page.getByLabel("Mensajes de la prueba")).toContainText(
+    "Respuesta simulada de Zuvel",
+  );
+  await expect(
+    page.getByLabel("Conversaciones de prueba guardadas").locator("option"),
+  ).toHaveCount(2);
+});
+
+test("a selected scenario remains inspectable and approvable outside the first runs page", async ({
+  page,
+  request,
+}) => {
+  await page.goto(path);
+  await page
+    .getByRole("button", { name: "Preparar versión de prueba" })
+    .click();
+  await page.getByLabel("Versión para probar").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Ejecutar escenarios" }).click();
+  await expect(
+    page.getByLabel("He revisado las respuestas exactas"),
+  ).toBeVisible();
+  await request.post(
+    "http://127.0.0.1:3132/__workspace-publication/hide-suites",
+    {
+      headers: {
+        Authorization: `Bearer e30.${Buffer.from(JSON.stringify({ app_metadata: { platform_role: "platform_admin" } })).toString("base64url")}.test`,
+      },
+    },
+  );
+  await page.getByRole("button", { name: "Consultar estado" }).click();
+  await page.getByLabel("He revisado las respuestas exactas").check();
+  await page.getByRole("button", { name: "Aprobar escenarios" }).click();
+  await expect(
+    page.getByText("Decisión: Aprobada.", { exact: false }),
+  ).toBeVisible();
+});
+
+test("refresh keeps a later candidate page and its unsent preview", async ({
+  page,
+  request,
+}) => {
+  await page.goto(path);
+  await page
+    .getByRole("button", { name: "Preparar versión de prueba" })
+    .click();
+  await expect(
+    page.getByLabel("Versión para probar").locator("option"),
+  ).toHaveCount(2);
+  await request.post(
+    "http://127.0.0.1:3132/__workspace-publication/page-two-only",
+    {
+      headers: {
+        Authorization: `Bearer e30.${Buffer.from(JSON.stringify({ app_metadata: { platform_role: "platform_admin" } })).toString("base64url")}.test`,
+      },
+    },
+  );
+  await page.goto(path + "?section=candidates&cursor=page-two");
+  await page.getByLabel("Versión para probar").selectOption({ index: 1 });
+  await page
+    .getByLabel("Mensaje de prueba")
+    .fill("Sin enviar en segunda página");
+  await page.getByRole("button", { name: "Consultar estado" }).click();
+  await expect(page.getByLabel("Mensaje de prueba")).toHaveValue(
+    "Sin enviar en segunda página",
+  );
+  await expect(
+    page.getByLabel("Versión para probar").locator("option"),
+  ).toHaveCount(2);
+});

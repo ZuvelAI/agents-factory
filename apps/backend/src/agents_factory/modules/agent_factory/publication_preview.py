@@ -15,7 +15,13 @@ from agents_factory.modules.runtime.contracts import (
 class PreviewMessage(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     role: Literal["user", "assistant"]
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=8000)
+
+    @model_validator(mode="after")
+    def user_input_limit(self) -> Self:
+        if self.role == "user" and len(self.text) > 2000:
+            raise ValueError("user input exceeds preview limit")
+        return self
 
 
 class PreviewResult(BaseModel):

@@ -1,5 +1,10 @@
 "use client";
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
+import {
+  previewInput,
+  requestIdentity,
+  type RequestIdentity,
+} from "../../lib/publication-preview-input";
 import { publicationAction } from "./publication-actions";
 import { useUnsavedConfiguration } from "./use-unsaved-configuration";
 import type {
@@ -17,6 +22,10 @@ export function AgentPreview({
   run,
   onState,
   onDirty,
+  cursor,
+  section,
+  suiteId,
+  onRun,
 }: {
   tenant: string;
   agent: string;
@@ -25,14 +34,29 @@ export function AgentPreview({
   run: Run | undefined;
   onState: (state: PublicationState) => void;
   onDirty: (dirty: boolean) => void;
+  cursor?: string;
+  section: string;
+  suiteId?: string;
+  onRun: (run: Run) => void;
 }) {
   const [text, setText] = useState("");
+  const [reset, setReset] = useState(false);
+  const identity = useRef<RequestIdentity | null>(null);
+  const submittedMessages = useRef("");
   const [result, action, pending] = useActionState(
     async (previous: PublicationActionState, form: FormData) => {
-      form.set("requestKey", crypto.randomUUID());
+      const signature = JSON.stringify([versionId, revision, text, reset]);
+      if (identity.current?.signature !== signature)
+        submittedMessages.current = String(form.get("messages"));
+      identity.current = requestIdentity(identity.current, signature);
+      form.set("messages", submittedMessages.current);
+      form.set("requestKey", identity.current.key);
       const response = await publicationAction(previous, form);
       if (response.state) onState(response.state);
       if (response.run) {
+        onRun(response.run);
+        identity.current = null;
+        setReset(false);
         setText("");
         onDirty(false);
       }
@@ -43,12 +67,14 @@ export function AgentPreview({
   useUnsavedConfiguration(text.trim().length > 0);
   const previewResult =
     run?.result && "response" in run.result ? run.result : null;
-  const history: PreviewMessage[] = [
-    ...(run?.input_messages ?? []),
-    ...(previewResult?.response
-      ? [{ role: "assistant" as const, text: previewResult.response }]
-      : []),
-  ];
+  const history: PreviewMessage[] = reset
+    ? []
+    : [
+        ...(run?.input_messages ?? []),
+        ...(previewResult?.response
+          ? [{ role: "assistant" as const, text: previewResult.response }]
+          : []),
+      ];
   const waiting = run?.result === null && run.is_current;
   return (
     <article className="workspace-card">
@@ -84,6 +110,9 @@ export function AgentPreview({
         </p>
       )}
       <form action={action}>
+        <input type="hidden" name="pageCursor" value={cursor ?? ""} />
+        <input type="hidden" name="pageSection" value={section} />
+        <input type="hidden" name="focusedSuite" value={suiteId ?? ""} />
         <input type="hidden" name="tenantId" value={tenant} />
         <input type="hidden" name="agentId" value={agent} />
         <input type="hidden" name="revision" value={revision} />
@@ -92,10 +121,9 @@ export function AgentPreview({
         <input
           type="hidden"
           name="messages"
-          value={JSON.stringify([
-            ...(previewResult?.response ? history.slice(-18) : []),
-            { role: "user", text },
-          ])}
+          value={JSON.stringify(
+            previewInput(previewResult?.response ? history : [], text),
+          )}
         />
         <label>
           Mensaje de prueba
@@ -111,8 +139,9 @@ export function AgentPreview({
           />
         </label>
         <p className="workspace-muted">
-          Se incluyen hasta nueve turnos anteriores de esta prueba. Cambiar de
-          candidato inicia otra conversación.
+          Se conservan hasta nueve turnos completos recientes, dentro de 20000
+          caracteres; los más antiguos quedan fuera del siguiente envío. Cambiar
+          de candidato inicia otra conversación.
         </p>
         <button disabled={pending || waiting || !text.trim()}>
           Enviar prueba aislada
@@ -123,6 +152,25 @@ export function AgentPreview({
           </p>
         )}
       </form>
+      <button
+        type="button"
+        disabled={pending || waiting}
+        onClick={() => {
+          if (
+            text.trim() &&
+            !window.confirm(
+              "¿Descartar el mensaje sin enviar e iniciar otra conversación de prueba?",
+            )
+          )
+            return;
+          setReset(true);
+          setText("");
+          onDirty(false);
+          identity.current = null;
+        }}
+      >
+        Iniciar otra conversación de prueba
+      </button>
     </article>
   );
 }

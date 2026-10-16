@@ -41,3 +41,16 @@ def test_scenarios_cannot_accept_arbitrary_input_or_model():
         )
     with pytest.raises(ValidationError):
         WorkspaceTestRequest(expected_revision=1, request_key=uuid4(), model="other")
+
+
+def test_long_successful_preview_can_be_used_in_followup_history():
+    from agents_factory.modules.agent_factory.publication_preview import PreviewResult
+
+    result = PreviewResult(response="a" * 8000)
+    request = WorkspaceTestRequest(
+        run_kind="PREVIEW", expected_revision=1, request_key=uuid4(),
+        messages=[{"role": "user", "text": "Hola"},
+                  {"role": "assistant", "text": result.response},
+                  {"role": "user", "text": "Continúa"}],
+    )
+    assert len(request.messages[1].text) == 8000

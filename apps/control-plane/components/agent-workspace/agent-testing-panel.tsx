@@ -4,6 +4,10 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { publicationAction, refreshPublication } from "./publication-actions";
 import { AgentPreview } from "./agent-preview";
 import { AgentPublicationConfirmation } from "./agent-publication-confirmation";
+import {
+  requestIdentity,
+  type RequestIdentity,
+} from "../../lib/publication-preview-input";
 import type {
   PublicationActionState,
   PublicationState,
@@ -21,13 +25,39 @@ export function AgentTestingPanel({
   const [state, setState] = useState(initial);
   const [selected, setSelected] = useState("");
   const [previewDirty, setPreviewDirty] = useState(false);
+  const [retainedCandidate, setRetainedCandidate] = useState<
+    PublicationState["candidates"][number] | undefined
+  >();
+  const [suiteId, setSuiteId] = useState("");
+  const [previewId, setPreviewId] = useState("");
+  const testIdentity = useRef<RequestIdentity | null>(null);
   const [refreshError, setRefreshError] = useState("");
   const [result, action, pending] = useActionState(
     async (previous: PublicationActionState, form: FormData) => {
-      if (form.get("command") === "test")
-        form.set("requestKey", crypto.randomUUID());
+      if (form.get("command") === "test") {
+        testIdentity.current = requestIdentity(
+          testIdentity.current,
+          JSON.stringify([selected, state.draft_revision]),
+        );
+        form.set("requestKey", testIdentity.current.key);
+      }
       const response = await publicationAction(previous, form);
       if (response.state) setState(response.state);
+      if (response.run) {
+        setState((current) => ({
+          ...(response.state ?? current),
+          runs: [
+            response.run!,
+            ...(response.state ?? current).runs.filter(
+              (r) => r.id !== response.run!.id,
+            ),
+          ],
+        }));
+        if (response.run.run_kind === "SCENARIOS") {
+          setSuiteId(response.run.id);
+          testIdentity.current = null;
+        }
+      }
       return response;
     },
     { status: "idle" },
@@ -53,7 +83,13 @@ export function AgentTestingPanel({
       )
         return;
       busy = true;
-      const response = await refreshPublication(tenant, agent);
+      const response = await refreshPublication(
+        tenant,
+        agent,
+        state.cursor,
+        state.section,
+        [suiteId, previewId].filter(Boolean),
+      );
       busy = false;
       if (active && response.state) setState(response.state);
       if (active && response.status === "error")
@@ -63,17 +99,29 @@ export function AgentTestingPanel({
       active = false;
       clearInterval(timer);
     };
-  }, [tenant, agent, waiting]);
-  const candidate = state.candidates.find((c) => c.version.id === selected);
+  }, [tenant, agent, waiting, state.cursor, state.section, suiteId, previewId]);
+  const candidate =
+    state.candidates.find((c) => c.version.id === selected) ??
+    retainedCandidate;
   const suite = state.runs.find(
-    (run) => run.version_id === selected && run.run_kind === "SCENARIOS",
+    (run) =>
+      run.version_id === selected &&
+      run.run_kind === "SCENARIOS" &&
+      (!suiteId || run.id === suiteId),
   );
   const preview = state.runs.find(
-    (run) => run.version_id === selected && run.run_kind === "PREVIEW",
+    (run) =>
+      run.version_id === selected &&
+      run.run_kind === "PREVIEW" &&
+      (!previewId || run.id === previewId),
   );
   const scope = (
     <>
       <input type="hidden" name="tenantId" value={tenant} />
+      <input type="hidden" name="pageCursor" value={state.cursor ?? ""} />
+      <input type="hidden" name="pageSection" value={state.section} />
+      <input type="hidden" name="focusedSuite" value={suite?.id ?? ""} />
+      <input type="hidden" name="focusedPreview" value={preview?.id ?? ""} />
       <input type="hidden" name="agentId" value={agent} />
       <input type="hidden" name="revision" value={state.draft_revision} />
       <input
@@ -140,11 +188,26 @@ export function AgentTestingPanel({
                 return;
               setPreviewDirty(false);
               setSelected(event.target.value);
+              setRetainedCandidate(
+                state.candidates.find(
+                  (c) => c.version.id === event.target.value,
+                ),
+              );
+              setSuiteId("");
+              setPreviewId("");
               setRefreshError("");
             }}
           >
             <option value="">Selecciona una versión exacta</option>
-            {state.candidates.map((c) => (
+            {[
+              ...state.candidates,
+              ...(retainedCandidate &&
+              !state.candidates.some(
+                (c) => c.version.id === retainedCandidate.version.id,
+              )
+                ? [retainedCandidate]
+                : []),
+            ].map((c) => (
               <option key={c.version.id} value={c.version.id}>
                 Versión {c.version.version_number} · borrador {c.revision} ·{" "}
                 {c.version.model}
@@ -156,7 +219,15 @@ export function AgentTestingPanel({
           type="button"
           disabled={pending}
           onClick={async () => {
-            const response = await refreshPublication(tenant, agent);
+            const response = await refreshPublication(
+              tenant,
+              agent,
+              state.cursor,
+              state.section,
+              [suite?.id, preview?.id].filter((id): id is string =>
+                Boolean(id),
+              ),
+            );
             if (response.state) {
               setState(response.state);
               setRefreshError("");
@@ -169,7 +240,7 @@ export function AgentTestingPanel({
       {candidate && (
         <>
           <AgentPreview
-            key={selected}
+            key={`${selected}:${previewId}`}
             tenant={tenant}
             agent={agent}
             versionId={selected}
@@ -177,6 +248,16 @@ export function AgentTestingPanel({
             run={preview}
             onState={setState}
             onDirty={setPreviewDirty}
+            cursor={state.cursor}
+            section={state.section}
+            suiteId={suite?.id}
+            onRun={(run) => {
+              setState((current) => ({
+                ...current,
+                runs: [run, ...current.runs.filter((r) => r.id !== run.id)],
+              }));
+              setPreviewId(run.id);
+            }}
           />
           <article className="workspace-card">
             <h2>2. Escenarios y revisión humana</h2>
@@ -268,24 +349,84 @@ export function AgentTestingPanel({
               </>
             )}
           </article>
-          <AgentPublicationConfirmation
-            key={`${selected}:${suite?.id}:${state.accounts.map((a) => a.binding?.revision ?? 0).join("-")}`}
-            tenant={tenant}
-            agent={agent}
-            state={state}
-            candidate={candidate}
-            run={suite}
-            pending={pending}
-            action={action}
-          />
         </>
       )}
+      <AgentPublicationConfirmation
+        key={`${selected}:${suite?.id}:${state.accounts.map((a) => a.binding?.revision ?? 0).join("-")}`}
+        tenant={tenant}
+        agent={agent}
+        state={state}
+        candidate={candidate}
+        run={suite}
+        pending={pending}
+        action={action}
+      />
       <article className="workspace-card">
         <h2>Historial y más resultados</h2>
         <p>
           Los resultados conservan su versión y revisión original. Editar
           después no los actualiza.
         </p>
+        {candidate && (
+          <>
+            <label>
+              Escenarios guardados
+              <select
+                value={suite?.id ?? ""}
+                onChange={(event) => setSuiteId(event.target.value)}
+              >
+                <option value="">Selecciona una prueba</option>
+                {state.runs
+                  .filter(
+                    (r) =>
+                      r.version_id === selected && r.run_kind === "SCENARIOS",
+                  )
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.id} · {r.is_current ? "Vigente" : "Histórica"}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              Conversaciones de prueba guardadas
+              <select
+                value={preview?.id ?? ""}
+                onChange={(event) => {
+                  if (
+                    previewDirty &&
+                    !window.confirm(
+                      "¿Descartar el mensaje sin enviar y abrir otra prueba?",
+                    )
+                  )
+                    return;
+                  setPreviewDirty(false);
+                  setPreviewId(event.target.value);
+                }}
+              >
+                <option value="">Selecciona una prueba</option>
+                {state.runs
+                  .filter(
+                    (r) =>
+                      r.version_id === selected && r.run_kind === "PREVIEW",
+                  )
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.id}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </>
+        )}
+        {state.runs.map((r) => (
+          <details key={r.id}>
+            <summary>
+              {r.run_kind} · {r.id} · versión {r.version_id}
+            </summary>
+            <pre>{JSON.stringify(r.result, null, 2)}</pre>
+          </details>
+        ))}
         <nav aria-label="Páginas de publicación">
           {["candidates", "runs", "accounts", "versions"].map((section) => (
             <Link

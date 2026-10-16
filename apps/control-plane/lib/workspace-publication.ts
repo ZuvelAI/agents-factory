@@ -12,6 +12,7 @@ export type PublicationVersion = {
   model: string;
   instructions: string;
   business_name: string;
+  snapshot: string;
 };
 export type Candidate = {
   version: PublicationVersion;
@@ -68,6 +69,7 @@ export type PublicationState = {
   rollback_targets: string[];
   next_cursor: string | null;
   section: string;
+  cursor?: string;
 };
 export type PublicationActionState = {
   status: "idle" | "success" | "conflict" | "error" | "validation";
@@ -111,6 +113,7 @@ function parseVersion(v: unknown): PublicationVersion {
     !text(v.configuration.persona.business_name)
   )
     return invalid();
+  const configuration = v.configuration;
   return {
     id: v.id,
     tenant_id: v.tenant_id,
@@ -121,6 +124,31 @@ function parseVersion(v: unknown): PublicationVersion {
     model: String(v.configuration.model.model),
     instructions: v.configuration.persona.instructions,
     business_name: v.configuration.persona.business_name,
+    snapshot: JSON.stringify(
+      Object.fromEntries(
+        [
+          "persona",
+          "model",
+          "knowledge",
+          "approved_business_context",
+          "capabilities",
+          "permitted_tools",
+          "permitted_actions",
+          "connector_bindings",
+          "policy",
+          "identity_policy",
+          "approval_routes",
+          "language",
+          "human_operations",
+          "runtime_limits",
+          "code_digest",
+        ]
+          .filter((key) => key in configuration)
+          .map((key) => [key, configuration[key]]),
+      ),
+      null,
+      2,
+    ),
   };
 }
 export function parsePublicationRun(v: unknown): Run {
@@ -319,11 +347,12 @@ export async function readPublication(
     return invalid();
   const query = new URLSearchParams({ section });
   if (cursor) query.set("cursor", cursor);
-  return parsePublicationState(
+  const state = parsePublicationState(
     await callAuthenticatedBackend(
       `${publicationPath(tenant, agent)}?${query}`,
     ),
     tenant,
     agent,
   );
+  return { ...state, cursor };
 }

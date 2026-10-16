@@ -4,7 +4,10 @@ import { fixtureDraft } from "./fake-agent-configuration.mjs";
 const accountId = "019c2000-0000-7000-8000-000000000202";
 let candidates = new Map(),
   runs = new Map(),
-  bindings = new Map();
+  bindings = new Map(),
+  hideCandidates = false,
+  pageTwoOnly = false,
+  hideSuites = false;
 export async function handleWorkspacePublication(
   request,
   response,
@@ -16,6 +19,39 @@ export async function handleWorkspacePublication(
     candidates = new Map();
     runs = new Map();
     bindings = new Map();
+    hideCandidates = false;
+    pageTwoOnly = false;
+    hideSuites = false;
+    json(response, 200, {});
+    return true;
+  }
+  if (url.pathname === "/__workspace-publication/page-two-only") {
+    pageTwoOnly = true;
+    json(response, 200, {});
+    return true;
+  }
+  if (url.pathname === "/__workspace-publication/hide-suites") {
+    hideSuites = true;
+    json(response, 200, {});
+    return true;
+  }
+  if (url.pathname === "/__workspace-publication/legacy-recovery") {
+    const candidate = [...candidates.values()][0];
+    const second = structuredClone(candidate);
+    second.version.id = randomUUID();
+    second.source.version_id = second.version.id;
+    second.version.version_number = 2;
+    second.version.state = "PRODUCTION";
+    candidate.version.state = "PRODUCTION";
+    candidates.set(second.version.id, second);
+    bindings.set(accountId, {
+      tenant_id: candidate.version.tenant_id,
+      agent_instance_id: candidate.version.agent_instance_id,
+      version_id: second.version.id,
+      whatsapp_account_id: accountId,
+      revision: 2,
+    });
+    hideCandidates = true;
     json(response, 200, {});
     return true;
   }
@@ -45,10 +81,19 @@ export async function handleWorkspacePublication(
       ? ["Incorpora los cambios de empresa"]
       : [],
     candidates: [...candidates.values()]
-      .filter((c) => c.version.agent_instance_id === agent)
+      .filter(
+        (c) =>
+          !hideCandidates &&
+          (!pageTwoOnly || url.searchParams.get("cursor") === "page-two") &&
+          c.version.agent_instance_id === agent,
+      )
       .reverse(),
     runs: [...runs.values()]
-      .filter((r) => r.agent_instance_id === agent)
+      .filter(
+        (r) =>
+          r.agent_instance_id === agent &&
+          (!hideSuites || r.run_kind !== "SCENARIOS"),
+      )
       .reverse()
       .map((r) => ({
         ...r,
@@ -91,6 +136,18 @@ export async function handleWorkspacePublication(
     json(response, 200, state());
     return true;
   }
+  if (request.method === "GET" && suffix.startsWith("/tests/")) {
+    const run = runs.get(suffix.slice(7));
+    if (!run || run.agent_instance_id !== agent) json(response, 404, {});
+    else
+      json(response, 200, {
+        ...run,
+        is_current:
+          run.draft_revision === draft.revision &&
+          !draft.company_update_available,
+      });
+    return true;
+  }
   const body = await readJson(request);
   if (
     body.expected_revision !== undefined &&
@@ -119,6 +176,10 @@ export async function handleWorkspacePublication(
           state: "TEST",
           compiled_digest: "a".repeat(64),
           configuration: {
+            knowledge: { name: "Manual", version: "1", digest: "b".repeat(64) },
+            approved_business_context: {
+              summary: "Conocimiento congelado para comparar",
+            },
             model: { model: draft.configuration.agent.model },
             persona: {
               instructions: draft.configuration.agent.instructions,
@@ -144,6 +205,13 @@ export async function handleWorkspacePublication(
   }
   const test = suffix.match(/^\/candidates\/([^/]+)\/(tests|preview)$/);
   if (test) {
+    const same = [...runs.values()].find(
+      (r) => r.request_key === body.request_key,
+    );
+    if (same) {
+      json(response, 202, same);
+      return true;
+    }
     if (body.messages?.at(-1)?.text === "conflicto-controlado") {
       failure();
       return true;
@@ -156,6 +224,7 @@ export async function handleWorkspacePublication(
     const preview = test[2] === "preview",
       id = randomUUID();
     const run = {
+      request_key: body.request_key,
       id,
       version_id: test[1],
       agent_instance_id: agent,
@@ -187,6 +256,10 @@ export async function handleWorkspacePublication(
           },
     };
     runs.set(id, run);
+    if (body.messages?.at(-1)?.text === "respuesta-perdida") {
+      json(response, 500, {});
+      return true;
+    }
     json(response, 202, run);
     return true;
   }
