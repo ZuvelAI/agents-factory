@@ -119,3 +119,70 @@ class WorkspacePublicationRepository:
             actor=actor_id,
             approved=approved,
         )
+
+    async def decision(self, run_id: UUID) -> UUID | None:
+        row = await self.one(
+            "SELECT id FROM public.agent_publication_reviews WHERE tenant_id=:tenant AND run_id=:run AND approved",
+            run=run_id,
+        )
+        return row["id"] if row else None
+
+    async def lock_account(self, account_id: UUID) -> dict[str, Any] | None:
+        return await self.one(
+            "SELECT * FROM public.whatsapp_accounts WHERE tenant_id=:tenant AND id=:account FOR UPDATE",
+            account=account_id,
+        )
+
+    async def page(
+        self, kind: str, agent_id: UUID, at: Any, after_id: UUID | None, limit: int
+    ) -> list[dict[str, Any]]:
+        # Only internally selected, fixed SQL fragments; no user-provided identifiers.
+        relations = {
+            "candidates": (
+                "workspace_agent_candidates",
+                "version_id",
+                "agent_instance_id=:agent",
+            ),
+            "runs": (
+                "agent_publication_test_runs",
+                "id",
+                "agent_instance_id=:agent AND source_kind='AGENT_CONFIGURATION'",
+            ),
+            "accounts": ("whatsapp_accounts", "id", "true"),
+            "versions": (
+                "agent_spec_versions",
+                "id",
+                "agent_instance_id=:agent AND state='PRODUCTION'",
+            ),
+        }
+        table, key, where = relations[kind]
+        await set_tenant_context(self.session, self.context.tenant_id)
+        result = await self.session.execute(
+            text(
+                f"SELECT * FROM public.{table} WHERE tenant_id=:tenant AND {where} AND (CAST(:at AS timestamptz) IS NULL OR (created_at,{key})<(CAST(:at AS timestamptz),CAST(:after AS uuid))) ORDER BY created_at DESC,{key} DESC LIMIT :limit"
+            ),
+            {
+                "tenant": self.context.tenant_id,
+                "agent": agent_id,
+                "at": at,
+                "after": after_id,
+                "limit": limit,
+            },
+        )
+        return [dict(row) for row in result.mappings()]
+
+    async def bindings_for_agent(self, agent_id: UUID) -> list[dict[str, Any]]:
+        await set_tenant_context(self.session, self.context.tenant_id)
+        result = await self.session.execute(
+            text(
+                "SELECT * FROM public.account_agent_bindings WHERE tenant_id=:tenant AND agent_instance_id=:agent ORDER BY whatsapp_account_id LIMIT 101"
+            ),
+            {"tenant": self.context.tenant_id, "agent": agent_id},
+        )
+        return [dict(row) for row in result.mappings()]
+
+    async def binding_for_account(self, account_id: UUID) -> dict[str, Any] | None:
+        return await self.one(
+            "SELECT * FROM public.account_agent_bindings WHERE tenant_id=:tenant AND whatsapp_account_id=:account",
+            account=account_id,
+        )

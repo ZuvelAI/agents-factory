@@ -55,3 +55,35 @@ class WorkspaceTestRequest(BaseModel):
             ):
                 raise ValueError("history must alternate from and end with user")
         return self
+
+
+class PrepareWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    expected_company_revision: int = Field(ge=1)
+
+
+class PublishWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    version_id: UUID
+    test_run_id: UUID
+    whatsapp_account_id: UUID
+    expected_binding_revision: int = Field(ge=0)
+    expected_current_agent_id: UUID | None
+    confirm_publish: Literal[True]
+
+
+class RollbackWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    whatsapp_account_id: UUID
+    target_version_id: UUID
+    expected_binding_revision: int = Field(ge=1)
+    confirm_rollback: Literal[True]
+
+
+class ReviewWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    approved: bool
+    confirm_review: bool = False
