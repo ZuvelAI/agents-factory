@@ -24,6 +24,7 @@ AGENT_TABLE_CONTRACTS = (
     AgentTableContract("public.account_agent_binding_history"),
     AgentTableContract("public.company_profiles", "tenant_id", False),
     AgentTableContract("public.agent_configuration_drafts", "agent_instance_id", False),
+    AgentTableContract("public.workspace_agent_candidates", "version_id"),
 )
 
 
@@ -85,6 +86,11 @@ async def seed_agent_tables(
             "public.agent_configuration_drafts",
             parameters["agent"],
             "INSERT INTO public.agent_configuration_drafts(tenant_id,agent_instance_id,revision,company_revision,company_snapshot,configuration,provenance) VALUES(:tenant,:agent,1,1,'{}','{}','{}')",
+        ),
+        (
+            "public.workspace_agent_candidates",
+            parameters["version"],
+            "INSERT INTO public.workspace_agent_candidates(tenant_id,agent_instance_id,draft_revision,company_revision,source_digest,code_digest,version_id) VALUES(:tenant,:agent,1,1,:digest,:digest,:version)",
         ),
     )
     for table, identity, statement in statements:
