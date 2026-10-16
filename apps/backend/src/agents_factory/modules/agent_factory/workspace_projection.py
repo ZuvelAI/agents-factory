@@ -104,6 +104,33 @@ def channel_summary(row: dict[str, Any]) -> ChannelSummary:
     )
 
 
+def pending_configuration_changes(
+    *,
+    has_candidate: bool,
+    editable_revision: int | None,
+    editable_company_revision: int | None,
+    current_company_revision: int | None,
+    published_draft_revision: int | None,
+    published_company_revision: int | None,
+) -> bool:
+    """Compare the draft with publication provenance, not with each account binding.
+
+    Older versions may intentionally remain on other numbers. An editable draft
+    persists after publishing and is not itself evidence of unpublished changes.
+    Missing provenance (including legacy publications) remains pending safely.
+    """
+    if has_candidate:
+        return True
+    if editable_revision is None:
+        return False
+    return (
+        editable_revision != published_draft_revision
+        or editable_company_revision is None
+        or editable_company_revision != published_company_revision
+        or editable_company_revision != current_company_revision
+    )
+
+
 def agent_summary(row: dict[str, Any]) -> AgentSummary:
     channels = [channel_summary(c) for c in row["channels"]]
     return AgentSummary(
@@ -115,8 +142,14 @@ def agent_summary(row: dict[str, Any]) -> AgentSummary:
         published_name=row["published_name"],
         published_version_id=row["published_id"],
         draft_version_id=row["draft_id"],
-        has_pending_changes=row["draft_id"] is not None
-        or row.get("editable_revision") is not None,
+        has_pending_changes=pending_configuration_changes(
+            has_candidate=row["draft_id"] is not None,
+            editable_revision=row.get("editable_revision"),
+            editable_company_revision=row.get("editable_company_revision"),
+            current_company_revision=row.get("current_company_revision"),
+            published_draft_revision=row.get("published_draft_revision"),
+            published_company_revision=row.get("published_company_revision"),
+        ),
         purpose=row.get("purpose"),
         execution_status="unknown" if channels else "unassigned",
         channel_accounts=channels,

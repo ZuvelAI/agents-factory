@@ -10,6 +10,8 @@ AGENT_SUMMARIES = """
 SELECT i.id,i.tenant_id,count(*) OVER() AS agent_count,p.id AS published_id,p.name AS published_name,
        d.id AS draft_id,coalesce(e.configuration#>>'{agent,agent_name}',d.name) AS draft_name,
        e.revision AS editable_revision,e.configuration->>'purpose' AS purpose,
+       e.company_revision AS editable_company_revision,cp.revision AS current_company_revision,
+       pc.draft_revision AS published_draft_revision,pc.company_revision AS published_company_revision,
        coalesce(ch.items,'[]'::jsonb) AS channels
 FROM public.agent_instances i
 LEFT JOIN public.agent_configuration_drafts e ON (e.tenant_id,e.agent_instance_id)=(i.tenant_id,i.id)
@@ -22,6 +24,9 @@ LEFT JOIN LATERAL (
     AND v.state='PRODUCTION'
   ORDER BY deployment.created_at DESC,deployment.id DESC LIMIT 1
 ) p ON true
+LEFT JOIN public.company_profiles cp ON cp.tenant_id=i.tenant_id
+LEFT JOIN public.workspace_agent_candidates pc ON
+  (pc.tenant_id,pc.agent_instance_id,pc.version_id)=(i.tenant_id,i.id,p.id)
 LEFT JOIN LATERAL (
   SELECT v.id,v.configuration#>>'{persona,business_name}' AS name
   FROM public.agent_spec_versions v
@@ -75,8 +80,12 @@ class WorkspaceRepository:
             (
                 await self.session.execute(
                     text(
-                        "SELECT v.id,v.configuration,v.version_number FROM public.agent_spec_deployments d "
+                        "SELECT v.id,v.configuration,v.version_number, "
+                        "pc.draft_revision AS published_draft_revision,pc.company_revision AS published_company_revision, "
+                        "cp.revision AS current_company_revision FROM public.agent_spec_deployments d "
                         "JOIN public.agent_spec_versions v ON (v.tenant_id,v.agent_instance_id,v.id)=(d.tenant_id,d.agent_instance_id,d.version_id) "
+                        "LEFT JOIN public.workspace_agent_candidates pc ON (pc.tenant_id,pc.agent_instance_id,pc.version_id)=(v.tenant_id,v.agent_instance_id,v.id) "
+                        "LEFT JOIN public.company_profiles cp ON cp.tenant_id=v.tenant_id "
                         "WHERE d.tenant_id=:tenant AND d.agent_instance_id=:agent AND v.state='PRODUCTION' "
                         "ORDER BY d.created_at DESC,d.id DESC LIMIT 1"
                     ),

@@ -29,6 +29,7 @@ from .workspace_projection import (
     channel_summary,
     configuration_view,
     editable_configuration_view,
+    pending_configuration_changes,
 )
 from .configuration_repository import ConfigurationRepository
 from .workspace_repository import WorkspaceRepository
@@ -163,7 +164,22 @@ class AgentWorkspaceService:
             published_name=active.name if active else None,
             published_version_id=published["id"] if published else None,
             draft_version_id=draft["id"] if draft else None,
-            has_pending_changes=draft is not None or editable is not None,
+            has_pending_changes=pending_configuration_changes(
+                has_candidate=draft is not None,
+                editable_revision=editable["revision"] if editable else None,
+                editable_company_revision=editable["company_revision"]
+                if editable
+                else None,
+                current_company_revision=published.get("current_company_revision")
+                if published
+                else None,
+                published_draft_revision=published.get("published_draft_revision")
+                if published
+                else None,
+                published_company_revision=published.get("published_company_revision")
+                if published
+                else None,
+            ),
             purpose=candidate.purpose if candidate else None,
             execution_status="unknown" if channels else "unassigned",
             channel_accounts=channels,
@@ -175,7 +191,6 @@ class AgentWorkspaceService:
             channel_versions=list(versions.values()),
             editable_revision=editable["revision"] if editable else None,
             unavailable_sections=[
-                "Publicar y probar el nuevo borrador: siguiente entrega.",
                 "Tono y propósito no disponibles como campos independientes en versiones heredadas.",
             ],
         )

@@ -110,6 +110,11 @@ Los mensajes no toman sus instrucciones del historial de este chat de Codex.
 Usan el snapshot publicado y asignado en la base de datos. Un borrador nuevo no
 altera ese snapshot. Un número puede conservar una versión anterior, por lo que
 la publicación más reciente y la versión asignada se muestran por separado.
+El indicador de cambios pendientes compara las revisiones exactas del borrador y
+su empresa con la procedencia de esa publicación; no toma la mera existencia del
+borrador como cambio. `pending_configuration_changes` en `workspace_projection.py`
+es la regla pura compartida por resumen/listado/detalle. Un número puede conservar
+otra versión intencionadamente sin convertir por eso el borrador en pendiente.
 
 ## Estructura de los módulos nuevos de lectura
 

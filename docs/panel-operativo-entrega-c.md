@@ -1,7 +1,9 @@
 # Entrega C — pruebas y publicación por agente
 
-Estado: implementación local, sin despliegue, llamadas API reales ni cambios en
-clave OpenAI, WhatsApp, coexistencia, webhooks o infraestructura productiva.
+Estado: implementación local, sin despliegue ni cambios en clave OpenAI,
+WhatsApp, coexistencia, webhooks o infraestructura productiva. La verificación
+inicial de C no consumió API; las pruebas reales posteriores autorizadas constan
+por separado en `docs/panel-operativo-prueba-api-20261016.md`.
 Plan aprobado: `docs/superpowers/plans/2026-10-16-panel-pruebas-publicacion-por-agente.md`.
 El panel anterior y los cambios ajenos se conservan.
 
@@ -57,7 +59,7 @@ No se reescriben resultados previos; se identifican LEGACY/SCENARIOS por defecto
 
 ## Verificación local
 
-- Backend completo y workers mediante la suite raíz:743 passed, una advertencia
+- Backend completo y workers mediante la suite raíz:745 passed, una advertencia
   existente de Starlette/AnyIO, sin fallos ni exclusiones; modelo falso, sin API.
 - Frontend después de correcciones:135 pruebas unitarias y37 recorridos Chromium;
   lint, tipos y build correctos. Captura real sintética revisada;390px y1440px sin
@@ -83,11 +85,20 @@ aprobado completo (conocimiento/procedencia, modelo y reglas), no solo prompt.
 El navegador cubre además recuperación legacy, reintento ambiguo, evidencia fuera
 de la primera página y texto sin enviar en página posterior.
 
-Hallazgo menor aplazado explícitamente: el resumen general heredado aún interpreta
-un borrador existente como cambios pendientes y contiene un aviso de futura
-entrega en sus secciones no disponibles. La pantalla de publicación usa procedencia
-y estado exactos. Ajustar esa proyección antes de la aceptación productiva; no se
-oculta el límite ni se atribuye una versión a todos los números.
+Hallazgo menor inicialmente aplazado, resuelto localmente en el seguimiento:
+el resumen ya compara la revisión de borrador y empresa con la procedencia de la
+última publicación. Un borrador persistente no queda pendiente por existir.
+Editar después, cambiar la empresa o recuperar una publicación anterior conserva
+el pendiente correspondiente. Versiones heredadas sin procedencia editable siguen
+pendientes de revisión de forma conservadora. Se retiró el aviso obsoleto de que
+probar/publicar era una entrega futura. No se atribuye una versión a todos los
+números: cada binding y su historial se conservan sin modificaciones.
+
+Dos regresiones de integración reproducen el fallo anterior y verifican resumen,
+lista y detalle, cambio de empresa, edición, publicación y recuperación con dos
+números en versiones distintas. La regla es una función pura compartida y las
+consultas solo agregan joins tenant/instancia/versión a tablas existentes; no hay
+migración, permiso nuevo, escritura en los GET ni cambios al runtime.
 
 Lo que el revisor no juzgó: despliegue, credenciales y WhatsApp vivos (sin autoridad
 para tocarlos); calidad/costos del modelo real (sin llamadas); conectores/pausa/
@@ -113,7 +124,9 @@ del legado no se habilitan aquí. El saludo inicial solicitado por Daniel queda
 pendiente: presentación completa solo en primer contacto; si hay pregunta puntual,
 responderla después en el mismo mensaje. No se ha cambiado el agente activo.
 
-Ensayo API real propuesto, no ejecutado: hasta6 llamadas (1 preview y5 escenarios)
-con la clave existente sin modificarla; autorización y acceso seguro por separado.
-Esto no publicaría ni enviaría WhatsApp. Instalación productiva requiere otra
-confirmación expresa.
+Ensayo API real posterior autorizado:6 llamadas (1 preview y5 escenarios) y una
+reprueba adicional de alcance autorizada por separado; clave existente sin cambios.
+Se usó información de Zuvel aportada por Daniel, no el snapshot productivo cuya
+exportación fue bloqueada. No publica ni envía WhatsApp. Resultados y límites de
+evidencia: `docs/panel-operativo-prueba-api-20261016.md`. Instalación productiva
+requiere otra confirmación expresa.
