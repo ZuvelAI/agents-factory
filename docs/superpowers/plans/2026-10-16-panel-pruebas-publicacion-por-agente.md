@@ -112,52 +112,52 @@ Tests en cola: mismo topic existente `agent.publication.test`; request persiste 
 
 **Interfaces:** produce PublicationSource, WorkspaceCandidateView, WorkspacePublicationRepository y prepare; consume ConfigurationRepository, ApprovedKnowledgeRepository y AgentSpecRepository existentes.
 
-- [ ] Añadir `tests/integration/test_workspace_publication_candidates.py`: dos agentes con revision1 generan candidatos de su propia instancia; misma solicitud repite mismo version_id; primer candidato conserva instancia y base=None; propósito llega al snapshot; borrar/editar candidato falla; RLS A/B/app y FK cruzadas fallan. Preparar no cambia binding ni legado.
-- [ ] Ejecutar tests en base desechable, observar RED por contratos faltantes. Consultar changelog/docs Supabase y CLI help antes de la migración.
-- [ ] Implementar migración, repositorio y resolución por origen, proyección pura y prepare. Reusar validación B más requisitos del compilador, incluido código verificable; conocimiento congelado una vez. Borrador incompleto -> bloqueadores seguros, no candidato parcial.
-- [ ] Ejecutar casos anteriores y regresiones de importación/publicación heredada, incluyendo preparación concurrente y auditoría fallida -> rollback total; rutas heredadas rechazan fuente nueva aunque coincidan revisiones numéricas. PASS. Commit acotado `feat: prepare exact per-agent publication candidates`.
+- [x] Añadir `tests/integration/test_workspace_publication_candidates.py`: dos agentes con revision1 generan candidatos de su propia instancia; misma solicitud repite mismo version_id; primer candidato conserva instancia y base=None; propósito llega al snapshot; borrar/editar candidato falla; RLS A/B/app y FK cruzadas fallan. Preparar no cambia binding ni legado.
+- [x] Ejecutar tests en base desechable, observar RED por contratos faltantes. Consultar changelog/docs Supabase y CLI help antes de la migración.
+- [x] Implementar migración, repositorio y resolución por origen, proyección pura y prepare. Reusar validación B más requisitos del compilador, incluido código verificable; conocimiento congelado una vez. Borrador incompleto -> bloqueadores seguros, no candidato parcial.
+- [x] Ejecutar casos anteriores y regresiones de importación/publicación heredada, incluyendo preparación concurrente y auditoría fallida -> rollback total; rutas heredadas rechazan fuente nueva aunque coincidan revisiones numéricas. PASS. Commit acotado `feat: prepare exact per-agent publication candidates`.
 
 ## Task 2: C2 — Evidencia y prueba interactiva aislada
 
 **Interfaces:** produce WorkspaceRunView y PreviewResult `{response:str|null,error_code:str|null}` validado; servicio evidence y run_candidate_preview arriba. Consume candidato C1 y worker/runtime existentes.
 
-- [ ] Añadir `tests/integration/test_workspace_publication_evidence.py`, `tests/unit/test_publication_preview.py` y `workers/agent-worker/tests/test_workspace_publication_jobs.py`: suite6 escenarios; preview no aprobable; cambios durante ejecución conservan resultado pero invalidan actualidad; error/tipo incorrecto no satisface gate; historial ajeno404; request_key duplicado mismo run, contenido distinto409; límites30/6 y expiración.
-- [ ] Ejecutar y observar RED; implementar expansión de runs y adaptadores con resultado discriminado. No cambiar semántica de respuestas legacy ni conceder lectura de borradores al worker. Validar vigencia bajo lock al aprobar y exigir revisión explícita de respuestas.
-- [ ] Probar worker con runtime falso que registra tools y metadatos: tools vacío, tenant/agente/version exactos, sin filas de mensajes/outbound/bindings. Reentrega después de resultado no llama de nuevo al runtime; fallo de auditoría no deja revisión aprobada.
-- [ ] Ejecutar suite de publicación antigua/nueva y worker: PASS; commit `feat: test agent candidates without external tool effects`.
+- [x] Añadir `tests/integration/test_workspace_publication_evidence.py`, `tests/unit/test_publication_preview.py` y `workers/agent-worker/tests/test_workspace_publication_jobs.py`: suite6 escenarios; preview no aprobable; cambios durante ejecución conservan resultado pero invalidan actualidad; error/tipo incorrecto no satisface gate; historial ajeno404; request_key duplicado mismo run, contenido distinto409; límites30/6 y expiración.
+- [x] Ejecutar y observar RED; implementar expansión de runs y adaptadores con resultado discriminado. No cambiar semántica de respuestas legacy ni conceder lectura de borradores al worker. Validar vigencia bajo lock al aprobar y exigir revisión explícita de respuestas.
+- [x] Probar worker con runtime falso que registra tools y metadatos: tools vacío, tenant/agente/version exactos, sin filas de mensajes/outbound/bindings. Reentrega después de resultado no llama de nuevo al runtime; fallo de auditoría no deja revisión aprobada.
+- [x] Ejecutar suite de publicación antigua/nueva y worker: PASS; commit `feat: test agent candidates without external tool effects`.
 
 ## Task 3: C3 — Publicación y rollback por instancia
 
 **Interfaces:** produce nuevas rutas GET/POST y publish/rollback; consume C1/C2 y AccountAgentBindingRepository/AgentSpecLifecycleService. Reutilizar gate persistido, no saltarlo.
 
-- [ ] Añadir `tests/integration/test_workspace_agent_publication.py`: publicar exige suite vigente aprobada del candidato exacto; previews, otro agente, otra revisión, evidencia vencida, código/digest distinto y cuenta ajena se rechazan. Empresa cambiada requiere incorporar/pruebas nuevas.
-- [ ] Observar RED; implementar state y operaciones con confirmaciones backend, binding_revision y expected_current_agent_id. Mostrar reemplazo explícito cuando número atiende con otra instancia; no reasignación implícita.
-- [ ] Añadir tests concurrentes reales: dos publicaciones al mismo número -> una gana, otra409; dos reviews -> una decisión inmutable; falla auditoría -> versión/binding/historial íntegramente revertidos. Rollback solo a versión publicada de la misma instancia/código compatible y revisión vigente. No restaurar el borrador al hacer rollback.
-- [ ] Ejecutar C1–C3 y regresiones de lifecycle/provider/tenant isolation: PASS; commit `feat: publish reviewed per-agent versions with validated rollback`.
+- [x] Añadir `tests/integration/test_workspace_agent_publication.py`: publicar exige suite vigente aprobada del candidato exacto; previews, otro agente, otra revisión, evidencia vencida, código/digest distinto y cuenta ajena se rechazan. Empresa cambiada requiere incorporar/pruebas nuevas.
+- [x] Observar RED; implementar state y operaciones con confirmaciones backend, binding_revision y expected_current_agent_id. Mostrar reemplazo explícito cuando número atiende con otra instancia; no reasignación implícita.
+- [x] Añadir tests concurrentes reales: dos publicaciones al mismo número -> una gana, otra409; dos reviews -> una decisión inmutable; falla auditoría -> versión/binding/historial íntegramente revertidos. Rollback solo a versión publicada de la misma instancia/código compatible y revisión vigente. No restaurar el borrador al hacer rollback.
+- [x] Ejecutar C1–C3 y regresiones de lifecycle/provider/tenant isolation: PASS; commit `feat: publish reviewed per-agent versions with validated rollback`.
 
 ## Task 4: C4 — Panel de pruebas, confirmación e historial
 
 **Interfaces:** consume rutas C3; produce página /test y acciones autenticadas por tenant/agente. Formularios con estado pending/success/conflict/error; datos guardados y activos diferenciados.
 
-- [ ] Añadir `tests/unit/workspace-publication.test.ts`, `workspace-publication-actions.test.ts`, `tests/e2e/workspace-publication.spec.ts`: contratos tipados, conservación del texto, dos agentes independientes, edición invalida prueba, permisos/conflictos, sin selección automática de cuenta. Observar RED antes del TSX.
-- [ ] Leer guías Next instaladas; implementar secciones progresivas Preparar -> Probar -> Revisar -> Publicar. Vista previa rotulada «Prueba aislada · no envía WhatsApp · consume API»; escenarios muestran5 llamadas al modelo más control humano local, sin prometer costo monetario exacto.
-- [ ] Preparar requiere borrador guardado; cambios locales disparan guard de B y no se publican implícitamente. Preview limpia historial al cambiar candidato. Pending protege botones; polling cada2s solo visible y pendiente, máximo2min, luego botón Consultar estado; no reiniciar trabajo al agotarse espera.
-- [ ] Confirmación muestra empresa, agente, número, versión destino y versión/agente reemplazados; checkbox obligatorio sin preselección. Publicación no automática al aprobar. Historial permite comparar snapshot activo/destino y confirmar rollback con revisión exacta.
-- [ ] Ejecutar unit y E2E completos, teclado/móvil390/desktop1440, errores y estado pendiente recuperable; PASS. Commit `feat: add isolated agent testing and explicit publication controls`.
+- [x] Añadir `tests/unit/workspace-publication.test.ts`, `workspace-publication-actions.test.ts`, `tests/e2e/workspace-publication.spec.ts`: contratos tipados, conservación del texto, dos agentes independientes, edición invalida prueba, permisos/conflictos, sin selección automática de cuenta. Observar RED antes del TSX.
+- [x] Leer guías Next instaladas; implementar secciones progresivas Preparar -> Probar -> Revisar -> Publicar. Vista previa rotulada «Prueba aislada · no envía WhatsApp · consume API»; escenarios muestran5 llamadas al modelo más control humano local, sin prometer costo monetario exacto.
+- [x] Preparar requiere borrador guardado; cambios locales disparan guard de B y no se publican implícitamente. Preview limpia historial al cambiar candidato. Pending protege botones; polling cada2s solo visible y pendiente, máximo2min, luego botón Consultar estado; no reiniciar trabajo al agotarse espera.
+- [x] Confirmación muestra empresa, agente, número, versión destino y versión/agente reemplazados; checkbox obligatorio sin preselección. Publicación no automática al aprobar. Historial permite comparar snapshot activo/destino y confirmar rollback con revisión exacta.
+- [x] Ejecutar unit y E2E completos, teclado/móvil390/desktop1440, errores y estado pendiente recuperable; PASS. Commit `feat: add isolated agent testing and explicit publication controls`.
 
 ## Task 5: C5 — Cierre y aceptación local
 
 **Interfaces:** integra C1–C4; produce evidencia y documentación, no autorización de despliegue ni de llamadas de pago.
 
-- [ ] Ensayar migración desde cero y upgrade de base sintética con datos legacy; verificar todos sus digests/resultados/bindings intactos. Reversión operacional desactiva nueva UI/rutas; no DROP ni eliminación de historial.
-- [ ] Ejecutar backend completo y workers en entorno desechable, sin exclusiones; matriz de roles nueva y advisors locales disponibles. Registrar warnings/fallos reales, no extrapolar suites parciales.
-- [ ] Ejecutar frontend test:unit, test:e2e, lint, typecheck, build; Ruff/Mypy de módulos nuevos. Capturas reales con datos sintéticos y verificación visual. Ninguna API externa en estas suites.
-- [ ] Actualizar `docs/backend-guide.md` y crear `docs/panel-operativo-entrega-c.md`: mapa de origen->candidato->evidencia->revisión->binding, límites, recuperación y funciones aún no implementadas.
-- [ ] Una revisión independiente final siguiendo método nativo; resolver hallazgos importantes con RED->GREEN, conservar cambios previos ajenos y presentar resultado a Daniel.
-- [ ] Proponer por separado ensayo API real limitado con clave existente y acceso seguro disponible; informar máximo de llamadas antes de pedir autorización. No fabricar resultados si no hay credencial accesible. Producción exige instalación/migraciones respaldadas y aprobación expresa aparte.
+- [x] Ensayar migración desde cero y upgrade de base sintética con datos legacy; verificar todos sus digests/resultados/bindings intactos. Reversión operacional desactiva nueva UI/rutas; no DROP ni eliminación de historial.
+- [x] Ejecutar backend completo y workers en entorno desechable, sin exclusiones; matriz de roles nueva y advisors locales disponibles. Registrar warnings/fallos reales, no extrapolar suites parciales.
+- [x] Ejecutar frontend test:unit, test:e2e, lint, typecheck, build; Ruff/Mypy de módulos nuevos. Capturas reales con datos sintéticos y verificación visual. Ninguna API externa en estas suites.
+- [x] Actualizar `docs/backend-guide.md` y crear `docs/panel-operativo-entrega-c.md`: mapa de origen->candidato->evidencia->revisión->binding, límites, recuperación y funciones aún no implementadas.
+- [x] Una revisión independiente final siguiendo método nativo; resolver hallazgos importantes con RED->GREEN, conservar cambios previos ajenos y presentar resultado a Daniel.
+- [x] Proponer por separado ensayo API real limitado con clave existente y acceso seguro disponible; informar máximo de llamadas antes de pedir autorización. No fabricar resultados si no hay credencial accesible. Producción exige instalación/migraciones respaldadas y aprobación expresa aparte.
 
 ## Autorrevisión y puerta de ejecución
 
 Cobertura: múltiples agentes/candidatos exactos C1; pruebas aisladas y errores C2; aprobación, confirmación, concurrencia y rollback C3; claridad visual, preview y prevención de pérdida C4; compatibilidad y recuperación C5. Integraciones operables y pausa/archivo quedan explícitamente fuera de C, no fuera del producto. No se reutiliza la revisión empresarial como identificador de un borrador por agente.
 
-Estado: plan preparado para revisión de Daniel. No implementado, sin migración creada/aplicada ni llamadas API efectuadas. Se conserva ejecución nativa; esperar aprobación de este plan antes de programar.
+Estado: aprobado e implementado localmente, C1–C5 completos. Evidencia final:743 pruebas backend,135 unitarias frontend,37 recorridos navegador, lint/tipos/build correctos; ensayo de upgrade y revisión independiente realizados. Las migraciones solo se aplicaron en bases temporales; no se hicieron llamadas API reales, despliegues ni cambios de credenciales/WhatsApp. Detalles, decisiones y ajuste menor del resumen aplazado: `docs/panel-operativo-entrega-c.md`.

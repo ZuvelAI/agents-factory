@@ -57,7 +57,7 @@ No se reescriben resultados previos; se identifican LEGACY/SCENARIOS por defecto
 
 ## Verificación local
 
-- Backend completo y workers mediante la suite raíz:742 passed, una advertencia
+- Backend completo y workers mediante la suite raíz:743 passed, una advertencia
   existente de Starlette/AnyIO, sin fallos ni exclusiones; modelo falso, sin API.
 - Frontend después de correcciones:135 pruebas unitarias y37 recorridos Chromium;
   lint, tipos y build correctos. Captura real sintética revisada;390px y1440px sin
@@ -68,6 +68,9 @@ No se reescriben resultados previos; se identifican LEGACY/SCENARIOS por defecto
   sintética: los hashes y recuentos de versiones, runs, resultados, revisiones,
   deployments y bindings coinciden antes/después. También se comprobó db lint
   local: sin errores de esquema. No se ejecutaron advisors de un proyecto remoto.
+  El ensayo aislado de upgrade usa auth.users mínimo como dependencia de FK;
+  no certifica el servicio Auth. El reset desde cero sí usa el proyecto Supabase
+  desechable completo para el esquema de arranque.
 
 ## Revisión independiente y decisiones
 
@@ -90,6 +93,11 @@ Lo que el revisor no juzgó: despliegue, credenciales y WhatsApp vivos (sin auto
 para tocarlos); calidad/costos del modelo real (sin llamadas); conectores/pausa/
 archivo (fuera de C); auditoría visual propia y totales completos (verificados por
 el implementador). Estas exclusiones no se presentan como pruebas superadas.
+
+La repetición final detectó una prueba previa inestable de alertas: received_at
+empataba dentro de la transacción y el UUID podía ordenar distinto a la inserción.
+Se reprodujo con IDs controlados y se cubrieron ambos órdenes esperados. No cambió
+la consulta real ni se omitió la prueba; el recuento final incorpora ese caso extra.
 
 Decisiones de implementación: migraciones aditivas separadas; pruebas del worker
 ubicadas en integración backend para reutilizar DB/roles reales;409 mientras hay
