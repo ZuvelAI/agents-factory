@@ -1,6 +1,6 @@
 # Captura de prospectos por agente
 
-Estado: diseño detallado para revisión de Daniel. El alcance conversacional fue aprobado; este documento no autoriza todavía implementación, migraciones, despliegue ni publicación.
+Estado: diseño detallado aprobado por Daniel; lista/detalle visual aprobados después. La aprobación permite preparar el plan; no autoriza todavía implementación, migraciones, despliegue ni publicación.
 
 ## 1. Objetivo y alcance aprobado
 
@@ -79,6 +79,8 @@ Cada fila muestra identidad disponible, interés principal, resumen corto, estad
 Desde la conversación se podrá abrir el prospecto relacionado. Una conversación sin interés comercial no aparecerá como error por carecer de prospecto. No se añaden envío manual, campañas, tareas comerciales, asignaciones, un tablero de ventas ni nuevas etapas de CRM en esta entrega.
 
 Antes de implementar las pantallas se presentará una imagen de la lista y del detalle con datos ficticios, siguiendo la preferencia de Daniel de revisar la interfaz antes del desarrollo. Esta imagen no se presentará como una función ya existente.
+
+Referencia visual ya revisada y aprobada: `docs/design/prospectos-20261018.png`. Contiene únicamente datos ficticios.
 
 ## 8. Seguridad, privacidad y errores
 
