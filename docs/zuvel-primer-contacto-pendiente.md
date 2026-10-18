@@ -1,5 +1,9 @@
 # Zuvel — saludo inicial solicitado, pendiente de implementación
 
+Actualización del17 de octubre: implementado, validado y publicado únicamente
+para contactos nuevos. Ver [resultado y recuperación](zuvel-primer-contacto-20261017.md).
+El texto siguiente conserva la solicitud y el estado histórico anterior.
+
 Solicitud de Daniel del16 de octubre de2026. No describe comportamiento instalado.
 Este texto más reciente sustituye la indicación anterior de quitar Bogotá y
 ampliar el nombre de análisis de datos. Mantener viñetas y negrita nativa de
