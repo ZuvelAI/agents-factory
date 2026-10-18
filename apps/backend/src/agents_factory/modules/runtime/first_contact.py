@@ -1,6 +1,26 @@
 """Channel-owned presentation; the model answers, the server adds the exact greeting."""
 
+import re
+import unicodedata
 from agents_factory.modules.runtime.contracts import AgentTurnInput
+
+
+def orientation_only(message: str) -> bool:
+    normalized = "".join(
+        c
+        for c in unicodedata.normalize("NFKD", message.casefold())
+        if not unicodedata.combining(c)
+    )
+    normalized = " ".join(re.sub(r"[^a-z0-9 ]", " ", normalized).split())
+    return bool(
+        re.fullmatch(
+            r"(?:hola|buenos dias|buenas tardes|buenas noches|buenas|hey|hello|hi)"
+            r"|(?:hola )?(?:quiero|quisiera|me gustaria) (?:conocer|saber de) (?:la|tu|su) empresa"
+            r"|(?:que|cuales) (?:son |son los )?servicios (?:ofrecen|ofrece (?:la|su|tu) empresa|tienen)(?: segun la informacion aprobada)?"
+            r"|cuales son (?:sus|tus) servicios|a que se dedican|que hace (?:la|su|tu) empresa",
+            normalized,
+        )
+    )
 
 
 def turn_instructions(turn: AgentTurnInput) -> str:
@@ -18,7 +38,13 @@ def turn_instructions(turn: AgentTurnInput) -> str:
     )
 
 
-def compose_welcome(output: str, greeting: str | None, *, first_contact: bool) -> str:
+def compose_welcome(
+    output: str,
+    greeting: str | None,
+    *,
+    first_contact: bool,
+    only_orientation: bool = False,
+) -> str:
     if not greeting:
         return output
     body = output.strip()
@@ -26,6 +52,8 @@ def compose_welcome(output: str, greeting: str | None, *, first_contact: bool) -
     while body.startswith(greeting):
         body = body[len(greeting) :].lstrip()
     if first_contact:
+        if only_orientation:
+            return greeting
         return greeting + ("\n\n" + body if body else "")
     if not body:
         raise ValueError("model returned only a suppressed welcome")

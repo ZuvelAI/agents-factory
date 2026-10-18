@@ -35,7 +35,10 @@ from agents_factory.modules.runtime.contracts import (
     TurnMessage,
 )
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
-from agents_factory.modules.runtime.first_contact import compose_welcome
+from agents_factory.modules.runtime.first_contact import (
+    compose_welcome,
+    orientation_only,
+)
 
 
 TurnExecutionStatus = Literal[
@@ -226,6 +229,7 @@ class AgentTurnService:
             agent_spec=agent_spec,
             result=result,
             awaiting_human_policy=self._awaiting_human_policy,
+            only_orientation=orientation_only(loaded.inbound_message.text),
         )
         if not persisted.authority_available:
             return AgentTurnExecution(status="blocked_by_conversation_control")
@@ -403,6 +407,7 @@ class _RuntimeTurnRepository:
         agent_spec: AgentSpecSnapshot,
         result: AgentTurnResult,
         awaiting_human_policy: AwaitingHumanPolicy,
+        only_orientation: bool = False,
     ) -> _PersistedAssistant:
         await set_tenant_context(self._session, context.tenant_id)
         authority = (
@@ -490,6 +495,7 @@ class _RuntimeTurnRepository:
                     result.output_text,
                     agent_spec.first_contact_greeting,
                     first_contact=first_contact,
+                    only_orientation=only_orientation,
                 ),
             )
         runtime_metadata = _runtime_metadata(agent_spec=agent_spec, result=result)

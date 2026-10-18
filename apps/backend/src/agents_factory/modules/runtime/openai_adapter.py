@@ -10,6 +10,7 @@ from openai.types.shared import Reasoning
 from agents_factory.modules.runtime.first_contact import (
     compose_welcome,
     turn_instructions,
+    orientation_only,
 )
 
 from agents_factory.modules.runtime.contracts import (
@@ -141,6 +142,7 @@ class OpenAIAgentsRuntime:
                 first_contact=turn.is_first_contact
                 if turn.is_first_contact is not None
                 else len(turn.messages) == 1,
+                only_orientation=orientation_only(turn.messages[-1].text),
             ),
             tool_calls=tuple(tool_calls),
             usage=_map_usage(usage),

@@ -142,6 +142,35 @@ async def test_server_welcome_preserves_answer_and_is_not_sent_to_existing_conta
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Hola",
+        "¡Buenos días!",
+        "Hola, quisiera conocer la empresa.",
+        "¿Qué servicios ofrece la empresa según la información aprobada?",
+    ],
+)
+async def test_general_first_contact_uses_complete_welcome_without_second_introduction(
+    message,
+):
+    original = _turn()
+    turn = replace(
+        original,
+        agent_spec=replace(
+            original.agent_spec,
+            first_contact_greeting="Bienvenido. Ofrecemos agentes y software.",
+        ),
+        messages=(replace(original.messages[0], text=message),),
+        is_first_contact=True,
+    )
+    result = await OpenAIAgentsRuntime(
+        runner=_CapturedRunner(), require_api_key=False
+    ).run(turn)
+    assert result.output_text == "Bienvenido. Ofrecemos agentes y software."
+
+
+@pytest.mark.asyncio
 async def test_adapter_maps_the_internal_contract_to_one_bounded_sdk_agent() -> None:
     runner = _CapturedRunner()
     runtime = OpenAIAgentsRuntime(runner=runner, require_api_key=False)
