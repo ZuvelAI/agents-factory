@@ -23,11 +23,16 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from agents_factory.common.errors import DomainError
+from agents_factory.database import set_tenant_context
 from agents_factory.common.security import AdminPrincipal, PlatformAdminAuthorizer
 from agents_factory.modules.tenants.repository import TenantRepository
 from apps.backend.tests.security.agent_table_contracts import (
     AGENT_TABLE_CONTRACTS,
     seed_agent_tables,
+)
+from apps.backend.tests.security.lead_table_contracts import (
+    LEAD_TABLES,
+    seed_lead_tables,
 )
 
 
@@ -1505,6 +1510,119 @@ async def assert_tenant_isolated(
 
 
 @pytest_asyncio.fixture
+async def lead_tables_world(
+    seeded_world: SeededWorld, database_engine: AsyncEngine
+) -> SeededWorld:
+    async with database_engine.begin() as connection:
+        await seed_lead_tables(connection, seeded_world.tenant_a, seeded_world.row_a)
+        await seed_lead_tables(connection, seeded_world.tenant_b, seeded_world.row_b)
+    return seeded_world
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", LEAD_TABLES)
+async def test_lead_table_role_contracts(table, lead_tables_world, session_factory):
+    import json
+
+    world = lead_tables_world
+    async with session_factory.begin() as session:
+        own = await session.scalar(
+            text(f"SELECT row_to_json(t) FROM {table} t WHERE tenant_id=:tenant"),
+            {"tenant": world.tenant_a},
+        )
+        foreign = await session.scalar(
+            text(f"SELECT row_to_json(t) FROM {table} t WHERE tenant_id=:tenant"),
+            {"tenant": world.tenant_b},
+        )
+        schema = (
+            await session.execute(
+                text(
+                    "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=CAST(:table AS regclass)"
+                ),
+                {"table": table},
+            )
+        ).one()
+        assert tuple(schema) == (True, True)
+    for role in ("agents_factory_app", "agents_factory_admin"):
+        for context in (str(world.tenant_a), str(world.tenant_b), "", "not-a-uuid"):
+            async with session_factory.begin() as session:
+                await session.execute(text(f"SET LOCAL ROLE {role}"))
+                await session.execute(
+                    text("SELECT set_config('app.tenant_id',:value,true)"),
+                    {"value": context},
+                )
+                if context == "not-a-uuid":
+                    with pytest.raises(DBAPIError) as denied:
+                        await session.execute(text(f"SELECT tenant_id FROM {table}"))
+                    assert denied.value.orig.sqlstate == "22P02"
+                else:
+                    assert (
+                        await session.execute(text(f"SELECT tenant_id FROM {table}"))
+                    ).scalars().all() == ([UUID(context)] if context else [])
+        for statement, parameters in (
+            (
+                f"UPDATE {table} SET tenant_id=:other WHERE id=:id",
+                {"other": world.tenant_b, "id": world.row_a[table]},
+            ),
+            (f"DELETE FROM {table} WHERE id=:id", {"id": world.row_a[table]}),
+            (
+                f"INSERT INTO {table} SELECT (jsonb_populate_record(NULL::{table},CAST(:document AS jsonb))).*",
+                {"document": json.dumps(foreign)},
+            ),
+        ):
+            async with session_factory.begin() as session:
+                await session.execute(text(f"SET LOCAL ROLE {role}"))
+                await set_tenant_context(session, world.tenant_a)
+                with pytest.raises(DBAPIError) as denied:
+                    await session.execute(text(statement), parameters)
+                assert denied.value.orig.sqlstate == "42501"
+        if table in {"public.lead_subject_keys", "public.lead_capture_events"}:
+            async with session_factory.begin() as session:
+                await session.execute(text(f"SET LOCAL ROLE {role}"))
+                await set_tenant_context(session, world.tenant_a)
+                with pytest.raises(DBAPIError) as denied:
+                    await session.execute(
+                        text(f"UPDATE {table} SET created_at=now() WHERE id=:id"),
+                        {"id": world.row_a[table]},
+                    )
+                assert denied.value.orig.sqlstate == "42501"
+        # Own insertion remains possible; the RLS policy is not an accidental deny-all.
+        async with session_factory.begin() as session:
+            new_subject = uuid4()
+            await session.execute(
+                text(
+                    "INSERT INTO public.lead_subjects(id,tenant_id) VALUES(:id,:tenant)"
+                ),
+                {"id": new_subject, "tenant": world.tenant_a},
+            )
+            clone = {**own, "id": str(uuid4())}
+            if table == "public.lead_subject_keys":
+                clone["value"] = f"user:{uuid4()}"
+            if table == "public.lead_prospects":
+                clone["subject_id"] = str(new_subject)
+            if table == "public.lead_capture_events":
+                clone["operation"] = (
+                    "CONFLICT" if role == "agents_factory_app" else "SUPPRESS"
+                )
+            await session.execute(text(f"SET LOCAL ROLE {role}"))
+            await set_tenant_context(session, world.tenant_a)
+            inserted = await session.scalar(
+                text(
+                    f"INSERT INTO {table} SELECT (jsonb_populate_record(NULL::{table},CAST(:document AS jsonb))).* RETURNING id"
+                ),
+                {"document": json.dumps(clone)},
+            )
+            assert inserted == UUID(clone["id"])
+            await session.rollback()
+    for role in ("anon", "authenticated", "service_role"):
+        async with session_factory.begin() as session:
+            await session.execute(text(f"SET LOCAL ROLE {role}"))
+            with pytest.raises(DBAPIError) as denied:
+                await session.execute(text(f"SELECT * FROM {table}"))
+            assert denied.value.orig.sqlstate == "42501"
+
+
+@pytest_asyncio.fixture
 async def agent_tables_world(
     seeded_world: SeededWorld, database_engine: AsyncEngine
 ) -> SeededWorld:
@@ -1592,6 +1710,7 @@ async def test_every_public_tenant_owned_table_is_registered(
         for registration in TENANT_ISOLATION_REGISTRY
     }
     registered.update((item.table_name, "tenant_id") for item in AGENT_TABLE_CONTRACTS)
+    registered.update((table, "tenant_id") for table in LEAD_TABLES)
     assert registered == tenant_owned
 
 
@@ -1604,6 +1723,7 @@ async def test_catalog_excludes_security_invoker_views_and_detects_base_tables(
         for registration in TENANT_ISOLATION_REGISTRY
     }
     registered.update((item.table_name, "tenant_id") for item in AGENT_TABLE_CONTRACTS)
+    registered.update((table, "tenant_id") for table in LEAD_TABLES)
     async with database_engine.begin() as connection:
         await connection.execute(
             text(
