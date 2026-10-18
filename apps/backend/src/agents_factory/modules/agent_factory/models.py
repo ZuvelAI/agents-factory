@@ -153,6 +153,9 @@ class AgentSpecConfiguration(FrozenModel):
     runtime_limits: AgentRuntimeLimits = Field(default_factory=AgentRuntimeLimits)
     code_digest: Sha256Digest
     approved_business_context: ApprovedBusinessContext | None = None
+    first_contact_greeting: str | None = Field(
+        default=None, min_length=1, max_length=1000
+    )
 
     @model_serializer(mode="wrap")
     def omit_absent_context(
@@ -161,6 +164,8 @@ class AgentSpecConfiguration(FrozenModel):
         result: dict[str, object] = handler(self)
         if self.approved_business_context is None:
             result.pop("approved_business_context", None)
+        if self.first_contact_greeting is None:
+            result.pop("first_contact_greeting", None)
         return result
 
     @model_validator(mode="after")
@@ -223,6 +228,7 @@ class AgentSpec(FrozenModel):
                 timeout_seconds=self.configuration.runtime_limits.timeout_seconds,
             ),
             active=active,
+            first_contact_greeting=self.configuration.first_contact_greeting,
         )
 
     def digest(self) -> str:

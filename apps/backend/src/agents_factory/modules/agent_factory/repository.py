@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -302,7 +303,7 @@ class ProductionAgentSpecProvider:
         await set_tenant_context(self._session, tenant_id)
         result = await self._session.execute(
             text(
-                "SELECT version.compiled_spec, version.compiled_digest "
+                "SELECT version.compiled_spec, version.compiled_digest, deployment.created_at "
                 "FROM public.agent_spec_deployments AS deployment "
                 "JOIN public.agent_spec_versions AS version "
                 "ON version.tenant_id = deployment.tenant_id "
@@ -326,7 +327,9 @@ class ProductionAgentSpecProvider:
         from agents_factory.modules.agent_factory.models import AgentSpec
 
         spec = AgentSpec.model_validate(row["compiled_spec"])
-        snapshot = spec.to_runtime_snapshot(active=True)
+        snapshot = replace(
+            spec.to_runtime_snapshot(active=True), first_contact_since=row["created_at"]
+        )
         if snapshot.digest != row["compiled_digest"]:
             raise RuntimeError("persisted AgentSpec digest does not match its document")
         return snapshot

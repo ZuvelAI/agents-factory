@@ -7,6 +7,10 @@ from typing import Any, Protocol, cast
 
 from agents import Agent, FunctionTool, ModelSettings, RunConfig, Runner, Tool
 from openai.types.shared import Reasoning
+from agents_factory.modules.runtime.first_contact import (
+    compose_welcome,
+    turn_instructions,
+)
 
 from agents_factory.modules.runtime.contracts import (
     AgentTurnInput,
@@ -93,7 +97,7 @@ class OpenAIAgentsRuntime:
         )
         agent = Agent[Any](
             name="Agents Factory Customer Service",
-            instructions=turn.agent_spec.instructions,
+            instructions=turn_instructions(turn),
             model=turn.agent_spec.model.model,
             model_settings=model_settings,
             tools=sdk_tools,
@@ -131,7 +135,13 @@ class OpenAIAgentsRuntime:
         usage = getattr(getattr(raw_result, "context_wrapper", None), "usage", None)
         provider_response_id = getattr(raw_result, "last_response_id", None)
         return AgentTurnResult(
-            output_text=output,
+            output_text=compose_welcome(
+                output,
+                turn.agent_spec.first_contact_greeting,
+                first_contact=turn.is_first_contact
+                if turn.is_first_contact is not None
+                else len(turn.messages) == 1,
+            ),
             tool_calls=tuple(tool_calls),
             usage=_map_usage(usage),
             provider_response_id=(

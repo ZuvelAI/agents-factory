@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal, Protocol
 from uuid import UUID
 
@@ -69,6 +70,8 @@ class AgentSpecSnapshot:
     model: ModelConfiguration
     limits: RuntimeLimits
     active: bool
+    first_contact_greeting: str | None = None
+    first_contact_since: datetime | None = None
 
     def __post_init__(self) -> None:
         bounded_values = (
@@ -163,6 +166,7 @@ class AgentTurnInput:
     messages: tuple[TurnMessage, ...]
     tools: tuple[RuntimeTool, ...]
     trace: RuntimeTraceMetadata
+    is_first_contact: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.messages or self.messages[-1].role != "user":

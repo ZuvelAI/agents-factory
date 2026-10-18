@@ -122,6 +122,7 @@ def project_onboarding(
             name="approved_manual_summary", version="1", digest=knowledge.digest
         ),
         approved_business_context=context,
+        first_contact_greeting=agent.greeting,
         language=LanguagePolicy(
             supported_locales=locales,
             default_locale=company.primary_locale

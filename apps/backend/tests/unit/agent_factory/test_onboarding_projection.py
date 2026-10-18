@@ -95,6 +95,23 @@ def test_projection_preserves_brand_and_frozen_knowledge_in_runtime():
     assert result.permitted_tools == ()
 
 
+def test_greeting_is_bound_to_reviewed_spec_and_legacy_documents_keep_their_digest():
+    config, knowledge = inputs()
+    version = spec(project(config, knowledge), knowledge.tenant_id)
+    assert (
+        version.to_runtime_snapshot(active=True).first_contact_greeting
+        == "Hola, bienvenido a Zuvel"
+    )
+    legacy = version.model_dump(mode="json")
+    legacy["configuration"].pop("first_contact_greeting")
+    legacy_encoded = json.dumps(
+        legacy, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    loaded = AgentSpec.model_validate(legacy)
+    assert loaded.digest() == hashlib.sha256(legacy_encoded.encode()).hexdigest()
+    assert loaded.to_runtime_snapshot(active=True).first_contact_greeting is None
+
+
 def test_selected_gpt6_luna_reaches_runtime_without_changing_legacy_default():
     config, knowledge = inputs()
     selected = type(config.agent).model_validate(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol, cast
@@ -35,6 +35,7 @@ from agents_factory.modules.runtime.contracts import (
     TurnMessage,
 )
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
+from agents_factory.modules.runtime.first_contact import compose_welcome
 
 
 TurnExecutionStatus = Literal[
@@ -195,10 +196,19 @@ class AgentTurnService:
             agent_spec=agent_spec,
             relevant_capabilities=relevant,
         )
+        first_contact = bool(
+            agent_spec.first_contact_greeting
+        ) and await self._repository.is_new_contact(
+            context=self._context,
+            conversation_id=conversation_id,
+            inbound_message_id=inbound_message_id,
+            not_before=agent_spec.first_contact_since,
+        )
         turn = AgentTurnInput(
             agent_spec=agent_spec,
             messages=loaded.messages,
             tools=selected_tools,
+            is_first_contact=first_contact,
             trace=RuntimeTraceMetadata(
                 tenant_id=self._context.tenant_id,
                 conversation_id=conversation_id,
@@ -465,7 +475,26 @@ class _RuntimeTurnRepository:
             },
         )
         message_id = new_uuid7()
+        if agent_spec.first_contact_greeting:
+            # Recheck under the conversation lock: another turn/human/history may
+            # have arrived while the model was running. No separate welcome job.
+            first_contact = await self.is_new_contact(
+                context=context,
+                conversation_id=conversation_id,
+                inbound_message_id=inbound_message_id,
+                not_before=agent_spec.first_contact_since,
+            )
+            result = replace(
+                result,
+                output_text=compose_welcome(
+                    result.output_text,
+                    agent_spec.first_contact_greeting,
+                    first_contact=first_contact,
+                ),
+            )
         runtime_metadata = _runtime_metadata(agent_spec=agent_spec, result=result)
+        if agent_spec.first_contact_greeting:
+            runtime_metadata["first_contact_greeting_applied"] = first_contact
         created_id = await self._session.scalar(
             text(
                 "INSERT INTO public.messages "
@@ -510,6 +539,42 @@ class _RuntimeTurnRepository:
             message_id=cast(UUID, created_id),
             created=True,
             authority_available=True,
+        )
+
+    async def is_new_contact(
+        self,
+        *,
+        context: TenantContext,
+        conversation_id: UUID,
+        inbound_message_id: UUID,
+        not_before: datetime | None,
+    ) -> bool:
+        await set_tenant_context(self._session, context.tenant_id)
+        return bool(
+            await self._session.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM public.conversations c "
+                    "JOIN public.messages inbound ON inbound.tenant_id=c.tenant_id "
+                    "AND inbound.conversation_id=c.id "
+                    "WHERE c.tenant_id=:tenant AND c.id=:conversation AND inbound.id=:inbound "
+                    "AND (CAST(:not_before AS timestamptz) IS NULL OR c.created_at>=:not_before) "
+                    "AND NOT EXISTS (SELECT 1 FROM public.messages prior "
+                    "WHERE prior.tenant_id=c.tenant_id AND prior.conversation_id=c.id "
+                    "AND prior.id<>inbound.id AND prior.direction='outbound') "
+                    "AND NOT EXISTS (SELECT 1 FROM public.whatsapp_history_messages history "
+                    "WHERE history.tenant_id=c.tenant_id AND history.whatsapp_account_id=c.whatsapp_account_id "
+                    "AND history.customer_wa_id=c.customer_wa_id) "
+                    "AND NOT EXISTS (SELECT 1 FROM public.whatsapp_contacts contact "
+                    "WHERE contact.tenant_id=c.tenant_id AND contact.whatsapp_account_id=c.whatsapp_account_id "
+                    "AND contact.customer_wa_id=c.customer_wa_id AND NOT contact.is_deleted))"
+                ),
+                {
+                    "tenant": context.tenant_id,
+                    "conversation": conversation_id,
+                    "inbound": inbound_message_id,
+                    "not_before": not_before,
+                },
+            )
         )
 
 

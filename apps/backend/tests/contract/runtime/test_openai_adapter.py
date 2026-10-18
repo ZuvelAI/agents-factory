@@ -116,6 +116,32 @@ async def test_selected_gpt6_luna_is_used_by_sdk_with_existing_reasoning_limits(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("new_contact", [True, False])
+async def test_server_welcome_preserves_answer_and_is_not_sent_to_existing_contacts(
+    new_contact,
+):
+    original = _turn()
+    turn = replace(
+        original,
+        agent_spec=replace(
+            original.agent_spec,
+            first_contact_greeting="Bienvenido a Zuvel.\n• *Servicios empresariales*",
+        ),
+        is_first_contact=new_contact,
+    )
+    runner = _CapturedRunner()
+    result = await OpenAIAgentsRuntime(runner=runner, require_api_key=False).run(turn)
+    assert result.output_text == (
+        "Bienvenido a Zuvel.\n• *Servicios empresariales*\n\nTu pedido está en preparación."
+        if new_contact
+        else "Tu pedido está en preparación."
+    )
+    assert result.usage.total_tokens == 150
+    assert result.provider_response_id == "resp_recorded_001"
+    assert runner.calls[0]["agent"].instructions != original.agent_spec.instructions
+
+
+@pytest.mark.asyncio
 async def test_adapter_maps_the_internal_contract_to_one_bounded_sdk_agent() -> None:
     runner = _CapturedRunner()
     runtime = OpenAIAgentsRuntime(runner=runner, require_api_key=False)
