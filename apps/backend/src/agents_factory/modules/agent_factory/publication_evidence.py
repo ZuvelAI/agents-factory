@@ -13,7 +13,12 @@ from agents_factory.common.context import TenantContext
 from agents_factory.common.outbox import OutboxService
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.agent_factory.publication_service import publication_problem
-from agents_factory.modules.agent_factory.publication_tests import CandidateTestResult
+from agents_factory.modules.agent_factory.publication_tests import (
+    CandidateTestResult,
+    test_result_satisfies_spec,
+    required_result_schema,
+)
+from agents_factory.modules.agent_factory.models import AgentSpec
 from agents_factory.modules.agent_factory.repository import AgentSpecRepository
 from agents_factory.modules.agent_factory.service import QualityGateEvidence
 from agents_factory.modules.tenants.onboarding import OnboardingRepository
@@ -89,6 +94,18 @@ class PublicationEvidenceService:
                     current = True
                 except DomainError:
                     current = False
+        if current and row["run_kind"] == "SCENARIOS" and row["result"] is not None:
+            version = await AgentSpecRepository(self.session, self.context).get_version(
+                row["version_id"]
+            )
+            checks = CandidateTestResult.model_validate(row["result"])
+            current = bool(
+                version is not None
+                and version.compiled_spec is not None
+                and version.compiled_spec.digest() == row["agent_spec_digest"]
+                and checks.schema_version
+                == required_result_schema(version.compiled_spec)
+            )
         return PublicationTestRun(**dict(row), is_current=current)
 
     async def request_tests(self, version_id: UUID) -> PublicationTestRun:
@@ -272,9 +289,10 @@ class PersistedPanelQualityGate:
         await set_tenant_context(self.session, self.context.tenant_id)
         result = await self.session.execute(
             text(
-                "SELECT review.id,result.result FROM public.agent_publication_test_runs run "
+                "SELECT review.id,result.result,v.compiled_spec FROM public.agent_publication_test_runs run "
                 "JOIN public.agent_publication_test_results result ON result.tenant_id=run.tenant_id AND result.run_id=run.id "
                 "JOIN public.agent_publication_reviews review ON review.tenant_id=run.tenant_id AND review.run_id=run.id "
+                "JOIN public.agent_spec_versions v ON v.tenant_id=run.tenant_id AND v.id=run.version_id "
                 "JOIN public.tenant_onboarding_configs config ON config.tenant_id=run.tenant_id "
                 "WHERE run.tenant_id=:tenant AND run.source_kind='LEGACY' AND run.run_kind='SCENARIOS' AND run.agent_spec_digest=:spec AND run.knowledge_digest=:knowledge "
                 "AND run.code_digest=:code AND run.expires_at>now() AND config.revision=run.onboarding_revision "
@@ -292,7 +310,12 @@ class PersistedPanelQualityGate:
         if row is None:
             return None
         checks = CandidateTestResult.model_validate(row["result"])
-        if not checks.checks_passed:
+        if row["compiled_spec"] is None:
+            return None
+        frozen = AgentSpec.model_validate(row["compiled_spec"])
+        if frozen.digest() != agent_spec_digest or not test_result_satisfies_spec(
+            checks, frozen
+        ):
             return None
         return QualityGateEvidence(
             decision_id=row["id"],

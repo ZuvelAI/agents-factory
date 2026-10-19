@@ -7,6 +7,7 @@ import {
 } from "../../lib/publication-preview-input";
 import { publicationAction } from "./publication-actions";
 import { useUnsavedConfiguration } from "./use-unsaved-configuration";
+import { LeadSimulationSummary } from "./lead-simulation-summary";
 import type {
   PublicationActionState,
   PublicationState,
@@ -80,9 +81,9 @@ export function AgentPreview({
     <article className="workspace-card">
       <h2>Conversación de prueba</h2>
       <p className="workspace-muted">
-        Prueba aislada · no envía WhatsApp · consume API. Herramientas
-        deshabilitadas; no comprueba integraciones externas. No pegues secretos
-        ni datos personales.
+        Prueba aislada · no envía WhatsApp · consume API. Prospectos solo
+        simulados; no guarda contactos ni comprueba integraciones externas. No
+        pegues secretos ni datos personales.
       </p>
       <div className="preview-messages" aria-label="Mensajes de la prueba">
         {history.map((message, index) => (
@@ -103,6 +104,7 @@ export function AgentPreview({
           La prueba falló; no se generó una respuesta de respaldo.
         </p>
       )}
+      <LeadSimulationSummary proposals={previewResult?.lead_proposals} />
       {waiting && (
         <p role="status">
           Prueba pendiente. Consulta el estado; no es necesario enviarla otra

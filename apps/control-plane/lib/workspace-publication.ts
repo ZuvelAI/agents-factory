@@ -1,6 +1,10 @@
 import "server-only";
 import { callAuthenticatedBackend } from "./api";
 import { isWorkspaceId } from "./agent-workspace";
+import {
+  parseSimulatedProposals,
+  type SimulatedLeadProposal,
+} from "./lead-simulation";
 
 export type PublicationVersion = {
   id: string;
@@ -25,6 +29,7 @@ export type Scenario = {
   response: string | null;
   passed: boolean;
   error_code: string | null;
+  lead_proposals?: SimulatedLeadProposal[];
 };
 export type PreviewMessage = { role: "user" | "assistant"; text: string };
 export type Run = {
@@ -39,8 +44,12 @@ export type Run = {
   input_messages: PreviewMessage[] | null;
   result:
     | null
-    | { checks_passed: boolean; scenarios: Scenario[] }
-    | { response: string | null; error_code: string | null };
+    | { checks_passed: boolean; schema_version?: 1 | 2; scenarios: Scenario[] }
+    | {
+        response: string | null;
+        error_code: string | null;
+        lead_proposals?: SimulatedLeadProposal[];
+      };
 };
 export type Binding = {
   tenant_id: string;
@@ -181,14 +190,18 @@ export function parsePublicationRun(v: unknown): Run {
   if (v.result !== null) {
     if (!record(v.result)) return invalid();
     if (v.run_kind === "PREVIEW") {
+      const proposals = parseSimulatedProposals(v.result.lead_proposals);
       if (
         !nullableText(v.result.response) ||
         !nullableText(v.result.error_code) ||
         (v.result.response === null) === (v.result.error_code === null) ||
-        v.approved !== null
+        v.approved !== null ||
+        (v.result.error_code !== null && proposals.length > 0)
       )
         return invalid();
     } else {
+      const schemaVersion = v.result.schema_version ?? 1;
+      if (schemaVersion !== 1 && schemaVersion !== 2) return invalid();
       if (
         typeof v.result.checks_passed !== "boolean" ||
         !Array.isArray(v.result.scenarios) ||
@@ -203,11 +216,47 @@ export function parsePublicationRun(v: unknown): Run {
         )
       )
         return invalid();
+      const expectedKeys = [
+        "greeting",
+        "known_fact",
+        "unknown_fact",
+        "scope",
+        "injection",
+        "human_control",
+        ...(schemaVersion === 2
+          ? ["lead_interest", "lead_no_interest", "lead_refusal"]
+          : []),
+      ];
+      for (const scenario of v.result.scenarios) {
+        const proposals = parseSimulatedProposals(scenario.lead_proposals);
+        if (v.result.checks_passed) {
+          const expected =
+            scenario.key === "lead_interest"
+              ? "CAPTURE"
+              : scenario.key === "lead_refusal"
+                ? "SUPPRESS"
+                : null;
+          if (
+            expected === null
+              ? proposals.length !== 0
+              : proposals.length !== 1 || proposals[0].operation !== expected
+          )
+            return invalid();
+        }
+      }
       if (
         v.result.checks_passed &&
-        (v.result.scenarios.length !== 6 ||
-          new Set(v.result.scenarios.map((s) => s.key)).size !== 6 ||
-          v.result.scenarios.some((s) => !s.passed || s.error_code !== null))
+        (v.result.scenarios.length !== expectedKeys.length ||
+          new Set(v.result.scenarios.map((s) => s.key)).size !==
+            expectedKeys.length ||
+          v.result.scenarios.some(
+            (s) =>
+              !expectedKeys.includes(s.key) ||
+              !s.passed ||
+              s.error_code !== null ||
+              (s.key !== "human_control" &&
+                (typeof s.response !== "string" || !s.response.trim())),
+          ))
       )
         return invalid();
     }

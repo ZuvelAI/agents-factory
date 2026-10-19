@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { publicationAction, refreshPublication } from "./publication-actions";
 import { AgentPreview } from "./agent-preview";
+import { LeadSimulationSummary } from "./lead-simulation-summary";
 import { AgentPublicationConfirmation } from "./agent-publication-confirmation";
 import {
   requestIdentity,
@@ -261,6 +262,11 @@ export function AgentTestingPanel({
           />
           <article className="workspace-card">
             <h2>2. Escenarios y revisión humana</h2>
+            <p className="workspace-muted">
+              Guardar prospectos añade 3 escenarios comerciales: 8 turnos con
+              modelo en lugar de 5. Consumen API con costo variable; las
+              capturas son simuladas y no crean registros reales.
+            </p>
             <p>
               Esta batería realiza cinco llamadas al modelo y un control humano
               local. Revisa información, tono, precios desconocidos, alcance y
@@ -300,6 +306,7 @@ export function AgentTestingPanel({
                       </summary>
                       <p>{s.prompt}</p>
                       <p>{s.response ?? "Sin respuesta"}</p>
+                      <LeadSimulationSummary proposals={s.lead_proposals} />
                       {s.error_code && <p role="alert">La generación falló.</p>}
                     </details>
                   ))}
