@@ -222,7 +222,9 @@ class AgentConfigurationService:
         combined = OnboardingConfiguration.model_validate(
             {
                 "company": row["company_snapshot"],
-                **config.model_dump(mode="json", exclude={"schema_version", "purpose"}),
+                **config.model_dump(
+                    mode="json", exclude={"schema_version", "purpose", "lead_capture"}
+                ),
             }
         )
         issues.extend(
@@ -293,10 +295,14 @@ class AgentConfigurationService:
         if row is None:
             self.conflict()
         assert row is not None
+        previous_data, next_data = (
+            before.configuration.model_dump(),
+            configuration.model_dump(),
+        )
         changed = [
             key
-            for key, value in configuration.model_dump().items()
-            if value != before.configuration.model_dump()[key]
+            for key in sorted(previous_data.keys() | next_data.keys())
+            if previous_data.get(key) != next_data.get(key)
         ]
         await self.audit(
             tenant_id, agent_id, "agent.configuration_saved", row["revision"], changed

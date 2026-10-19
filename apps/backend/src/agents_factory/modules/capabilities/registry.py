@@ -6,6 +6,7 @@ from agents_factory.modules.capabilities.contracts import (
     CapabilityManifest,
     TenantExtensionManifest,
 )
+from agents_factory.modules.leads.capability import LEAD_CAPTURE_MANIFEST
 
 
 class DuplicateManifest(ValueError):
@@ -42,7 +43,7 @@ class CapabilityRegistry:
         return tuple(self._manifests[key] for key in sorted(self._manifests))
 
 
-V1_CAPABILITY_REGISTRY = CapabilityRegistry()
+V1_CAPABILITY_REGISTRY = CapabilityRegistry((LEAD_CAPTURE_MANIFEST,))
 
 
 class TenantExtensionRegistry:

@@ -5,7 +5,11 @@ from pydantic import BaseModel, ConfigDict
 from .approved_knowledge import ApprovedKnowledgeSnapshot
 from .compiler import canonical_json
 from .configuration_models import AgentEditableConfiguration, DraftView
-from .models import AgentSpecConfiguration
+from .models import AgentSpecConfiguration, VersionReference
+from agents_factory.modules.leads.capability import (
+    LEAD_CAPTURE_VERSION,
+    LEAD_CAPTURE_TOOLS,
+)
 from .onboarding_projection import project_onboarding
 from agents_factory.modules.tenants.onboarding import (
     CompanyConfiguration,
@@ -34,11 +38,25 @@ def project_configuration(
         {
             "company": draft.company_snapshot.model_dump(mode="json"),
             **draft.configuration.model_dump(
-                mode="json", exclude={"schema_version", "purpose"}
+                mode="json", exclude={"schema_version", "purpose", "lead_capture"}
             ),
         }
     )
     # Purpose is a first-class editor field, not a label to silently discard.
     if draft.configuration.purpose:
         combined.agent.instructions = f"Propósito del agente: {draft.configuration.purpose}\n{combined.agent.instructions}"
-    return project_onboarding(combined, knowledge, code_digest)
+    projected = project_onboarding(combined, knowledge, code_digest)
+    if draft.configuration.lead_capture and draft.configuration.lead_capture.enabled:
+        return projected.model_copy(
+            update={
+                "capabilities": (
+                    *projected.capabilities,
+                    VersionReference(name="lead_capture", version=LEAD_CAPTURE_VERSION),
+                ),
+                "permitted_tools": (
+                    *projected.permitted_tools,
+                    *sorted(LEAD_CAPTURE_TOOLS),
+                ),
+            }
+        )
+    return projected

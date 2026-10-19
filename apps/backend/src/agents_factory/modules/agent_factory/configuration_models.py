@@ -4,7 +4,13 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from agents_factory.modules.tenants.onboarding import (
     AgentConfiguration,
@@ -20,6 +26,10 @@ from agents_factory.modules.tenants.onboarding import (
 
 class ConfigurationModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class LeadCaptureConfiguration(ConfigurationModel):
+    enabled: bool = Field(default=False, strict=True)
 
 
 class AgentEditableConfiguration(ConfigurationModel):
@@ -42,6 +52,16 @@ class AgentEditableConfiguration(ConfigurationModel):
     integrations: IntegrationsConfiguration = Field(
         default_factory=IntegrationsConfiguration
     )
+    lead_capture: LeadCaptureConfiguration | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_disabled_leads(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.lead_capture is None or not self.lead_capture.enabled:
+            data.pop("lead_capture", None)
+        return data
 
 
 class ValidationIssue(ConfigurationModel):

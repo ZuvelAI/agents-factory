@@ -13,6 +13,10 @@ from agents_factory.modules.integrations.registry import (
 )
 from agents_factory.modules.runtime.contracts import RuntimeTool
 from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
+from agents_factory.modules.leads.capability import (
+    LEAD_CAPTURE_TOOLS,
+    LEAD_CAPTURE_VERSION,
+)
 
 
 class AgentSpecManifestError(ValueError):
@@ -72,6 +76,11 @@ class CapabilityService:
 
     def _available_binding_operations(self, spec: AgentSpec) -> set[str]:
         operations: set[str] = set()
+        if any(
+            ref.name == "lead_capture" and ref.version == LEAD_CAPTURE_VERSION
+            for ref in spec.configuration.capabilities
+        ):
+            operations.update(LEAD_CAPTURE_TOOLS)
         for binding in spec.configuration.connector_bindings:
             manifest = self._connectors.get(
                 binding.connector,

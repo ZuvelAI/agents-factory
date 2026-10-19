@@ -9,6 +9,10 @@ from .workspace_models import (
     FeatureSummary,
 )
 from .configuration_models import AgentEditableConfiguration
+from agents_factory.modules.leads.capability import (
+    LEAD_CAPTURE_TOOLS,
+    LEAD_CAPTURE_VERSION,
+)
 
 
 def editable_configuration_view(config: dict[str, Any]) -> AgentConfigurationView:
@@ -29,7 +33,20 @@ def editable_configuration_view(config: dict[str, Any]) -> AgentConfigurationVie
                 reason="Requiere conexión y validación operativa.",
             )
             for key in draft.capabilities.selected_capabilities
-        ],
+        ]
+        + (
+            [
+                FeatureSummary(
+                    key="lead_capture",
+                    label="Guardar prospectos",
+                    availability="available",
+                    enabled=True,
+                    reason="Habilitado en el borrador; requiere probar y publicar para operar.",
+                )
+            ]
+            if draft.lead_capture and draft.lead_capture.enabled
+            else []
+        ),
         integrations=[
             FeatureSummary(
                 key=key,
@@ -56,10 +73,22 @@ def configuration_view(config: dict[str, Any] | None) -> AgentConfigurationView 
         capabilities=[
             FeatureSummary(
                 key=c["name"],
-                label=c["name"],
-                availability="unknown",
-                enabled=False,
-                reason="Permiso declarado; disponibilidad de ejecución no verificada.",
+                label="Guardar prospectos"
+                if c["name"] == "lead_capture"
+                else c["name"],
+                availability="available"
+                if c["name"] == "lead_capture"
+                and c.get("version") == LEAD_CAPTURE_VERSION
+                and LEAD_CAPTURE_TOOLS <= set(config.get("permitted_tools", []))
+                else "unknown",
+                enabled=c["name"] == "lead_capture"
+                and c.get("version") == LEAD_CAPTURE_VERSION
+                and LEAD_CAPTURE_TOOLS <= set(config.get("permitted_tools", [])),
+                reason="Captura interna de interés comercial con evidencia."
+                if c["name"] == "lead_capture"
+                and c.get("version") == LEAD_CAPTURE_VERSION
+                and LEAD_CAPTURE_TOOLS <= set(config.get("permitted_tools", []))
+                else "Permiso declarado; disponibilidad de ejecución no verificada.",
             )
             for c in config.get("capabilities", [])
         ],
