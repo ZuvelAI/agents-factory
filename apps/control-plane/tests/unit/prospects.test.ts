@@ -68,3 +68,18 @@ it("links back to the exact tenant and source conversation", () => {
   );
   expect(() => prospectConversationLink(tenant, "unsafe?admin=true")).toThrow();
 });
+it("preserves more than one hundred valid interests accepted by persistence", () => {
+  const interests = Array.from({ length: 101 }, (_, i) => `Necesidad ${i}`);
+  const value = { ...prospect, service_interests: interests };
+  expect(
+    parseProspectPage({ items: [value], next_cursor: null }, tenant).items[0]
+      .service_interests,
+  ).toEqual(interests);
+  expect(
+    parseProspectDetail(
+      { prospect: value, events: { items: [], next_cursor: null } },
+      tenant,
+      identity,
+    ).prospect.service_interests,
+  ).toEqual(interests);
+});

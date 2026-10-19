@@ -7,7 +7,8 @@ select no_plan();
 
 create temp table task5_tenant_isolation_registry (
   table_name text primary key,
-  owner_column text not null
+  owner_column text not null,
+  read_role text not null default 'agents_factory_app'
 ) on commit drop;
 
 insert into task5_tenant_isolation_registry (table_name, owner_column)
@@ -38,7 +39,27 @@ values
   ('public.identity_challenges', 'tenant_id'),
   ('public.identity_evidence', 'tenant_id'),
   ('public.actions', 'tenant_id'),
-  ('public.action_events', 'tenant_id');
+  ('public.action_events', 'tenant_id'),
+  ('public.agent_approved_knowledge_versions', 'tenant_id'),
+  ('public.panel_agent_candidates', 'tenant_id'),
+  ('public.agent_publication_test_runs', 'tenant_id'),
+  ('public.agent_publication_test_results', 'tenant_id'),
+  ('public.agent_publication_reviews', 'tenant_id'),
+  ('public.account_agent_bindings', 'tenant_id'),
+  ('public.account_agent_binding_history', 'tenant_id'),
+  ('public.workspace_agent_candidates', 'tenant_id'),
+  ('public.whatsapp_contact_profiles', 'tenant_id'),
+  ('public.lead_subjects', 'tenant_id'),
+  ('public.lead_subject_keys', 'tenant_id'),
+  ('public.lead_prospects', 'tenant_id'),
+  ('public.lead_capture_events', 'tenant_id');
+
+-- Explicit administrative-only contracts mirror the real role matrix in Python.
+-- Discovery still includes every public tenant-owned base table: nothing is skipped.
+insert into task5_tenant_isolation_registry (table_name, owner_column, read_role)
+values
+  ('public.company_profiles', 'tenant_id', 'agents_factory_admin'),
+  ('public.agent_configuration_drafts', 'tenant_id', 'agents_factory_admin');
 
 create function pg_temp.tenant_owned_catalog()
 returns table (qualified_name text, owner_column text)
@@ -66,7 +87,8 @@ $function$;
 
 create function pg_temp.assert_tenant_isolated(
   table_name text,
-  owner_column text default 'tenant_id'
+  owner_column text default 'tenant_id',
+  read_role text default 'agents_factory_app'
 )
 returns setof text
 language plpgsql
@@ -121,8 +143,8 @@ begin
   );
 
   return next extensions.ok(
-    has_table_privilege('agents_factory_app', relation_id, 'SELECT'),
-    format('%s grants constrained application reads', table_name)
+    has_table_privilege(read_role, relation_id, 'SELECT'),
+    format('%s grants constrained %s reads', table_name, read_role)
   );
 
   return next extensions.ok(
@@ -131,12 +153,22 @@ begin
       from pg_policies
       where schemaname = relation_schema
         and tablename = relation_name
-        and cmd = 'SELECT'
-        and 'agents_factory_app' = any(roles)
+        and (cmd = 'SELECT' or (
+          read_role = 'agents_factory_admin' and cmd = 'ALL'
+          and coalesce(with_check, '') like '%' || owner_column || '%'
+          and coalesce(with_check, '') like '%current_setting%app.tenant_id%'
+        ))
+        and read_role = any(roles)
         and coalesce(qual, '') like '%' || owner_column || '%'
         and coalesce(qual, '') like '%current_setting%app.tenant_id%'
     ),
     format('%s SELECT policy binds %s to app.tenant_id', table_name, owner_column)
+  );
+
+  return next extensions.ok(
+    read_role = 'agents_factory_app'
+      or not has_table_privilege('agents_factory_app', relation_id, 'SELECT'),
+    format('%s administrative-only reads are not granted to runtime', table_name)
   );
 
   app_can_insert := has_table_privilege(
@@ -213,13 +245,20 @@ begin
 end
 $function$;
 
-select assertion
-from task5_tenant_isolation_registry as registration
-cross join lateral pg_temp.assert_tenant_isolated(
-  registration.table_name,
-  registration.owner_column
-) as result(assertion)
-order by registration.table_name, assertion;
+-- Generate TAP in execution order, not lexically ("ok 10" sorts before "ok 2").
+create function pg_temp.assert_all_tenant_isolated()
+returns setof text language plpgsql as $function$
+declare registration record;
+begin
+  for registration in select * from task5_tenant_isolation_registry order by table_name loop
+    return query select * from pg_temp.assert_tenant_isolated(
+      registration.table_name, registration.owner_column, registration.read_role
+    );
+  end loop;
+end
+$function$;
+
+select * from pg_temp.assert_all_tenant_isolated();
 
 create view public.task5_pgtap_tenant_projection
 with (security_invoker = true)

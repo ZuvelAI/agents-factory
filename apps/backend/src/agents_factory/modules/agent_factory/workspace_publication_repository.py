@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from agents_factory.common.context import TenantContext
+from agents_factory.common.account_lifecycle import lock_account_lifecycle
 from agents_factory.database import set_tenant_context
 
 
@@ -128,6 +129,7 @@ class WorkspacePublicationRepository:
         return row["id"] if row else None
 
     async def lock_account(self, account_id: UUID) -> dict[str, Any] | None:
+        await lock_account_lifecycle(self.session, self.context.tenant_id, account_id)
         return await self.one(
             "SELECT * FROM public.whatsapp_accounts WHERE tenant_id=:tenant AND id=:account FOR UPDATE",
             account=account_id,

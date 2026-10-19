@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
+from agents_factory.common.account_lifecycle import lock_account_lifecycle
 from agents_factory.common.errors import DomainError
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.agent_factory.approved_knowledge import (
@@ -208,6 +209,7 @@ class PanelPublicationService:
         self, account_id: UUID
     ) -> AccountAgentBindingRepository:
         await self._existing_tenant()
+        await lock_account_lifecycle(self.session, self.context.tenant_id, account_id)
         await self.session.execute(
             text(
                 "SELECT tenant_id FROM public.tenant_onboarding_configs WHERE tenant_id=:tenant FOR UPDATE"

@@ -1,6 +1,7 @@
 """Persistence primitives; all callers participate in their existing transaction."""
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -187,8 +188,23 @@ class LeadRepository:
         )
         return cast(bool, result.scalar_one())
 
-    async def suppress_subject(self, subject_id: UUID, message_id: UUID) -> None:
+    async def suppression_source(
+        self, subject_ids: tuple[UUID, ...]
+    ) -> RowMapping | None:
+        result = await self.execute(
+            "SELECT suppression_message_id,suppressed_at FROM public.lead_subjects WHERE tenant_id=:tenant AND id=ANY(CAST(:subjects AS uuid[])) AND capture_suppressed ORDER BY suppressed_at,id LIMIT 1",
+            {"subjects": list(subject_ids)},
+        )
+        return result.mappings().one_or_none()
+
+    async def suppress_subject(
+        self,
+        subject_id: UUID,
+        message_id: UUID,
+        *,
+        suppressed_at: datetime | None = None,
+    ) -> None:
         await self.execute(
-            "UPDATE public.lead_subjects SET capture_suppressed=true,suppressed_at=coalesce(suppressed_at,now()),suppression_message_id=coalesce(suppression_message_id,:message) WHERE tenant_id=:tenant AND id=:subject",
-            {"message": message_id, "subject": subject_id},
+            "UPDATE public.lead_subjects SET capture_suppressed=true,suppressed_at=coalesce(suppressed_at,:at,now()),suppression_message_id=coalesce(suppression_message_id,:message) WHERE tenant_id=:tenant AND id=:subject",
+            {"message": message_id, "subject": subject_id, "at": suppressed_at},
         )

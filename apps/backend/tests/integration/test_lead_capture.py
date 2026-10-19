@@ -422,6 +422,69 @@ async def test_privacy_refusal_blocks_all_conflicting_aliases_without_merging(
     )
 
 
+async def test_historical_refusal_propagates_when_later_capture_reveals_conflict(
+    session_factory,
+):
+    first = await seed(session_factory, opaque="CO.first")
+    # Same account, two identities initially not associated by the provider.
+    second_conversation = uuid4()
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "INSERT INTO public.conversations(id,tenant_id,whatsapp_account_id,customer_wa_id) VALUES(:id,:tenant,:account,'CO.other')"
+            ),
+            {
+                "id": second_conversation,
+                "tenant": first[0].tenant_id,
+                "account": first[1],
+            },
+        )
+    second = (
+        first[0],
+        first[1],
+        second_conversation,
+        first[3],
+        first[4],
+        None,
+        "CO.other",
+    )
+    await capture(session_factory, first, await inbound(session_factory, first))
+    await capture(session_factory, second, await inbound(session_factory, second))
+    refusal = await inbound(session_factory, first, "No guardes mis datos", 2)
+    await capture(session_factory, first, refusal, operation="SUPPRESS")
+    original = next(
+        r
+        for r in await rows(session_factory, "lead_subjects")
+        if r["capture_suppressed"]
+    )
+    linked = (*first[:5], "573000000001", "CO.other")
+    assert (
+        await capture(
+            session_factory, linked, await inbound(session_factory, linked, sequence=3)
+        )
+    ).status == "IDENTITY_CONFLICT"
+    subjects = await rows(session_factory, "lead_subjects")
+    assert len(subjects) == 2 and all(r["capture_suppressed"] for r in subjects)
+    assert all(
+        r["suppression_message_id"] == original["suppression_message_id"]
+        and r["suppressed_at"] == original["suppressed_at"]
+        for r in subjects
+    )
+    assert (
+        await capture(
+            session_factory, second, await inbound(session_factory, second, sequence=4)
+        )
+    ).status == "SUPPRESSED"
+    another_account = await seed(session_factory, tenant=first[0].tenant_id)
+    assert (
+        await capture(
+            session_factory,
+            another_account,
+            await inbound(session_factory, another_account),
+        )
+    ).status == "SUPPRESSED"
+
+
 async def test_effects_roll_back_with_the_callers_transaction(session_factory):
     world = await seed(session_factory)
     incoming = await inbound(session_factory, world)

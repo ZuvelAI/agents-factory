@@ -72,10 +72,21 @@ class LeadCaptureService:
             return LeadCaptureOutcome("REJECTED")
         resolution = await LeadIdentityResolver(repo).resolve(trusted)
         if resolution.conflicted:
-            if proposal.operation == "SUPPRESS":
+            # Stable order, and privacy must prevail even when today's message
+            # expresses interest rather than repeating the earlier refusal.
+            for subject_id in resolution.conflict_subject_ids:
+                await repo.lock_subject(subject_id)
+            source = await repo.suppression_source(resolution.conflict_subject_ids)
+            suppressed = source is not None or proposal.operation == "SUPPRESS"
+            if suppressed:
                 for subject_id in resolution.conflict_subject_ids:
-                    await repo.lock_subject(subject_id)
-                    await self._suppress_subject(subject_id, trusted.inbound_message_id)
+                    await repo.suppress_subject(
+                        subject_id,
+                        source["suppression_message_id"]
+                        if source
+                        else trusted.inbound_message_id,
+                        suppressed_at=source["suppressed_at"] if source else None,
+                    )
             await self._event(
                 trusted,
                 proposal,
@@ -85,11 +96,7 @@ class LeadCaptureService:
                     "conflicting_subject_ids": [
                         str(identity) for identity in resolution.conflict_subject_ids
                     ],
-                    **(
-                        {"capture_suppressed": True}
-                        if proposal.operation == "SUPPRESS"
-                        else {}
-                    ),
+                    **({"capture_suppressed": True} if suppressed else {}),
                 },
             )
             return LeadCaptureOutcome("IDENTITY_CONFLICT")

@@ -59,7 +59,6 @@ function isProspect(v: unknown, tenant: string): v is Prospect {
       (typeof v.phone_number === "string" &&
         /^\+[1-9]\d{6,14}$/.test(v.phone_number))) &&
     Array.isArray(v.service_interests) &&
-    v.service_interests.length <= 100 &&
     v.service_interests.every(
       (s) => typeof s === "string" && s.length <= 300,
     ) &&
