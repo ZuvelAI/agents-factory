@@ -46,7 +46,11 @@ class LeadCaptureService:
         messages: tuple[TurnMessage, ...],
     ) -> LeadCaptureOutcome:
         repo = self.repository
-        if trusted.tenant_id != repo.context.tenant_id:
+        if (
+            trusted.tenant_id != repo.context.tenant_id
+            or trusted.agent_instance_id is None
+            or trusted.agent_version_id is None
+        ):
             return LeadCaptureOutcome("REJECTED")
         canonical = await self.context_for(
             conversation_id=trusted.conversation_id,
@@ -165,10 +169,7 @@ class LeadCaptureService:
         return await self.apply(proposal, trusted, messages)
 
     async def _suppress_subject(self, subject_id: UUID, message_id: UUID) -> None:
-        await self.repository.execute(
-            "UPDATE public.lead_subjects SET capture_suppressed=true,suppressed_at=coalesce(suppressed_at,now()),suppression_message_id=coalesce(suppression_message_id,:message) WHERE tenant_id=:tenant AND id=:subject",
-            {"message": message_id, "subject": subject_id},
-        )
+        await self.repository.suppress_subject(subject_id, message_id)
 
     async def _event(
         self,

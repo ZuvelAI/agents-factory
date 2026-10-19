@@ -12,6 +12,10 @@ from agents_factory.modules.runtime.first_contact import (
     turn_instructions,
     orientation_only,
 )
+from agents_factory.modules.leads.runtime_tools import (
+    lead_instructions,
+    model_input_items,
+)
 
 from agents_factory.modules.runtime.contracts import (
     AgentTurnInput,
@@ -98,7 +102,7 @@ class OpenAIAgentsRuntime:
         )
         agent = Agent[Any](
             name="Agents Factory Customer Service",
-            instructions=turn_instructions(turn),
+            instructions=turn_instructions(turn) + lead_instructions(turn),
             model=turn.agent_spec.model.model,
             model_settings=model_settings,
             tools=sdk_tools,
@@ -110,9 +114,7 @@ class OpenAIAgentsRuntime:
             trace_include_sensitive_data=False,
             trace_metadata=turn.trace.as_sdk_metadata(),
         )
-        input_items: list[dict[str, object]] = [
-            {"role": message.role, "content": message.text} for message in turn.messages
-        ]
+        input_items = model_input_items(turn)
         try:
             async with asyncio.timeout(turn.agent_spec.limits.timeout_seconds):
                 raw_result = await self._runner.run(

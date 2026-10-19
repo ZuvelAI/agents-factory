@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.account_lifecycle import lock_account_lifecycle
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.agent_factory.models import AgentSpecVersion
 
@@ -49,6 +50,7 @@ class AccountAgentBindingRepository:
         )
 
         await set_tenant_context(self.session, self.context.tenant_id)
+        await lock_account_lifecycle(self.session, self.context.tenant_id, account_id)
         current = await self.get_for_account(account_id)
         if (0 if current is None else current.revision) != expected_revision:
             raise publication_problem(

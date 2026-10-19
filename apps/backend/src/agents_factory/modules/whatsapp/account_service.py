@@ -11,6 +11,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.account_lifecycle import lock_account_lifecycle
 from agents_factory.common.errors import DomainError
 from agents_factory.database import set_tenant_context
 from agents_factory.modules.secrets.contracts import (
@@ -183,6 +184,7 @@ class WhatsAppAccountRepository:
         token_expires_at: datetime | None,
         verified_at: datetime,
     ) -> ConnectedWhatsAppAccount:
+        await lock_account_lifecycle(self._session, context.tenant_id, account_id)
         statement = text(
             "INSERT INTO public.whatsapp_accounts "
             "(id, tenant_id, provider, business_id, waba_id, phone_number_id, "
@@ -341,6 +343,7 @@ class WhatsAppAccountRepository:
         error_code: str | None = None,
     ) -> ConnectedWhatsAppAccount:
         await set_tenant_context(self._session, context.tenant_id)
+        await lock_account_lifecycle(self._session, context.tenant_id, account_id)
         await self._session.execute(
             text(
                 "UPDATE public.whatsapp_accounts SET status = 'inactive', "

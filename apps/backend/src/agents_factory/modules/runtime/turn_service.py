@@ -39,6 +39,12 @@ from agents_factory.modules.runtime.first_contact import (
     compose_welcome,
     orientation_only,
 )
+from agents_factory.modules.leads.capability import (
+    LEAD_CAPTURE_TOOLS,
+    lead_capture_enabled,
+)
+from agents_factory.modules.leads.runtime_tools import lead_tools_for_turn
+from agents_factory.modules.leads.turn_effects import LeadTurnEffects
 
 
 TurnExecutionStatus = Literal[
@@ -221,7 +227,25 @@ class AgentTurnService:
                 agent_spec_digest=agent_spec.digest,
             ),
         )
+        lead_effects = (
+            LeadTurnEffects(self._session, self._context)
+            if lead_capture_enabled(agent_spec)
+            else None
+        )
+        if lead_effects is not None:
+            turn = replace(
+                turn,
+                tools=tuple(
+                    tool
+                    for tool in selected_tools
+                    if tool.name not in LEAD_CAPTURE_TOOLS
+                )
+                + lead_tools_for_turn(turn, simulation=False),
+            )
+            authority = await lead_effects.prepare(turn)
         result = await self._runtime.run(turn)
+        if lead_effects is not None:
+            await lead_effects.lock_current(turn, authority)
         persisted = await self._repository.persist_assistant_reply(
             context=self._context,
             conversation_id=conversation_id,
@@ -230,6 +254,8 @@ class AgentTurnService:
             result=result,
             awaiting_human_policy=self._awaiting_human_policy,
             only_orientation=orientation_only(loaded.inbound_message.text),
+            lead_effects=lead_effects,
+            lead_turn=turn,
         )
         if not persisted.authority_available:
             return AgentTurnExecution(status="blocked_by_conversation_control")
@@ -408,6 +434,8 @@ class _RuntimeTurnRepository:
         result: AgentTurnResult,
         awaiting_human_policy: AwaitingHumanPolicy,
         only_orientation: bool = False,
+        lead_effects: LeadTurnEffects | None = None,
+        lead_turn: AgentTurnInput | None = None,
     ) -> _PersistedAssistant:
         await set_tenant_context(self._session, context.tenant_id)
         authority = (
@@ -468,6 +496,8 @@ class _RuntimeTurnRepository:
                 created=False,
                 authority_available=True,
             )
+        if lead_effects is not None and lead_turn is not None:
+            await lead_effects.apply(lead_turn, result)
         arrival_sequence = await self._session.scalar(
             text(
                 "SELECT coalesce(max(arrival_sequence), 0) + 1 "
@@ -613,6 +643,14 @@ def _runtime_metadata(
     agent_spec: AgentSpecSnapshot,
     result: AgentTurnResult,
 ) -> dict[str, object]:
+    tool_metadata: list[dict[str, object]] = []
+    for call in result.tool_calls:
+        entry: dict[str, object] = {"tool_name": call.tool_name}
+        if call.tool_name.startswith("lead_capture."):
+            entry["status"] = "PREPARED"
+        else:
+            entry.update(arguments=dict(call.arguments), output=call.output)
+        tool_metadata.append(entry)
     metadata: dict[str, object] = {
         "model": agent_spec.model.model,
         "reasoning_effort": agent_spec.model.reasoning_effort,
@@ -625,14 +663,7 @@ def _runtime_metadata(
             "reasoning_tokens": result.usage.reasoning_tokens,
             "total_tokens": result.usage.total_tokens,
         },
-        "tool_calls": [
-            {
-                "tool_name": call.tool_name,
-                "arguments": dict(call.arguments),
-                "output": call.output,
-            }
-            for call in result.tool_calls
-        ],
+        "tool_calls": tool_metadata,
     }
     if result.provider_response_id is not None:
         metadata["provider_response_id"] = result.provider_response_id

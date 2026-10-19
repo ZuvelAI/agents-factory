@@ -69,7 +69,7 @@ async def seed(factory, *, tenant=None, phone="573000000001", opaque=None):
     return context, account, conversation, agent, version, phone, opaque
 
 
-async def inbound(factory, world, body=TEXT, sequence=1):
+async def inbound(factory, world, body=TEXT, sequence=1, *, event_only=False):
     context, account, conversation, agent, version, phone, opaque = world
     event, message = uuid4(), uuid4()
     provider_message = {
@@ -116,6 +116,8 @@ async def inbound(factory, world, body=TEXT, sequence=1):
                 "body": {"text": body},
             },
         )
+        if event_only:
+            return event, ()
         await session.execute(
             text(
                 "INSERT INTO public.messages(id,tenant_id,conversation_id,source_event_id,direction,sender_type,message_type,content,provider_timestamp,arrival_sequence) VALUES(:id,:tenant,:conversation,:event,'inbound','customer','text',:body,now(),:seq)"

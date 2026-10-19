@@ -15,6 +15,7 @@ from agents_factory.modules.conversations.models import (
 )
 from agents_factory.modules.conversations.repository import ConversationRepository
 from agents_factory.modules.conversations.state_machine import ConversationStateMachine
+from agents_factory.modules.leads.privacy import persist_direct_refusal
 
 
 class ConversationNotFound(LookupError):
@@ -35,6 +36,7 @@ class ConversationService:
         reopen_closed_on_inbound: bool = True,
     ) -> None:
         self._context = context
+        self._session = session
         self._repository = ConversationRepository(session)
         self._audit = AuditService(session)
         self._outbox = OutboxService(session)
@@ -67,6 +69,15 @@ class ConversationService:
                 response_queued=False,
             )
 
+        body = persisted.message.content.get("text")
+        if isinstance(body, str):
+            await persist_direct_refusal(
+                self._session,
+                self._context,
+                conversation_id=conversation.id,
+                inbound_message_id=persisted.message.id,
+                body=body,
+            )
         if conversation.control_state == ConversationControlState.CLOSED:
             target = self._state_machine.reopen_for_inbound(
                 conversation.control_state,

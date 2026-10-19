@@ -83,6 +83,26 @@ class WhatsAppWebhookRepository:
         if not isinstance(tenant_id, UUID):
             return "unmatched"
         await set_tenant_context(self._session, tenant_id)
+        from agents_factory.common.account_lifecycle import lock_account_lifecycle
+
+        account_ids = (
+            (
+                await self._session.execute(
+                    text(
+                        "SELECT id FROM public.whatsapp_accounts WHERE tenant_id=:tenant AND waba_id=:waba AND display_phone_digits=:digits ORDER BY id"
+                    ),
+                    {
+                        "tenant": tenant_id,
+                        "waba": waba_id,
+                        "digits": display_phone_digits,
+                    },
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for account_id in account_ids:
+            await lock_account_lifecycle(self._session, tenant_id, account_id)
         result = await self._session.scalar(
             text(
                 "SELECT agents_factory_private.apply_whatsapp_partner_removed("

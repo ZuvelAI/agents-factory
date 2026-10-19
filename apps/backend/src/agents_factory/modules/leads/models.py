@@ -1,6 +1,7 @@
 """Bounded model proposals and server-owned identity contracts."""
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -12,6 +13,7 @@ from pydantic import (
     StringConstraints,
     field_validator,
     model_validator,
+    ValidationError,
 )
 
 from agents_factory.modules.runtime.contracts import TurnMessage
@@ -82,6 +84,13 @@ class LeadProposal(BaseModel):
         return self
 
 
+def parse_lead_proposal(arguments: Mapping[str, object]) -> LeadProposal:
+    try:
+        return LeadProposal.model_validate(dict(arguments))
+    except ValidationError:
+        raise ValueError("lead proposal rejected") from None
+
+
 def validate_evidence(
     proposal: LeadProposal, messages: tuple[TurnMessage, ...], inbound_message_id: UUID
 ) -> None:
@@ -113,8 +122,8 @@ class TrustedLeadContext:
     customer_wa_id: str
     conversation_id: UUID
     inbound_message_id: UUID
-    agent_instance_id: UUID
-    agent_version_id: UUID
+    agent_instance_id: UUID | None
+    agent_version_id: UUID | None
     phone_number: str | None
     provider_keys: tuple[str, ...]
     profile_name: str | None = None

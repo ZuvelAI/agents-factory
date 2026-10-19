@@ -45,8 +45,8 @@ class LeadRepository:
         *,
         conversation_id: UUID,
         inbound_message_id: UUID,
-        agent_instance_id: UUID,
-        agent_version_id: UUID,
+        agent_instance_id: UUID | None,
+        agent_version_id: UUID | None,
     ) -> TrustedLeadContext | None:
         row = (
             (
@@ -56,8 +56,8 @@ class LeadRepository:
                     "FROM public.messages m JOIN public.conversations c ON c.tenant_id=m.tenant_id AND c.id=m.conversation_id "
                     "JOIN public.whatsapp_webhook_events e ON e.tenant_id=m.tenant_id AND e.id=m.source_event_id AND e.whatsapp_account_id=c.whatsapp_account_id AND e.sender_wa_id=c.customer_wa_id "
                     "JOIN public.whatsapp_accounts a ON a.tenant_id=c.tenant_id AND a.id=c.whatsapp_account_id "
-                    "JOIN public.agent_spec_versions v ON v.tenant_id=c.tenant_id AND v.agent_instance_id=:agent AND v.id=:version "
                     "WHERE m.tenant_id=:tenant AND m.id=:inbound AND c.id=:conversation "
+                    "AND ((CAST(:agent AS uuid) IS NULL AND CAST(:version AS uuid) IS NULL) OR EXISTS(SELECT 1 FROM public.agent_spec_versions v WHERE v.tenant_id=c.tenant_id AND v.agent_instance_id=:agent AND v.id=:version)) "
                     "AND m.direction='inbound' AND m.sender_type='customer'",
                     {
                         "conversation": conversation_id,
@@ -186,3 +186,9 @@ class LeadRepository:
             {"subject": subject_id},
         )
         return cast(bool, result.scalar_one())
+
+    async def suppress_subject(self, subject_id: UUID, message_id: UUID) -> None:
+        await self.execute(
+            "UPDATE public.lead_subjects SET capture_suppressed=true,suppressed_at=coalesce(suppressed_at,now()),suppression_message_id=coalesce(suppression_message_id,:message) WHERE tenant_id=:tenant AND id=:subject",
+            {"message": message_id, "subject": subject_id},
+        )
