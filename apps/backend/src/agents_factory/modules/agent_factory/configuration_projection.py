@@ -49,6 +49,7 @@ def project_configuration(
     if draft.configuration.lead_capture and draft.configuration.lead_capture.enabled:
         return projected.model_copy(
             update={
+                "agent_display_name": draft.configuration.agent.agent_name or None,
                 "capabilities": (
                     *projected.capabilities,
                     VersionReference(name="lead_capture", version=LEAD_CAPTURE_VERSION),

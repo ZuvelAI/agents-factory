@@ -31,6 +31,7 @@ from agents_factory.modules.agent_factory.configuration_router import router as 
 from agents_factory.modules.agent_factory.workspace_publication_router import router as workspace_publication_router
 from agents_factory.modules.capabilities.router import router as admin_capability_router
 from agents_factory.modules.identity.router import router as admin_identity_router
+from agents_factory.modules.leads.admin_router import router as admin_prospect_router
 from agents_factory.modules.tenants.admin_router import router as admin_tenant_router
 from agents_factory.modules.tenants.onboarding import router as admin_onboarding_router
 from agents_factory.modules.whatsapp.alert_router import (
@@ -165,6 +166,7 @@ def create_app(
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_publication_router)
     application.include_router(admin_workspace_router)
+    application.include_router(admin_prospect_router)
     application.include_router(admin_configuration_router)
     application.include_router(workspace_publication_router)
     application.include_router(admin_capability_router)

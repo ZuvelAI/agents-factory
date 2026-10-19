@@ -16,6 +16,7 @@ import {
 } from "../../../lib/conversation-workspace";
 import { ConversationRefresh } from "../../../components/agent-workspace/conversation-refresh";
 import { ConversationFilters } from "../../../components/agent-workspace/conversation-filters";
+import { readConversationProspect } from "../../../lib/leads";
 type Query = {
   tenant?: string;
   agent?: string;
@@ -98,6 +99,16 @@ export default async function ConversationLog({
       messages = await readMessages(tenant, chosen.id, query.messagesCursor);
     } catch {
       messageError = true;
+    }
+  }
+  let relatedProspect: Awaited<ReturnType<typeof readConversationProspect>> =
+    null;
+  let prospectError = false;
+  if (chosen) {
+    try {
+      relatedProspect = await readConversationProspect(tenant, chosen.id);
+    } catch {
+      prospectError = true;
     }
   }
   function link(extra: Partial<Query> = {}) {
@@ -285,6 +296,17 @@ export default async function ConversationLog({
           ) : (
             <>
               <h2>{chosen.customer_wa_id}</h2>
+              {relatedProspect ? (
+                <Link
+                  href={`/prospects?tenant=${tenant}&prospect=${relatedProspect.id}`}
+                >
+                  Ver prospecto
+                </Link>
+              ) : prospectError ? (
+                <p className="workspace-muted">
+                  No pudimos consultar la ficha de prospecto vinculada.
+                </p>
+              ) : null}
               <p className="workspace-muted">
                 {controlLabels[chosen.control_state]} · Cuenta{" "}
                 {chosen.account_id}

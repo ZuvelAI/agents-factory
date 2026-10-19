@@ -124,3 +124,11 @@ def test_workspace_shows_draft_intent_separately_from_published_permission():
     assert current.enabled and current.availability == "available"
     snapshot["permitted_tools"] = []
     assert not configuration_view(snapshot).capabilities[0].enabled
+
+
+def test_agent_label_for_evidence_is_frozen_without_rewriting_legacy_specs():
+    draft, knowledge, _ = draft_and_knowledge(True)
+    draft.configuration.agent.agent_name = "Agente comercial"
+    frozen = project_configuration(draft, knowledge, "a" * 64)
+    draft.configuration.agent.agent_name = "Otro nombre"
+    assert frozen.agent_display_name == "Agente comercial"

@@ -305,9 +305,30 @@ export function AgentConfigurationForm({ initial }: { initial: Draft }) {
             </details>
             <details>
               <summary>Capacidades e integraciones</summary>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={
+                    !!draft.configuration.lead_capture &&
+                    typeof draft.configuration.lead_capture === "object" &&
+                    !Array.isArray(draft.configuration.lead_capture) &&
+                    draft.configuration.lead_capture.enabled === true
+                  }
+                  onChange={(event) =>
+                    update("lead_capture", "enabled", event.target.checked)
+                  }
+                />
+                Guardar prospectos
+              </label>
               <p>
-                Solo lectura en esta fase. Una preferencia heredada no confirma
-                que la herramienta esté conectada ni habilitada.
+                Registra interés comercial y sus fuentes, nunca por un simple
+                saludo. Guardar cambia solo el borrador: requiere pruebas,
+                revisión y publicación para activar la captura.
+              </p>
+              <p>
+                Las demás capacidades e integraciones son de solo lectura en
+                esta fase. Una preferencia heredada no confirma que la
+                herramienta esté conectada ni habilitada.
               </p>
               <pre>
                 {JSON.stringify(

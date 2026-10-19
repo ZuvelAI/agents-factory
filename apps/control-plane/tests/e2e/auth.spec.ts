@@ -61,6 +61,7 @@ test("a platform admin reaches the shell, then server logout clears access", asy
     "Resumen",
     "Empresas",
     "Conversaciones",
+    "Prospectos",
     "Actividad",
     "Ajustes",
   ];

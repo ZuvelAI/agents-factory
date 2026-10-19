@@ -156,6 +156,7 @@ class AgentSpecConfiguration(FrozenModel):
     first_contact_greeting: str | None = Field(
         default=None, min_length=1, max_length=1000
     )
+    agent_display_name: str | None = Field(default=None, min_length=1, max_length=100)
 
     @model_serializer(mode="wrap")
     def omit_absent_context(
@@ -166,6 +167,8 @@ class AgentSpecConfiguration(FrozenModel):
             result.pop("approved_business_context", None)
         if self.first_contact_greeting is None:
             result.pop("first_contact_greeting", None)
+        if self.agent_display_name is None:
+            result.pop("agent_display_name", None)
         return result
 
     @model_validator(mode="after")

@@ -8,6 +8,7 @@ const navigation = [
   ["Resumen", "/"],
   ["Empresas", "/tenants"],
   ["Conversaciones", "/conversation-log"],
+  ["Prospectos", "/prospects"],
   ["Actividad", "/operations"],
   ["Ajustes", "/settings"],
 ] as const;
@@ -18,6 +19,7 @@ export function ControlPlaneNavigation() {
     "dashboard",
     "tenants",
     "conversations",
+    "prospects",
     "operations",
     "settings",
   ];

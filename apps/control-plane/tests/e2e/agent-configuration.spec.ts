@@ -3,6 +3,30 @@ const tenant = "019c2000-0000-7000-8000-000000000102";
 const first = "019c2000-0000-7000-8000-000000000501";
 const second = "019c2000-0000-7000-8000-000000000502";
 const edit = (agent: string) => `/tenants/${tenant}/agents/${agent}/edit`;
+test("prospect capture saves a draft preference without publishing or reconnecting", async ({
+  page,
+}) => {
+  await page.goto(edit(first));
+  await page.getByText("Capacidades e integraciones", { exact: true }).click();
+  await expect(
+    page.getByLabel("Guardar prospectos", { exact: true }),
+  ).not.toBeChecked();
+  await page.getByLabel("Guardar prospectos", { exact: true }).check();
+  await expect(page.getByText(/Guardar cambia solo el borrador/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Borrador guardado");
+  await page.reload();
+  await page.getByText("Capacidades e integraciones", { exact: true }).click();
+  await expect(
+    page.getByLabel("Guardar prospectos", { exact: true }),
+  ).toBeChecked();
+  await page.goto(`/tenants/${tenant}/agents/${first}`);
+  await expect(
+    page.getByText("Orienta sobre los servicios de Zuvel.", { exact: true }),
+  ).toBeVisible();
+});
 test("required choices cannot be cleared while optional policies can remain pending", async ({
   page,
 }) => {

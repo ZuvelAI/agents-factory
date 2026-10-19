@@ -81,9 +81,16 @@ class LeadCaptureService:
                 proposal,
                 "CONFLICT",
                 None,
-                {"capture_suppressed": True}
-                if proposal.operation == "SUPPRESS"
-                else {},
+                {
+                    "conflicting_subject_ids": [
+                        str(identity) for identity in resolution.conflict_subject_ids
+                    ],
+                    **(
+                        {"capture_suppressed": True}
+                        if proposal.operation == "SUPPRESS"
+                        else {}
+                    ),
+                },
             )
             return LeadCaptureOutcome("IDENTITY_CONFLICT")
         subject = resolution.subject_id

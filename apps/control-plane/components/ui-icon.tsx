@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  prospects:
+    "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2 M18 9h5 M20.5 6.5v5",
   dashboard: "M3 3h7v7H3z M14 3h7v4h-7z M14 11h7v10h-7z M3 14h7v7H3z",
   tenants:
     "M4 21V5l8-2v18 M12 9h8v12 M2 21h20 M7 8h2 M7 12h2 M7 16h2 M16 13h1 M16 17h1",

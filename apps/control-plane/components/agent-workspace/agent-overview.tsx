@@ -119,6 +119,12 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
         <div>
           <Link
             className="workspace-secondary"
+            href={`/prospects?tenant=${summary.tenant_id}&agent=${summary.id}`}
+          >
+            Ver prospectos
+          </Link>
+          <Link
+            className="workspace-secondary"
             href={`/tenants/${summary.tenant_id}/agents/${summary.id}/edit`}
           >
             Editar borrador
