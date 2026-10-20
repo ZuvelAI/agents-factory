@@ -45,6 +45,51 @@ def _context() -> TenantContext:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("recipient", ["CO.123456789", "US.ENT.987654321"])
+@pytest.mark.parametrize("kind", ["text", "template"])
+async def test_bsuid_uses_recipient_field_not_phone_number_field(
+    recipient: str, kind: str
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"messages": [{"id": "wamid.bsuid"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(accept)) as client:
+        provider = MetaCloudApiProvider(
+            app_secret=SecretStr("meta-app-secret"),
+            access_tokens=StaticAccessTokenResolver(),
+            http_client=client,
+            graph_api_base_url=GRAPH_API_BASE_URL,
+        )
+        common = dict(
+            context=_context(),
+            whatsapp_account_id=ACCOUNT_ID,
+            phone_number_id="phone-number-1",
+            recipient_wa_id=recipient,
+            client_reference="outbound-bsuid",
+        )
+        if kind == "text":
+            result = await provider.send_text(
+                OutboundTextRequest(**common, body="Hola")
+            )
+        else:
+            result = await provider.send_template(
+                OutboundTemplateRequest(
+                    **common,
+                    template_name="appointment_confirmation",
+                    language="es_CO",
+                    body_parameters=(),
+                )
+            )
+    assert result.outcome == "accepted"
+    assert len(captured) == 1
+    assert captured[0]["recipient"] == recipient
+    assert "to" not in captured[0]
+
+
+@pytest.mark.asyncio
 async def test_meta_provider_sends_text_with_backend_resolved_credential() -> None:
     captured: list[httpx.Request] = []
 

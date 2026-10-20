@@ -46,7 +46,11 @@ class MetaDeliveryError(MetaWebhookModel):
 
 class MetaDeliveryStatus(MetaWebhookModel):
     id: str = Field(min_length=1, max_length=500)
-    recipient_id: str = Field(min_length=1, max_length=100)
+    recipient_id: str = Field(
+        validation_alias=AliasChoices("recipient_id", "recipient_user_id"),
+        min_length=1,
+        max_length=100,
+    )
     status: str = Field(min_length=1, max_length=100)
     timestamp: str = Field(min_length=1, max_length=20)
     pricing: MetaPricing | None = None

@@ -95,6 +95,25 @@ def _payload(name: str) -> dict[str, object]:
     )
 
 
+def test_inbound_accepts_business_scoped_sender_when_phone_is_absent() -> None:
+    payload = _payload("inbound_text.json")
+    message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+    message.pop("from")
+    message["from_user_id"] = "CO.123456789012345"
+    batch = MetaCloudApiProvider(app_secret=SecretStr("test-only")).parse_webhook(
+        payload
+    )
+    assert batch.inbound_events[0].sender_wa_id == "CO.123456789012345"
+
+
+def test_inbound_still_rejects_missing_sender_identity() -> None:
+    payload = _payload("inbound_text.json")
+    message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+    message.pop("from")
+    with pytest.raises(InvalidWebhookPayload):
+        MetaCloudApiProvider(app_secret=SecretStr("test-only")).parse_webhook(payload)
+
+
 def test_verification_challenge_is_returned_only_for_the_configured_token() -> None:
     with _client() as client:
         accepted = client.get(
@@ -216,6 +235,25 @@ def test_provider_normalizes_delivery_status_without_treating_it_as_inbound() ->
         "category": "service",
         "pricing_model": "CBP",
     }
+
+
+def test_provider_accepts_bsuid_only_delivery_recipient() -> None:
+    payload = _payload("delivery_status.json")
+    status = payload["entry"][0]["changes"][0]["value"]["statuses"][0]
+    del status["recipient_id"]
+    status["recipient_user_id"] = "CO.123456789"
+    provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
+    batch = provider.parse_webhook(payload)
+    assert batch.delivery_statuses[0].recipient_wa_id == "CO.123456789"
+    assert batch.delivery_statuses[0].status == "delivered"
+
+
+def test_provider_rejects_delivery_without_either_recipient() -> None:
+    payload = _payload("delivery_status.json")
+    del payload["entry"][0]["changes"][0]["value"]["statuses"][0]["recipient_id"]
+    provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
+    with pytest.raises(InvalidWebhookPayload):
+        provider.parse_webhook(payload)
 
 
 def test_provider_parses_partner_removed_by_display_phone_not_phone_id() -> None:

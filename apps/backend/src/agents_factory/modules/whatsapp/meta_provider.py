@@ -43,6 +43,7 @@ from agents_factory.modules.whatsapp.schemas import (
 
 
 _SIGNATURE_PATTERN = re.compile(r"sha256=([0-9a-f]{64})")
+_BSUID_PATTERN = re.compile(r"[A-Z]{2}\.(?:ENT\.)?[A-Za-z0-9]{1,128}")
 _SUPPORTED_MESSAGE_TYPES = frozenset(
     {"text", "audio", "image", "document", "location", "contacts", "video"}
 )
@@ -281,7 +282,7 @@ class MetaCloudApiProvider:
             payload={
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
-                "to": request.recipient_wa_id,
+                **_recipient_address(request.recipient_wa_id),
                 "type": "text",
                 "text": {"preview_url": False, "body": request.body},
             },
@@ -311,7 +312,7 @@ class MetaCloudApiProvider:
             phone_number_id=request.phone_number_id,
             payload={
                 "messaging_product": "whatsapp",
-                "to": request.recipient_wa_id,
+                **_recipient_address(request.recipient_wa_id),
                 "type": "template",
                 "template": template,
             },
@@ -713,6 +714,12 @@ def _contains_asset(value: object, asset_id: str) -> bool:
     return isinstance(value, list) and any(
         isinstance(item, Mapping) and item.get("id") == asset_id for item in value
     )
+
+
+def _recipient_address(recipient: str) -> dict[str, str]:
+    # Meta routes opaque business-scoped IDs through recipient, not phone-only to.
+    key = "recipient" if _BSUID_PATTERN.fullmatch(recipient) else "to"
+    return {key: recipient}
 
 
 def _display_phone_digits(value: object) -> str | None:
