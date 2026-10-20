@@ -41,6 +41,19 @@ NOW = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
+async def test_signup_start_keeps_the_authorization_open_for_thirty_minutes() -> None:
+    signup, repository, _provider, _vault = service()
+    started = await signup.start(
+        context=context(), admin_session_id=SESSION_ID, requested_mode="COEXISTENCE"
+    )
+    assert started.expires_at == datetime(2026, 8, 28, 15, 30, tzinfo=UTC)
+    assert (
+        repository.save_signup_state.await_args.kwargs["expires_at"]
+        == started.expires_at
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("display", ["15550783882", None])
 async def test_pilot_rejects_a_different_or_unverified_number_before_account_writes(
     display: str | None,

@@ -18,10 +18,21 @@ export function runSignupSession(
   configurationId: string,
   mode: WhatsAppMode,
   signal: AbortSignal,
+  expiresAt: string,
 ): Promise<{ code: string; assets: EmbeddedSignupAssets }> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(new Error("Meta authorization was cancelled"));
+      return;
+    }
+    const deadline = Date.parse(expiresAt);
+    const remaining = deadline - Date.now();
+    if (!Number.isFinite(deadline) || remaining <= 0) {
+      reject(
+        new Error(
+          "Meta authorization session expired. Start a new connection.",
+        ),
+      );
       return;
     }
     let settled = false;
@@ -29,7 +40,7 @@ export function runSignupSession(
     let assets: EmbeddedSignupAssets | null = null;
     const timeout = setTimeout(
       () => fail(new Error("Meta signup timed out")),
-      120_000,
+      remaining,
     );
     function cleanup() {
       settled = true;
@@ -46,7 +57,12 @@ export function runSignupSession(
       fail(new Error("Meta authorization was cancelled"));
     }
     function complete() {
-      if (settled || !code || !assets) return;
+      if (settled) return;
+      if (Date.now() >= deadline) {
+        fail(new Error("Meta signup timed out"));
+        return;
+      }
+      if (!code || !assets) return;
       cleanup();
       resolve({ code, assets });
     }

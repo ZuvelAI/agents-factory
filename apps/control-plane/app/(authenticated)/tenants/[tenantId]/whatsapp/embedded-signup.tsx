@@ -53,6 +53,7 @@ export function EmbeddedSignup({
         started.data.configuration_id,
         mode,
         attempt.signal,
+        started.data.expires_at,
       );
       if (attempt.signal.aborted) return;
       const finished = await finishWhatsAppSignup({

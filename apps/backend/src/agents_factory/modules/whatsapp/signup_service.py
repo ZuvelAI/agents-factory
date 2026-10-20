@@ -25,7 +25,7 @@ REQUIRED_META_SCOPES = frozenset(
     {"whatsapp_business_management", "whatsapp_business_messaging"}
 )
 ACCESS_TOKEN_PURPOSE = "whatsapp.meta_access_token"
-_DEFAULT_STATE_TTL = timedelta(minutes=10)
+_DEFAULT_STATE_TTL = timedelta(minutes=30)
 
 
 class WhatsAppSignupError(DomainError):

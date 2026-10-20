@@ -7,7 +7,7 @@ const finish = {
   data: { waba_id: "123" },
 };
 
-function setup() {
+function setup(expiresAt = new Date(Date.now() + 1_800_000).toISOString()) {
   const events = new EventTarget();
   const controller = new AbortController();
   let callback: (response: {
@@ -27,6 +27,7 @@ function setup() {
     "config",
     "COEXISTENCE",
     controller.signal,
+    expiresAt,
   );
   const emit = (data = finish, origin = "https://www.facebook.com") =>
     events.dispatchEvent(new MessageEvent("message", { origin, data }));
@@ -89,7 +90,7 @@ describe("signup session lifetime", () => {
     const s = setup();
     s.emit();
     const rejected = expect(s.promise).rejects.toThrow("timed out");
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(1_800_000);
     await rejected;
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -99,7 +100,7 @@ describe("signup session lifetime", () => {
     s.respond("code");
     s.emit(finish, "https://attacker.test");
     const rejected = expect(s.promise).rejects.toThrow("timed out");
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(1_800_000);
     await rejected;
   });
   it("cleans up if SDK throws synchronously", async () => {
@@ -117,9 +118,71 @@ describe("signup session lifetime", () => {
         "config",
         "API_ONLY",
         new AbortController().signal,
+        new Date(Date.now() + 1_800_000).toISOString(),
       ),
     ).rejects.toThrow("SDK failure");
     expect(remove).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each([true, false])(
+    "accepts completion after twenty minutes (%s)",
+    async (codeFirst) => {
+      vi.useFakeTimers();
+      const s = setup();
+      const result = expect(s.promise).resolves.toMatchObject({
+        code: "late-code",
+      });
+      await vi.advanceTimersByTimeAsync(1_200_000);
+      if (codeFirst) s.respond("late-code");
+      s.emit();
+      if (!codeFirst) s.respond("late-code");
+      await result;
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+  it("uses the remaining server lifetime rather than restarting thirty minutes", async () => {
+    vi.useFakeTimers();
+    const s = setup(new Date(Date.now() + 60_000).toISOString());
+    const result = expect(s.promise).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await result;
+    s.respond("too-late");
+    s.emit();
+    expect(s.remove).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each(["invalid", "2020-01-01T00:00:00Z"])(
+    "does not open Meta with an invalid or expired deadline (%s)",
+    async (expiresAt) => {
+      vi.useFakeTimers();
+      let opened = false;
+      await expect(
+        runSignupSession(
+          {
+            login() {
+              opened = true;
+            },
+          },
+          new EventTarget(),
+          "config",
+          "COEXISTENCE",
+          new AbortController().signal,
+          expiresAt,
+        ),
+      ).rejects.toThrow("expired");
+      expect(opened).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+  it("rejects expired callbacks even when the browser throttles the timer", async () => {
+    vi.useFakeTimers();
+    const deadline = Date.now() + 1_800_000;
+    const s = setup(new Date(deadline).toISOString());
+    const result = expect(s.promise).rejects.toThrow("timed out");
+    vi.setSystemTime(deadline);
+    s.respond("expired-code");
+    s.emit();
+    await result;
     expect(vi.getTimerCount()).toBe(0);
   });
 });
