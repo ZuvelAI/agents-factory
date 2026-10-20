@@ -243,8 +243,8 @@ class MetaCloudApiProvider:
                                     "contacts"
                                 ),
                             ),
-                    )
                         )
+                    )
                 for status in change.value.statuses:
                     if status.status not in _SUPPORTED_DELIVERY_STATUSES:
                         raise InvalidWebhookPayload
