@@ -20,6 +20,82 @@ async def operation(factory, context, callback):
         return await callback(AudioRepository(session, context))
 
 
+async def test_download_retry_budget_survives_reclaim(session_factory):
+    world, message = await audio_world(session_factory)
+    await operation(session_factory, world[0], lambda repo: repo.enqueue(message))
+    now = datetime.now(UTC)
+    first = await operation(
+        session_factory, world[0], lambda repo: repo.claim(message, uuid4(), now)
+    )
+    assert await operation(
+        session_factory, world[0], lambda repo: repo.begin_download(first, now)
+    )
+    recovered_at = now + timedelta(seconds=46)
+    second = await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.claim(message, uuid4(), recovered_at),
+    )
+    assert await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.begin_download(second, recovered_at),
+    )
+    assert not await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.begin_download(second, recovered_at),
+    )
+
+
+async def test_audio_ready_insert_and_agent_enqueue_rollback_together(session_factory):
+    world, message = await audio_world(session_factory)
+    await operation(session_factory, world[0], lambda repo: repo.enqueue(message))
+    claim = await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.claim(message, uuid4(), datetime.now(UTC)),
+    )
+    await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.start_provider(claim, datetime.now(UTC)),
+    )
+    with pytest.raises(RuntimeError, match="transaction intentionally rolled back"):
+        async with session_factory.begin() as session:
+            await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+            assert await AudioRepository(session, world[0]).complete(
+                claim, AudioTranscript("Consulta", "gpt-4o-mini-transcribe-2025-12-15")
+            )
+            raise RuntimeError("transaction intentionally rolled back")
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT status FROM public.whatsapp_audio_transcriptions WHERE inbound_message_id=:id"
+                ),
+                {"id": message},
+            )
+            == "PROCESSING"
+        )
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.outbox_jobs WHERE topic='agent.turn' AND tenant_id=:t"
+                ),
+                {"t": world[0].tenant_id},
+            )
+            == 0
+        )
+    assert await operation(
+        session_factory,
+        world[0],
+        lambda repo: repo.complete(
+            claim, AudioTranscript("Consulta", "gpt-4o-mini-transcribe-2025-12-15")
+        ),
+    )
+
+
 async def test_audio_claim_is_tenant_scoped_and_deduplicated(session_factory):
     world, message = await audio_world(session_factory)
     other, other_message = await audio_world(session_factory)

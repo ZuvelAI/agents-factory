@@ -89,6 +89,146 @@ async def state(factory, message):
         return row, replies
 
 
+async def test_audio_failure_reply_is_idempotent_and_never_a_lead(session_factory):
+    from agents_factory.modules.audio_ingestion.media import AudioDownloadError
+
+    world, message, envelope, service, downloader, transcriber = await setup(
+        session_factory,
+        download=AsyncMock(side_effect=AudioDownloadError("audio_format_unsupported")),
+    )
+    await service.process(envelope)
+    await service.process(envelope)
+    row, replies = await state(session_factory, message)
+    assert row["status"] == "FAILED" and replies == 1
+    assert transcriber.transcribe.await_count == 0
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.lead_prospects WHERE tenant_id=:t"),
+                {"t": world[0].tenant_id},
+            )
+            == 0
+        )
+
+
+async def test_audio_lost_capacity_connection_cannot_commit_reply(session_factory):
+    from agents_factory.modules.audio_ingestion.preflight import current_capacity
+
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+    preflight = AudioJobPreflight(session_factory)
+    async with preflight.admit(envelope) as deferral:
+        assert deferral is None
+        permit = current_capacity.get()
+
+        async def lost(*args):
+            await permit.connection.invalidate()
+            await permit.connection.rollback()
+            return AudioTranscript("Consulta", TRANSCRIPTION_MODEL)
+
+        transcriber.transcribe.side_effect = lost
+        await service.process(envelope)
+    row, replies = await state(session_factory, message)
+    assert row["status"] == "UNCERTAIN" and row["transcript"] is None and replies == 0
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.outbox_jobs WHERE topic='agent.turn' AND tenant_id=:t"
+                ),
+                {"t": world[0].tenant_id},
+            )
+            == 0
+        )
+
+
+async def test_capacity_loss_cancels_inflight_provider_without_waiting_for_timeout(
+    session_factory,
+):
+    from agents_factory.modules.audio_ingestion.preflight import current_capacity
+
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def stalled(*args):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    transcriber.transcribe.side_effect = stalled
+    async with AudioJobPreflight(session_factory).admit(envelope):
+        permit = current_capacity.get()
+        running = asyncio.create_task(service.process(envelope))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        await permit.connection.invalidate()
+        await permit.connection.rollback()
+        await asyncio.wait_for(running, timeout=3)
+    assert cancelled.is_set()
+    assert (await state(session_factory, message))[0]["status"] == "UNCERTAIN"
+    assert (await state(session_factory, message))[1] == 0
+
+
+async def test_expired_preflight_lease_is_finalized_instead_of_orphaned(
+    session_factory,
+):
+    now = datetime.now(UTC)
+    current = [now]
+    world, message, envelope, service, downloader, transcriber = await setup(
+        session_factory, clock=lambda: current[0]
+    )
+
+    async def elapsed(*args):
+        current[0] = now + timedelta(seconds=46)
+        return SimpleNamespace(size_bytes=3, sha256="1" * 64)
+
+    downloader.download.side_effect = elapsed
+    await service.process(envelope)
+    row, replies = await state(session_factory, message)
+    assert row["status"] == "FAILED" and replies == 1
+    assert transcriber.transcribe.await_count == 0
+
+
+async def test_expired_provider_result_is_uncertain_instead_of_orphaned(
+    session_factory,
+):
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+
+    async def elapsed(*args):
+        async with session_factory.begin() as session:
+            await session.execute(
+                text(
+                    "UPDATE public.whatsapp_audio_transcriptions SET lease_expires_at=now()-interval '1 second' WHERE inbound_message_id=:m"
+                ),
+                {"m": message},
+            )
+        return AudioTranscript("Late provider result", TRANSCRIPTION_MODEL)
+
+    transcriber.transcribe.side_effect = elapsed
+    await service.process(envelope)
+    row, replies = await state(session_factory, message)
+    assert row["status"] == "UNCERTAIN" and replies == 1
+    assert row["transcript"] is None
+
+
+async def test_expired_queue_can_finalize_while_all_slots_are_busy(session_factory):
+    from agents_factory.modules.audio_ingestion.capacity import AudioCapacityGuard
+
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+    later = datetime.now(UTC) + timedelta(seconds=181)
+    service.clock = lambda: later
+    admission = AudioJobPreflight(session_factory, clock=lambda: later)
+    runner = DurableJobRunner(
+        session_factory=session_factory, preflight=admission.admit
+    )
+    guard = AudioCapacityGuard(session_factory)
+    async with guard.hold(world[0].tenant_id), guard.hold(uuid4()):
+        result = await runner.run(envelope=envelope, handler=service.process)
+    assert result.status == "succeeded"
+    assert (await state(session_factory, message))[0]["status"] == "FAILED"
+    assert transcriber.transcribe.await_count == 0
+
+
 async def test_audio_ready_survives_failed_agent_turn(session_factory):
     world, message, envelope, service, downloader, transcriber = await setup(
         session_factory

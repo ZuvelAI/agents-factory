@@ -171,3 +171,33 @@ los errores de entorno existentes. La evidencia concreta está en
 No borrar tablas solo por su cantidad: antes identificar consumidores, claves,
 políticas, trabajos e historial. Cualquier migración productiva necesita ensayo,
 respaldo y autorización separados del rediseño de la interfaz.
+
+## Notas de voz: entrada compartida, no otro agente
+
+`modules/audio_ingestion/` prepara las notas nuevas antes del runtime existente.
+El webhook conserva identidad y metadatos firmados; no descarga ni transcribe.
+El outbox envía `whatsapp.audio.transcribe` al agent-worker existente. Una vez
+guardado READY, se programa el turno habitual con su snapshot y herramientas.
+
+Responsabilidades: `source.py` valida procedencia; `repository.py` conserva estado
+y presupuestos; `capacity.py` limita concurrencia entre workers; `media.py`,
+`inspection.py` y `transcriber.py` son adaptadores sin SQL; `authorization.py`
+comparte controles; `service.py` coordina; `preflight.py` aplaza antes de consumir
+intentos; `projection.py` distingue texto escrito de transcripción; `fallback.py`
+solo emite orientación técnica, sin modelo ni captura comercial.
+
+Solo hay una tabla nueva: `whatsapp_audio_transcriptions`, aislada por empresa.
+No guarda archivos de audio ni URLs temporales. Los mensajes originales siguen
+siendo de tipo audio. Conversaciones y evidencias leen una misma proyección.
+
+`WHATSAPP_AUDIO_ENABLED` vale true por defecto para clientes actuales y futuros;
+false detiene nuevas llamadas de voz tras reiniciar los workers. No cambia el
+modelo conversacional, la clave OpenAI, los snapshots ni los bindings. El
+transcriptor fijo se configura en código y reutiliza `OPENAI_API_KEY` del proceso.
+La imagen instala `ffmpeg=7:7.1.5-0+deb13u1`; ffprobe se ejecuta sin privilegios,
+sin shell y limitado a archivos OGG locales. Los locks de capacidad requieren
+conexiones PostgreSQL con afinidad de sesión, no un pool de transacciones.
+
+Estados inciertos no se reintentan de pago automáticamente; leer una conversación
+no reprocesa notas antiguas. Ver límites, pruebas y procedimiento de instalación
+en `docs/notas-voz-entrega.md`. Desarrollo local no equivale a despliegue.

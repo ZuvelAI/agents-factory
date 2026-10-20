@@ -1,6 +1,7 @@
 """Cross-worker slots without cross-tenant reads or long SQL transactions."""
 
 from contextlib import asynccontextmanager
+import asyncio
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import AsyncIterator, cast
@@ -27,10 +28,15 @@ class AudioCapacityLost(RuntimeError):
 class AudioCapacityLease:
     connection: AsyncConnection = field(repr=False)
     backend_pid: int
+    _check_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock, repr=False, compare=False
+    )
 
     async def check(self) -> None:
         try:
-            pid = await self.connection.scalar(text("SELECT pg_backend_pid()"))
+            async with self._check_lock:
+                async with asyncio.timeout(1):
+                    pid = await self.connection.scalar(text("SELECT pg_backend_pid()"))
             if pid != self.backend_pid:
                 raise AudioCapacityLost("audio_capacity_session_changed")
         except Exception:

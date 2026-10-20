@@ -198,6 +198,21 @@ class AudioRepository:
         )
         return value is not None
 
+    async def begin_download(self, claim: AudioClaim, now: datetime) -> bool:
+        _aware(now)
+        if claim.source.tenant_id != self.context.tenant_id:
+            return False
+        await set_tenant_context(self.session, self.context.tenant_id)
+        value = await self.session.scalar(
+            text(
+                "UPDATE public.whatsapp_audio_transcriptions SET download_attempts=download_attempts+1 "
+                "WHERE tenant_id=:t AND id=:id AND status='PROCESSING' AND phase='PREFLIGHT' AND download_attempts<2 "
+                "AND lease_id=:lease AND owner_id=:owner AND lease_expires_at>:now AND deadline>:now RETURNING id"
+            ),
+            {**self._identity(claim), "now": now},
+        )
+        return value is not None
+
     async def record_inspection(
         self, claim: AudioClaim, inspection: AudioInspection, digest: str, now: datetime
     ) -> bool:

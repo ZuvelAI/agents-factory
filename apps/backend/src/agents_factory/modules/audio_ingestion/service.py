@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 import tempfile
-from typing import AsyncIterator, Callable, Protocol
+from typing import AsyncIterator, Awaitable, Callable, Protocol, TypeVar
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -30,6 +30,8 @@ from .models import (
 from .preflight import current_capacity
 from .repository import AudioRepository
 from .transcriber import AudioTranscriptionError
+
+T = TypeVar("T")
 
 
 class AudioDownloader(Protocol):
@@ -76,6 +78,35 @@ class AudioIngestionService:
             await session.execute(text("SET LOCAL ROLE agents_factory_app"))
             await set_tenant_context(session, context.tenant_id)
             yield AudioRepository(session, context)
+
+    async def _external(self, work: Awaitable[T], permit: AudioCapacityLease) -> T:
+        external = asyncio.ensure_future(work)
+        stop = asyncio.Event()
+
+        async def watch_capacity() -> None:
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=1)
+                except TimeoutError:
+                    await permit.check()
+
+        monitor = asyncio.create_task(watch_capacity())
+        try:
+            done, _ = await asyncio.wait(
+                (external, monitor), return_when=asyncio.FIRST_COMPLETED
+            )
+            if monitor in done:
+                await monitor
+            result = await external
+            stop.set()
+            await monitor
+            return result
+        finally:
+            stop.set()
+            if not external.done():
+                external.cancel()
+            # Do not cancel a healthy DB query and inadvertently release its locks.
+            await asyncio.gather(external, monitor, return_exceptions=True)
 
     @asynccontextmanager
     async def _capacity(
@@ -139,14 +170,19 @@ class AudioIngestionService:
                         for attempt in range(2):
                             try:
                                 await permit.check()
-                                downloaded = await self.downloader.download(
-                                    claim.source, path
+                                async with self._repository(context) as repo:
+                                    if not await repo.begin_download(claim, self.clock()):
+                                        raise AudioDownloadError("audio_download_budget_exhausted")
+                                downloaded = await self._external(
+                                    self.downloader.download(claim.source, path), permit
                                 )
                                 break
                             except AudioDownloadError as exc:
                                 if str(exc) != "audio_download_failed" or attempt == 1:
                                     raise
-                        inspection = await self.inspector.inspect(path)
+                        inspection = await self._external(
+                            self.inspector.inspect(path), permit
+                        )
                         await permit.check()
                         async with self._repository(context) as repo:
                             still_authorized = await self.authority.load(
@@ -162,16 +198,28 @@ class AudioIngestionService:
                                     claim, "CANCELLED", "audio_authority_changed"
                                 )
                                 return
-                            if not await repo.record_inspection(
+                            inspected = await repo.record_inspection(
                                 claim, inspection, downloaded.sha256, self.clock()
-                            ):
-                                return
-                            if not await repo.start_provider(claim, self.clock()):
-                                return
+                            )
+                            admitted = inspected and await repo.start_provider(
+                                claim, self.clock()
+                            )
+                            expired = not admitted and await repo.finish(
+                                claim, "FAILED", "audio_preflight_lease_expired"
+                            )
+                        if not admitted:
+                            if expired:
+                                await fallback.finalize(
+                                    message_id, "audio_preflight_lease_expired"
+                                )
+                            return
                         provider_started = True
-                        transcript = await self.transcriber.transcribe(path, inspection)
+                        transcript = await self._external(
+                            self.transcriber.transcribe(path, inspection), permit
+                        )
                         await permit.check()
                         async with self._repository(context) as repo:
+                            expired_result = False
                             if await repo.complete(claim, transcript):
                                 from agents_factory.modules.leads.privacy import (
                                     persist_direct_refusal,
@@ -184,6 +232,17 @@ class AudioIngestionService:
                                     inbound_message_id=message_id,
                                     body=transcript.text,
                                 )
+                            else:
+                                expired_result = await repo.finish(
+                                    claim,
+                                    "UNCERTAIN",
+                                    "audio_provider_result_uncertain",
+                                )
+                        if expired_result:
+                            await permit.check()
+                            await fallback.finalize(
+                                message_id, "audio_provider_result_uncertain"
+                            )
             except AudioCapacityLost:
                 await self._finish(
                     context,

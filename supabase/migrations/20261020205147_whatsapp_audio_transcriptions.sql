@@ -16,6 +16,7 @@ create table public.whatsapp_audio_transcriptions (
   first_claim_at timestamptz,
   deadline timestamptz,
   attempt_count integer not null default 0 check (attempt_count between 0 and 100),
+  download_attempts integer not null default 0 check (download_attempts between 0 and 2),
   transcript text check (length(btrim(transcript)) between 1 and 25000),
   transcript_digest text check (transcript_digest ~ '^[0-9a-f]{64}$'),
   model text check (model = 'gpt-4o-mini-transcribe-2025-12-15'),
@@ -48,7 +49,7 @@ revoke all on public.whatsapp_audio_transcriptions from public,anon,authenticate
 grant select on public.whatsapp_audio_transcriptions to agents_factory_app,agents_factory_admin;
 grant insert on public.whatsapp_audio_transcriptions to agents_factory_app;
 grant update (status,phase,lease_id,owner_id,lease_expires_at,first_claim_at,deadline,attempt_count,
-transcript,transcript_digest,model,usage,duration_seconds,size_bytes,actual_sha256,error_code,updated_at)
+download_attempts,transcript,transcript_digest,model,usage,duration_seconds,size_bytes,actual_sha256,error_code,updated_at)
 on public.whatsapp_audio_transcriptions to agents_factory_app;
 create policy audio_read on public.whatsapp_audio_transcriptions for select to agents_factory_app,agents_factory_admin
 using (tenant_id=nullif((select current_setting('app.tenant_id',true)),'')::uuid);
@@ -63,13 +64,17 @@ language plpgsql set search_path='' as $body$
 begin
   if tg_op='INSERT' then
     if new.status<>'QUEUED' or new.phase<>'PREFLIGHT' or new.lease_id is not null
-      or new.first_claim_at is not null or new.attempt_count<>0 or new.error_code is not null then
+      or new.first_claim_at is not null or new.attempt_count<>0 or new.download_attempts<>0 or new.error_code is not null then
       raise exception 'audio must start queued' using errcode='55000';
     end if;
     return new;
   end if;
   if old.status in ('READY','FAILED','CANCELLED','UNCERTAIN') then
     raise exception 'audio terminal state is immutable' using errcode='55000';
+  end if;
+  if new.download_attempts<>old.download_attempts and
+    (new.download_attempts<>old.download_attempts+1 or old.status<>'PROCESSING' or old.phase<>'PREFLIGHT' or new.phase<>'PREFLIGHT') then
+    raise exception 'audio download budget cannot be reset' using errcode='55000';
   end if;
   if (new.id,new.tenant_id,new.inbound_message_id,new.conversation_id,new.whatsapp_account_id,
       new.source_event_id,new.media_id,new.mime_type,new.expected_sha256,new.created_at)

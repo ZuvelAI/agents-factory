@@ -36,6 +36,53 @@ async def run_turn(factory, world, message, runtime, snapshot=None):
         ).process(conversation_id=world[2], inbound_message_id=message)
 
 
+async def test_audio_waiting_does_not_starve_other_tenant_text(session_factory):
+    from agents_factory.common.outbox import OutboxService
+    from agents_factory.common.queue import DurableJobRunner
+    from agents_factory.modules.audio_ingestion.capacity import AudioCapacityGuard
+    from apps.backend.tests.integration.test_lead_capture import seed
+
+    world, message, envelope, service, _, _ = await setup(session_factory)
+    other = await seed(session_factory)
+    written, _ = await inbound(session_factory, other, "Consulta escrita")
+    async with session_factory.begin() as session:
+        await OutboxService(session).enqueue(
+            context=other[0],
+            topic="agent.turn",
+            idempotency_key=f"agent.turn:{written}",
+            payload={
+                "aggregate_id": str(other[2]),
+                "conversation_id": str(other[2]),
+                "inbound_message_id": str(written),
+            },
+        )
+        job = await session.scalar(
+            text("SELECT id FROM public.outbox_jobs WHERE tenant_id=:t"),
+            {"t": other[0].tenant_id},
+        )
+        await session.execute(
+            text("UPDATE public.outbox_jobs SET status='queued' WHERE id=:j"),
+            {"j": job},
+        )
+    runner = DurableJobRunner(
+        session_factory=session_factory,
+        preflight=AudioJobPreflight(session_factory).admit,
+    )
+    runtime = _FakeRuntime()
+
+    async def handle(envelope):
+        await run_turn(session_factory, other, written, runtime)
+
+    guard = AudioCapacityGuard(session_factory)
+    async with guard.hold(world[0].tenant_id), guard.hold(other[0].tenant_id):
+        result = await runner.run(
+            envelope=JobEnvelope(job, other[0].tenant_id, "agent.turn", other[2]),
+            handler=handle,
+        )
+    assert result.status == "succeeded" and len(runtime.turns) == 1
+    assert runtime.turns[0].messages[-1].text == "Consulta escrita"
+
+
 async def test_revoked_account_after_ready_cannot_run_agent_or_capture(session_factory):
     world, message, envelope, service, _, _ = await setup(session_factory)
     await service.process(envelope)
