@@ -268,10 +268,12 @@ export function AgentTestingPanel({
               capturas son simuladas y no crean registros reales.
             </p>
             <p>
-              Esta batería realiza cinco llamadas al modelo y un control humano
-              local. Revisa información, tono, precios desconocidos, alcance y
-              protección de instrucciones. Los chequeos técnicos no certifican
-              por sí solos la calidad de las respuestas.
+              La batería combina turnos del modelo y un control humano local.
+              Cada turno puede generar varias solicitudes a la API; su costo
+              depende de las iteraciones y los tokens utilizados. Revisa
+              información, tono, precios desconocidos, alcance y protección de
+              instrucciones. Los chequeos técnicos no certifican por sí solos
+              la calidad de las respuestas.
             </p>
             <form action={action}>
               {scope}
