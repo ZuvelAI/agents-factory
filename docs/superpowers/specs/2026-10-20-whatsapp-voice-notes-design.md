@@ -1,6 +1,6 @@
 # Notas de voz de WhatsApp — diseño compartido de AI Workers
 
-Fecha: 2026-10-20, America/Bogota. Estado: propuesta escrita para revisión de Daniel; no implementada ni desplegada.
+Fecha: 2026-10-20, America/Bogota. Estado: especificación escrita aprobada por Daniel; plan de implementación pendiente de revisión. No implementada ni desplegada.
 
 ## 1. Intención acordada
 
