@@ -1,6 +1,6 @@
 # Prospectos — entrega local
 
-Fecha: 2026-10-19. Implementación local; no instalada ni activada en producción. Referencia visual aprobada: `docs/design/prospectos-20261018.png`. Las capturas del navegador usan personas y empresas ficticias.
+Fecha: 2026-10-19. Implementación y verificación local descritas abajo. **Actualización posterior: instalado y activado en producción con autorización de Daniel**, conservando clave, modelo y conexión. Resultado, evidencia real y recuperación: [registro productivo](prospectos-produccion-20261019.md). Referencia visual aprobada: `docs/design/prospectos-20261018.png`. Las capturas del navegador usan personas y empresas ficticias.
 
 ## Uso y alcance
 
@@ -69,6 +69,8 @@ Deuda menor de la revisión resuelta el 19 de octubre: `agent-testing-panel.tsx`
 No ensayado: modelo real y su exactitud semántica, tráfico real de Meta, carga productiva, respaldo productivo restaurado, instalación o publicación. El ensayo sintético de rendimiento no es una garantía de capacidad del hosting. Antes de habilitar, probar respuestas y propuestas del candidato exacto con la clave actual requiere autorización por su costo.
 
 ## Futura instalación y recuperación
+
+Esta lista fue el control previo a la instalación autorizada del 19 de octubre; consultar el registro productivo enlazado arriba para el estado actual. Los avisos históricos siguientes no significan que la activación siga pendiente.
 
 Inventario de solo lectura del 19 de octubre: backend y panel saludables con imágenes `aiworkers-coex-runtime:contacts-20261018` y `aiworkers-coex-dashboard:contacts-20261018`. Los trabajadores de agente/scheduler usan `first-contact-20261017-final`, outbound `format-gpt6-286a2f0` y knowledge `e437e8c`; no se cambiaron ni reiniciaron servicios. Comparación SHA-256 de fuentes del backend instalado: `whatsapp/meta_provider.py`, `whatsapp/schemas.py` y `whatsapp/signup_service.py` coinciden con el checkout integrado, pero no con HEAD. Por tanto, las correcciones pendientes de esos tres archivos están efectivamente instaladas y desplegar el HEAD actual las perdería. `tenants/admin_router.py` coincide tanto con HEAD como con producción. Esta comprobación no certifica equivalencia de las fuentes del panel compilado ni de los demás trabajadores. Hace falta autorización adicional para guardar los prerrequisitos pendientes y luego autorización de instalación; esta inspección no hizo escrituras productivas ni llamadas a modelos/Meta.
 
