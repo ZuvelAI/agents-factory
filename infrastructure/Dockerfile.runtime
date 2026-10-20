@@ -1,5 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.12.5-python3.12-trixie
 WORKDIR /workspace
+RUN apt-get update && apt-get install --no-install-recommends -y ffmpeg=7:7.1.5-0+deb13u1 && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
 COPY apps/backend apps/backend
 COPY workers workers
