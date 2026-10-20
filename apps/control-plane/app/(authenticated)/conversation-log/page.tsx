@@ -240,7 +240,8 @@ export default async function ConversationLog({
                 key={row.id}
                 href={link({ conversation: row.id, messagesCursor: undefined })}
               >
-                <strong>{row.customer_wa_id}</strong>
+                <strong>{contactTitle(row)}</strong>
+                <small>{contactDetails(row)}</small>
                 <span>{controlLabels[row.control_state]}</span>
                 <small>{date(row.last_activity_at ?? row.updated_at)}</small>
                 <small>
@@ -295,7 +296,7 @@ export default async function ConversationLog({
             </>
           ) : (
             <>
-              <h2>{chosen.customer_wa_id}</h2>
+              <h2>{contactTitle(chosen)}</h2>
               {relatedProspect ? (
                 <Link
                   href={`/prospects?tenant=${tenant}&prospect=${relatedProspect.id}`}
@@ -307,6 +308,7 @@ export default async function ConversationLog({
                   No pudimos consultar la ficha de prospecto vinculada.
                 </p>
               ) : null}
+              <p className="workspace-muted">{contactDetails(chosen)}</p>
               <p className="workspace-muted">
                 {controlLabels[chosen.control_state]} · Cuenta{" "}
                 {chosen.account_id}
@@ -375,3 +377,4 @@ export default async function ConversationLog({
     </section>
   );
 }
+import { contactTitle, contactDetails } from "../../../lib/contact-identity";

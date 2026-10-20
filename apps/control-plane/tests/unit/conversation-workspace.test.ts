@@ -42,6 +42,9 @@ function seed() {
                   id: conversation,
                   account_id: account,
                   customer_wa_id: "CO.123",
+                  contact_name: "Ana <script>no ejecutar</script>",
+                  contact_username: "ana.ventas",
+                  contact_phone_number: "+573000000001",
                   control_state: "AI_ACTIVE",
                   updated_at: "2026-10-14T15:00:00Z",
                   agent_ids: [agent],
@@ -73,6 +76,9 @@ it("preserves filters, shows stored delivery and escapes text without assigning 
   expect(html).toContain("Versión registrada");
   expect(html).not.toContain("Enviar mensaje");
   expect(html).not.toContain("Preparar WhatsApp");
+  expect(html).toContain("Ana &lt;script&gt;no ejecutar&lt;/script&gt;");
+  expect(html).toContain("@ana.ventas");
+  expect(html).toContain("+573000000001");
 });
 it("does not convert backend failure or malformed data into empty conversations", async () => {
   backend.mockRejectedValue(new Error("private database detail"));

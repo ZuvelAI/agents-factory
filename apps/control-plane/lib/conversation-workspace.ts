@@ -1,7 +1,8 @@
 import "server-only";
 import { callAuthenticatedBackend } from "./api";
 import { isWorkspaceId } from "./agent-workspace";
-export type ConversationRow = {
+import { validContactIdentity, type ContactIdentity } from "./contact-identity";
+export type ConversationRow = ContactIdentity & {
   id: string;
   account_id: string;
   customer_wa_id: string;
@@ -73,6 +74,7 @@ function isConversation(r: unknown): r is ConversationRow {
     id(r.id) &&
     id(r.account_id) &&
     typeof r.customer_wa_id === "string" &&
+    validContactIdentity(r) &&
     typeof r.control_state === "string" &&
     Object.hasOwn(controlLabels, r.control_state) &&
     date(r.updated_at) &&
