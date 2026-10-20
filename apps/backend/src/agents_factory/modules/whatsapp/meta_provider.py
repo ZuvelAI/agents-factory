@@ -233,7 +233,6 @@ class MetaCloudApiProvider:
                             content=_normalized_content(message.model_dump()),
                             occurred_at=_provider_timestamp(message.timestamp),
                             raw_payload=raw_payload,
-                        )
                             contact_identity=meta_contact_identity(
                                 message={
                                     **message.model_dump(by_alias=True),
@@ -245,6 +244,7 @@ class MetaCloudApiProvider:
                                 ),
                             ),
                     )
+                        )
                 for status in change.value.statuses:
                     if status.status not in _SUPPORTED_DELIVERY_STATUSES:
                         raise InvalidWebhookPayload
