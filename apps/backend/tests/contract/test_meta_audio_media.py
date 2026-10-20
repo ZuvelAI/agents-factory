@@ -118,7 +118,14 @@ async def test_media_bad_origin_never_receives_token(tmp_path, url):
 
 @pytest.mark.parametrize(
     "addresses",
-    [("127.0.0.1",), ("::1",), ("169.254.169.254",), ("157.240.1.1", "10.0.0.1")],
+    [
+        ("127.0.0.1",),
+        ("::1",),
+        ("169.254.169.254",),
+        ("157.240.1.1", "10.0.0.1"),
+        ("224.0.0.1",),
+        ("ff02::1",),
+    ],
 )
 async def test_dns_private_and_mixed_resolution_fail_closed(addresses):
     backend = httpcore.AsyncMockBackend([])

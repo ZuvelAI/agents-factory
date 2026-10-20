@@ -65,8 +65,10 @@ class PinnedMediaBackend(httpcore.AsyncNetworkBackend):
         if host != MEDIA_HOST or port != 443:
             raise AudioDownloadError("audio_media_origin_invalid")
         addresses = await self.resolve(host)
-        if not addresses or any(
-            not ipaddress.ip_address(address).is_global for address in addresses
+        parsed_addresses = tuple(ipaddress.ip_address(address) for address in addresses)
+        if not parsed_addresses or any(
+            not address.is_global or address.is_multicast or address.is_reserved
+            for address in parsed_addresses
         ):
             raise AudioDownloadError("audio_media_address_invalid")
         # The lower backend sees only an already-validated numeric address.
@@ -171,12 +173,12 @@ class MetaAudioDownloader:
                 raise AudioDownloadError("audio_media_id_invalid")
             _mime(source.mime_type)
             context = TenantContext(source.tenant_id, None, "system", source.event_id)
-            secret = await self.access_tokens.resolve(
+            resolved_access = await self.access_tokens.resolve(
                 context=context, whatsapp_account_id=source.account_id
             )
             headers = {
                 "Authorization": "Bearer "
-                + secret.reveal().decode("utf-8", errors="strict")
+                + resolved_access.reveal().decode("utf-8", errors="strict")
             }
             async with asyncio.timeout(15):
                 async with self._metadata() as client:

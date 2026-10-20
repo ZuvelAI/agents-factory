@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol, cast
@@ -24,6 +25,7 @@ from agents_factory.database import Database, set_tenant_context
 
 QueueName = Literal["agent", "knowledge", "outbound", "scheduler"]
 JobRunStatus = Literal[
+    "deferred",
     "succeeded",
     "retry",
     "dead_letter",
@@ -291,9 +293,18 @@ class OutboxDispatcher:
 
 
 @dataclass(frozen=True, slots=True)
+class JobDeferral:
+    retry_after_seconds: float
+
+
+JobPreflight = Callable[[JobEnvelope], AbstractAsyncContextManager[JobDeferral | None]]
+
+
+@dataclass(frozen=True, slots=True)
 class JobRunResult:
     status: JobRunStatus
     attempt_number: int | None
+    retry_after_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,18 +320,30 @@ class DurableJobRunner:
         session_factory: async_sessionmaker[AsyncSession],
         conversation_locks: ConversationLockManager | None = None,
         retry_delay_seconds: float = 0.0,
+        preflight: JobPreflight | None = None,
     ) -> None:
         if retry_delay_seconds < 0:
             raise ValueError("retry delay cannot be negative")
         self._session_factory = session_factory
         self._conversation_locks = conversation_locks
         self._retry_delay_seconds = retry_delay_seconds
+        self._preflight = preflight
 
     async def run(
         self,
         *,
         envelope: JobEnvelope,
         handler: JobHandler,
+    ) -> JobRunResult:
+        if self._preflight is not None:
+            async with self._preflight(envelope) as deferred:
+                if deferred is not None:
+                    return JobRunResult("deferred", None, deferred.retry_after_seconds)
+                return await self._run_locked(envelope=envelope, handler=handler)
+        return await self._run_locked(envelope=envelope, handler=handler)
+
+    async def _run_locked(
+        self, *, envelope: JobEnvelope, handler: JobHandler
     ) -> JobRunResult:
         if self._conversation_locks is None:
             return await self._run_attempt(envelope=envelope, handler=handler)

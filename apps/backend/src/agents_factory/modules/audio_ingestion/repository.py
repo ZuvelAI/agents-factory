@@ -13,7 +13,13 @@ from agents_factory.common.context import TenantContext
 from agents_factory.common.ids import new_uuid7
 from agents_factory.common.outbox import OutboxService
 from agents_factory.database import set_tenant_context
-from .models import AudioClaim, AudioPhase, AudioTerminalState, AudioTranscript
+from .models import (
+    AudioClaim,
+    AudioInspection,
+    AudioPhase,
+    AudioTerminalState,
+    AudioTranscript,
+)
 from .source import load_audio_source
 
 
@@ -186,6 +192,32 @@ class AudioRepository:
                 **self._identity(claim),
                 "now": now,
                 "expiry": now + timedelta(seconds=65),
+            },
+        )
+        return value is not None
+
+    async def record_inspection(
+        self, claim: AudioClaim, inspection: AudioInspection, digest: str, now: datetime
+    ) -> bool:
+        _aware(now)
+        if (
+            claim.source.tenant_id != self.context.tenant_id
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            return False
+        await set_tenant_context(self.session, self.context.tenant_id)
+        value = await self.session.scalar(
+            text(
+                "UPDATE public.whatsapp_audio_transcriptions SET duration_seconds=:duration,size_bytes=:size,actual_sha256=:hash "
+                "WHERE tenant_id=:t AND id=:id AND status='PROCESSING' AND phase='PREFLIGHT' "
+                "AND lease_id=:lease AND owner_id=:owner AND lease_expires_at>:now AND deadline>:now RETURNING id"
+            ),
+            {
+                **self._identity(claim),
+                "duration": inspection.duration_seconds,
+                "size": inspection.size_bytes,
+                "hash": digest,
+                "now": now,
             },
         )
         return value is not None
