@@ -34,6 +34,7 @@ from apps.backend.tests.security.lead_table_contracts import (
     LEAD_TABLES,
     seed_lead_tables,
 )
+from apps.backend.tests.security.audio_table_contracts import AUDIO_TABLES, seed_audio_table
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
@@ -1721,6 +1722,57 @@ async def test_agent_editing_and_publication_role_contracts(
                 assert denied.value.orig.sqlstate == "42501"
 
 
+@pytest_asyncio.fixture
+async def audio_tables_world(seeded_world, database_engine):
+    async with database_engine.begin() as connection:
+        await seed_audio_table(connection, seeded_world.tenant_a, seeded_world.row_a)
+        await seed_audio_table(connection, seeded_world.tenant_b, seeded_world.row_b)
+    return seeded_world
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["agents_factory_app", "agents_factory_admin", "anon", "authenticated", "service_role"])
+async def test_audio_table_runtime_admin_and_public_contract(role, audio_tables_world, session_factory):
+    import json
+    world = audio_tables_world
+    table = AUDIO_TABLES[0]
+    async with session_factory.begin() as session:
+        foreign = await session.scalar(text(f"SELECT row_to_json(t) FROM {table} t WHERE tenant_id=:tenant"), {"tenant": world.tenant_b})
+    for context in (str(world.tenant_a), str(world.tenant_b), "", "not-a-uuid"):
+        async with session_factory.begin() as session:
+            await session.execute(text(f"SET LOCAL ROLE {role}"))
+            await session.execute(text("SELECT set_config('app.tenant_id',:value,true)"), {"value": context})
+            if role not in {"agents_factory_app", "agents_factory_admin"} or context == "not-a-uuid":
+                with pytest.raises(DBAPIError) as denied:
+                    await session.execute(text(f"SELECT tenant_id FROM {table}"))
+                assert denied.value.orig.sqlstate == ("22P02" if role in {"agents_factory_app", "agents_factory_admin"} else "42501")
+            else:
+                assert (await session.execute(text(f"SELECT tenant_id FROM {table}"))).scalars().all() == ([UUID(context)] if context else [])
+    attacks = (
+        (f"UPDATE {table} SET tenant_id=:other WHERE id=:id", {"other": world.tenant_b, "id": world.row_a[table]}),
+        (f"DELETE FROM {table} WHERE id=:id", {"id": world.row_a[table]}),
+        (f"INSERT INTO {table} SELECT (jsonb_populate_record(NULL::{table},CAST(:document AS jsonb))).*", {"document": json.dumps({**foreign, "id": str(uuid4())})}),
+    )
+    for query, params in attacks:
+        async with session_factory.begin() as session:
+            await session.execute(text(f"SET LOCAL ROLE {role}"))
+            await set_tenant_context(session, world.tenant_a)
+            with pytest.raises(DBAPIError) as denied:
+                await session.execute(text(query), params)
+            assert denied.value.orig.sqlstate == "42501"
+    async with session_factory.begin() as session:
+        await session.execute(text(f"SET LOCAL ROLE {role}"))
+        await set_tenant_context(session, world.tenant_a)
+        if role == "agents_factory_app":
+            own = await session.scalar(text(f"UPDATE {table} SET updated_at=now() WHERE id=:id RETURNING id"), {"id": world.row_a[table]})
+            assert own == world.row_a[table]
+            assert await session.scalar(text(f"UPDATE {table} SET updated_at=now() WHERE id=:id RETURNING id"), {"id": world.row_b[table]}) is None
+        else:
+            with pytest.raises(DBAPIError) as denied:
+                await session.execute(text(f"UPDATE {table} SET updated_at=now() WHERE id=:id"), {"id": world.row_a[table]})
+            assert denied.value.orig.sqlstate == "42501"
+
+
 @pytest.mark.asyncio
 async def test_every_public_tenant_owned_table_is_registered(
     database_engine: AsyncEngine,
@@ -1734,6 +1786,7 @@ async def test_every_public_tenant_owned_table_is_registered(
     }
     registered.update((item.table_name, "tenant_id") for item in AGENT_TABLE_CONTRACTS)
     registered.update((table, "tenant_id") for table in LEAD_TABLES)
+    registered.update((table, "tenant_id") for table in AUDIO_TABLES)
     assert registered == tenant_owned
 
 
@@ -1747,6 +1800,7 @@ async def test_catalog_excludes_security_invoker_views_and_detects_base_tables(
     }
     registered.update((item.table_name, "tenant_id") for item in AGENT_TABLE_CONTRACTS)
     registered.update((table, "tenant_id") for table in LEAD_TABLES)
+    registered.update((table, "tenant_id") for table in AUDIO_TABLES)
     async with database_engine.begin() as connection:
         await connection.execute(
             text(

@@ -52,7 +52,8 @@ values
   ('public.lead_subjects', 'tenant_id'),
   ('public.lead_subject_keys', 'tenant_id'),
   ('public.lead_prospects', 'tenant_id'),
-  ('public.lead_capture_events', 'tenant_id');
+  ('public.lead_capture_events', 'tenant_id'),
+  ('public.whatsapp_audio_transcriptions', 'tenant_id');
 
 -- Explicit administrative-only contracts mirror the real role matrix in Python.
 -- Discovery still includes every public tenant-owned base table: nothing is skipped.
