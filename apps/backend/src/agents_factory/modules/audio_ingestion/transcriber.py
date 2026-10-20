@@ -13,12 +13,23 @@ class AudioTranscriptionError(RuntimeError):
 
 
 class OpenAIAudioTranscriber:
-    def __init__(self, client: AsyncOpenAI) -> None:
+    def __init__(self, client: AsyncOpenAI | None = None) -> None:
         self.client = client
 
     async def transcribe(
         self, path: Path, inspection: AudioInspection
     ) -> AudioTranscript:
+        if self.client is None:
+            try:
+                owned_client = AsyncOpenAI()
+            except Exception:
+                raise AudioTranscriptionError(
+                    "audio_transcription_unavailable"
+                ) from None
+            async with owned_client:
+                return await OpenAIAudioTranscriber(owned_client).transcribe(
+                    path, inspection
+                )
         if path.stat().st_size != inspection.size_bytes:
             raise AudioTranscriptionError("audio_transcription_invalid")
         try:

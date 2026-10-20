@@ -9,7 +9,12 @@ from apps.backend.tests.integration.test_lead_capture import seed, inbound
 
 async def audio_world(factory, *, tenant=None, media_id="12345678"):
     world = await seed(factory, tenant=tenant)
-    message, _ = await inbound(factory, world, "fixture")
+    message = await audio_message(factory, world, media_id=media_id)
+    return world, message
+
+
+async def audio_message(factory, world, *, media_id="12345678", sequence=1):
+    message, _ = await inbound(factory, world, "fixture", sequence=sequence)
     async with factory.begin() as session:
         event = (
             await session.execute(
@@ -44,4 +49,4 @@ async def audio_world(factory, *, tenant=None, media_id="12345678"):
             ),
             {"id": message},
         )
-    return world, message
+    return message

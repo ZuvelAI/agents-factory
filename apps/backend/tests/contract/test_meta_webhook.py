@@ -198,6 +198,8 @@ def test_provider_normalizes_each_v1_inbound_message_type(message_type: str) -> 
     )
     if message_type == "location":
         inbound[message_type] = {"latitude": 4.7, "longitude": -74.1}
+    if message_type == "audio":
+        inbound[message_type] = {"id": "123456789", "mime_type": "audio/ogg"}
     if message_type == "contacts":
         inbound[message_type] = [{"name": {"formatted_name": "Persona"}}]
     provider = MetaCloudApiProvider(app_secret=SecretStr("meta-app-secret"))
@@ -211,7 +213,10 @@ def test_provider_normalizes_each_v1_inbound_message_type(message_type: str) -> 
     assert event.whatsapp_message_id == "wamid.test.inbound.001"
     assert event.sender_wa_id == "573000000001"
     assert event.message_type == message_type
-    assert event.content == ({"text": "Hola"} if message_type == "text" else {})
+    expected = {"text": "Hola"} if message_type == "text" else {}
+    if message_type == "audio":
+        expected = {"audio": {"id": "123456789", "mime_type": "audio/ogg"}}
+    assert event.content == expected
     assert event.occurred_at.isoformat() == "2026-08-27T00:00:00+00:00"
     assert batch.delivery_statuses == ()
 

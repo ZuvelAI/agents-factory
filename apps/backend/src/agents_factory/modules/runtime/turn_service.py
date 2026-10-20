@@ -45,9 +45,13 @@ from agents_factory.modules.leads.capability import (
 )
 from agents_factory.modules.leads.runtime_tools import lead_tools_for_turn
 from agents_factory.modules.leads.turn_effects import LeadTurnEffects
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
+from agents_factory.modules.audio_ingestion.projection import effective_message
+from agents_factory.modules.audio_ingestion.models import AudioTranscript
 
 
 TurnExecutionStatus = Literal[
+    "audio_not_ready",
     "completed",
     "already_processed",
     "blocked_by_conversation_control",
@@ -127,6 +131,7 @@ class _LoadedTurn:
     messages: tuple[TurnMessage, ...]
     inbound_message: TurnMessage
     superseded_by_human: bool
+    audio_not_ready: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +188,8 @@ class AgentTurnService:
         )
         if loaded is None:
             raise AgentTurnNotFound
+        if loaded.audio_not_ready:
+            return AgentTurnExecution(status="audio_not_ready")
 
         if loaded.superseded_by_human or not self._may_ai_respond(loaded.control_state):
             return AgentTurnExecution(status="blocked_by_conversation_control")
@@ -334,7 +341,7 @@ class _RuntimeTurnRepository:
                 await self._session.execute(
                     text(
                         "SELECT inbound.id, inbound.direction, inbound.sender_type, "
-                        "inbound.message_type, inbound.content, inbound.arrival_sequence, "
+                        "inbound.message_type, inbound.content, inbound.arrival_sequence, account.status AS account_status, "
                         "account.mode='COEXISTENCE' AND EXISTS ("
                         "SELECT 1 FROM public.messages AS human "
                         "WHERE human.tenant_id=inbound.tenant_id "
@@ -388,13 +395,36 @@ class _RuntimeTurnRepository:
             .mappings()
             .all()
         )
-        inbound = _turn_message(inbound_row)
-        messages = tuple(_turn_message(row) for row in prior_rows) + (inbound,)
+        audio = AudioRepository(self._session, context)
+        audio_ids = tuple(
+            row["id"]
+            for row in (*prior_rows, inbound_row)
+            if row["message_type"] == "audio"
+        )
+        transcripts = await audio.read_ready(audio_ids)
+        states = await audio.read_states(audio_ids)
+
+        def projected(row: RowMapping) -> TurnMessage:
+            return _turn_message(
+                dict(row) | states.get(row["id"], {}), transcripts.get(row["id"])
+            )
+
+        inbound = projected(inbound_row)
+        messages = tuple(projected(row) for row in prior_rows) + (inbound,)
+        blocked = await audio.blocked_until(
+            conversation_id, inbound_row["arrival_sequence"], datetime.now(UTC)
+        )
         return _LoadedTurn(
             control_state=ConversationControlState(state),
             messages=messages,
             inbound_message=inbound,
-            superseded_by_human=bool(inbound_row["superseded_by_human"]),
+            superseded_by_human=bool(inbound_row["superseded_by_human"])
+            or inbound_row["account_status"] != "active",
+            audio_not_ready=blocked is not None
+            or (
+                inbound_row["message_type"] == "audio"
+                and inbound_row["id"] not in transcripts
+            ),
         )
 
     async def find_assistant_reply(
@@ -442,7 +472,7 @@ class _RuntimeTurnRepository:
             (
                 await self._session.execute(
                     text(
-                        "SELECT conversation.control_state, "
+                        "SELECT conversation.control_state, account.status AS account_status, "
                         "account.mode='COEXISTENCE' AND EXISTS ("
                         "SELECT 1 FROM public.messages AS inbound "
                         "JOIN public.messages AS human "
@@ -474,11 +504,13 @@ class _RuntimeTurnRepository:
         )
         if authority is None:
             raise AgentTurnNotFound
-        if authority[
-            "superseded_by_human"
-        ] or not ConversationStateMachine.may_ai_respond(
-            state=ConversationControlState(authority["control_state"]),
-            awaiting_human_policy=awaiting_human_policy,
+        if (
+            authority["account_status"] != "active"
+            or authority["superseded_by_human"]
+            or not ConversationStateMachine.may_ai_respond(
+                state=ConversationControlState(authority["control_state"]),
+                awaiting_human_policy=awaiting_human_policy,
+            )
         ):
             return _PersistedAssistant(
                 message_id=None,
@@ -619,13 +651,17 @@ def load_customer_service_core_prompt() -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def _turn_message(row: RowMapping) -> TurnMessage:
+def _turn_message(
+    row: Mapping[str, object], transcript: AudioTranscript | None = None
+) -> TurnMessage:
     content = row["content"]
     text_value: str | None = None
     if isinstance(content, Mapping):
         candidate = content.get("text")
         if isinstance(candidate, str) and candidate.strip():
             text_value = candidate
+    if row["message_type"] == "audio":
+        text_value = effective_message(row, transcript).text
     if text_value is None:
         text_value = f"[Inbound {row['message_type']} message]"
     role: Literal["user", "assistant"] = (

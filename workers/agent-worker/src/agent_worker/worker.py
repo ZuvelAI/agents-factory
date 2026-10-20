@@ -20,6 +20,8 @@ async def process_job(
     payload: Mapping[str, object],
 ) -> str:
     result = await run_registered_job(context, payload)
+    if result.status == "deferred":
+        raise Retry(defer=result.retry_after_seconds or 5)
     if result.status == "retry":
         raise Retry(defer=1)
     return result.status

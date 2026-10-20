@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import hmac
 import re
 from contextlib import asynccontextmanager
@@ -631,6 +632,31 @@ def _normalized_mobile_content(message: Mapping[str, object]) -> dict[str, objec
 
 def _normalized_content(message: Mapping[str, object]) -> dict[str, object]:
     message_type = message.get("type")
+    if message_type == "audio":
+        audio = message.get("audio")
+        if not isinstance(audio, Mapping):
+            raise InvalidWebhookPayload
+        media_id, mime = audio.get("id"), audio.get("mime_type")
+        if (
+            not isinstance(media_id, str)
+            or re.fullmatch(r"[0-9]{1,200}", media_id) is None
+            or not isinstance(mime, str)
+            or not 0 < len(mime) <= 100
+        ):
+            raise InvalidWebhookPayload
+        normalized: dict[str, object] = {"id": media_id, "mime_type": mime}
+        if "sha256" in audio:
+            value = audio["sha256"]
+            try:
+                if (
+                    not isinstance(value, str)
+                    or len(base64.b64decode(value, validate=True)) != 32
+                ):
+                    raise ValueError
+            except ValueError:
+                raise InvalidWebhookPayload from None
+            normalized["sha256"] = value
+        return {"audio": normalized}
     if message_type != "text":
         return {}
     text_content = message.get("text")

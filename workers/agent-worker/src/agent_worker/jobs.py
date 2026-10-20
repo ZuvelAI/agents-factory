@@ -5,11 +5,13 @@ from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from agents_factory.config import load_settings
 from agent_worker.publication_jobs import handle_publication_test
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.queue import (
+    DurableJobRunner,
     JobEnvelope,
     JobHandler,
     configure_durable_worker,
@@ -29,6 +31,17 @@ from agents_factory.modules.runtime.turn_service import (
     Milestone2AgentSpecProvider,
 )
 from agents_factory.modules.whatsapp.history_sync import import_history_inbox
+from agents_factory.common.locks import ConversationLockManager
+from agents_factory.modules.audio_ingestion.authorization import AudioAuthority
+from agents_factory.modules.audio_ingestion.preflight import AudioJobPreflight
+from agents_factory.modules.audio_ingestion.service import AudioIngestionService
+from agents_factory.modules.audio_ingestion.media import MetaAudioDownloader
+from agents_factory.modules.audio_ingestion.inspection import AudioInspector
+from agents_factory.modules.audio_ingestion.transcriber import OpenAIAudioTranscriber
+from agents_factory.modules.whatsapp.account_service import (
+    SessionFactoryMetaAccessTokenResolver,
+)
+from agents_factory.modules.secrets.envelope import EnvironmentMasterKeyProvider
 
 
 class InvalidAgentTurnJob(ValueError):
@@ -79,6 +92,48 @@ async def configure_agent_worker(context: dict[Any, Any]) -> None:
     handlers["whatsapp.history.import"] = whatsapp_history_handler
     handlers["agent.turn"] = agent_turn_handler
     handlers["agent.publication.test"] = publication_test_handler
+    settings = load_settings()
+
+    def audio_spec_provider(
+        session: AsyncSession, operation: TenantContext, conversation: UUID
+    ) -> AgentSpecProvider:
+        return (
+            ConversationAgentSpecProvider(
+                session,
+                operation,
+                conversation,
+                agent_specs,
+                code_digest=settings.agent_publication_code_digest,
+                compatible_versions=settings.agent_publication_compatible_versions,
+            )
+            if isinstance(agent_specs, Milestone2AgentSpecProvider)
+            else agent_specs
+        )
+
+    audio_authority = AudioAuthority(audio_spec_provider)
+    access = SessionFactoryMetaAccessTokenResolver(
+        session_factory=database.session_factory,
+        key_provider=EnvironmentMasterKeyProvider(
+            environment={"APP_MASTER_KEY": settings.app_master_key.get_secret_value()}
+        ),
+    )
+    audio = AudioIngestionService(
+        database.session_factory,
+        downloader=context.get("audio_downloader")
+        or MetaAudioDownloader(access, settings.meta_graph_api_base_url),
+        inspector=context.get("audio_inspector") or AudioInspector(),
+        transcriber=context.get("audio_transcriber") or OpenAIAudioTranscriber(),
+        authority=audio_authority,
+        enabled=lambda: settings.whatsapp_audio_enabled,
+    )
+    handlers["whatsapp.audio.transcribe"] = audio.process
+    preflight = AudioJobPreflight(database.session_factory)
+    context["durable_job_runner"] = DurableJobRunner(
+        session_factory=database.session_factory,
+        conversation_locks=ConversationLockManager(context["redis"]),
+        retry_delay_seconds=1.0,
+        preflight=preflight.admit,
+    )
 
 
 async def handle_whatsapp_history_import(

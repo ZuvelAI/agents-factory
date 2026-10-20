@@ -339,6 +339,28 @@ class AudioRepository:
             result[row["inbound_message_id"]] = transcript
         return result
 
+    async def read_states(
+        self, message_ids: tuple[UUID, ...]
+    ) -> dict[UUID, dict[str, object]]:
+        await set_tenant_context(self.session, self.context.tenant_id)
+        if not message_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                text(
+                    "SELECT inbound_message_id,id,status FROM public.whatsapp_audio_transcriptions WHERE tenant_id=:t AND inbound_message_id IN :ids"
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"t": self.context.tenant_id, "ids": message_ids},
+            )
+        ).mappings()
+        return {
+            row["inbound_message_id"]: {
+                "transcription_id": row["id"],
+                "audio_state": row["status"],
+            }
+            for row in rows
+        }
+
     async def blocked_until(
         self, conversation_id: UUID, before_sequence: int, now: datetime
     ) -> datetime | None:

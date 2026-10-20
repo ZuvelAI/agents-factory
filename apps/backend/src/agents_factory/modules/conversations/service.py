@@ -16,6 +16,7 @@ from agents_factory.modules.conversations.models import (
 from agents_factory.modules.conversations.repository import ConversationRepository
 from agents_factory.modules.conversations.state_machine import ConversationStateMachine
 from agents_factory.modules.leads.privacy import persist_direct_refusal
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
 
 
 class ConversationNotFound(LookupError):
@@ -105,7 +106,11 @@ class ConversationService:
             state=conversation.control_state,
             awaiting_human_policy=self._awaiting_human_policy,
         )
-        if response_queued:
+        if response_queued and persisted.message.message_type == "audio":
+            await AudioRepository(self._session, self._context).enqueue(
+                persisted.message.id
+            )
+        elif response_queued:
             await self._outbox.enqueue(
                 context=self._context,
                 idempotency_key=f"agent.turn:{persisted.message.id}",
