@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class MetaWebhookModel(BaseModel):
@@ -16,7 +16,16 @@ class MetaMetadata(MetaWebhookModel):
 
 class MetaInboundMessage(MetaWebhookModel):
     id: str = Field(min_length=1, max_length=500)
-    sender_wa_id: str = Field(alias="from", min_length=1, max_length=100)
+    sender_phone_number: str | None = Field(
+        default=None, validation_alias="from", exclude=True
+    )
+    sender_user_id: str | None = Field(default=None, alias="from_user_id")
+    sender_wa_id: str = Field(
+        alias="from",
+        validation_alias=AliasChoices("from", "from_user_id"),
+        min_length=1,
+        max_length=100,
+    )
     timestamp: str = Field(min_length=1, max_length=20)
     type: str = Field(min_length=1, max_length=100)
 

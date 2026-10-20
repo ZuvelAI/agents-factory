@@ -5,15 +5,21 @@ from typing import Any
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from agents_factory.modules.whatsapp.contact_projection import (
+    CONTACT_COLUMNS,
+    CONTACT_JOINS,
+)
 
 
-CONVERSATIONS = """
+CONVERSATIONS = f"""
 SELECT c.id,c.whatsapp_account_id AS account_id,c.customer_wa_id,c.control_state,
+ {CONTACT_COLUMNS},
  c.updated_at,activity.last_activity_at,
  ARRAY(SELECT DISTINCT v.agent_instance_id FROM public.messages m
    JOIN public.agent_spec_versions v ON (v.tenant_id,v.id)=(m.tenant_id,m.agent_spec_id)
    WHERE m.tenant_id=c.tenant_id AND m.conversation_id=c.id ORDER BY v.agent_instance_id) AS agent_ids
 FROM public.conversations c
+{CONTACT_JOINS}
 LEFT JOIN LATERAL(SELECT greatest(c.updated_at,coalesce(max(m.created_at),c.created_at)) AS last_activity_at
  FROM public.messages m WHERE m.tenant_id=c.tenant_id AND m.conversation_id=c.id) activity ON true
 WHERE c.tenant_id=:tenant AND (CAST(:selected AS uuid) IS NULL OR c.id=:selected)

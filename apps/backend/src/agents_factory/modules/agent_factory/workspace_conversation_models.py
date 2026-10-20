@@ -9,6 +9,9 @@ class ConversationSummary(BaseModel):
     id: UUID
     account_id: UUID
     customer_wa_id: str
+    contact_name: str | None = None
+    contact_username: str | None = None
+    contact_phone_number: str | None = None
     control_state: str
     updated_at: datetime
     last_activity_at: datetime

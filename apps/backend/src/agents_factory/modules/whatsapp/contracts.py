@@ -26,6 +26,15 @@ WhatsAppHealthStatus = Literal["HEALTHY", "REAUTH_REQUIRED", "ERROR", "UNKNOWN"]
 
 
 @dataclass(frozen=True, slots=True)
+class WhatsAppContactIdentity:
+    """Provider-supplied display data, never routing or verified identity."""
+
+    profile_name: str | None = None
+    username: str | None = None
+    phone_number: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class InboundWhatsAppEvent:
     waba_id: str
     phone_number_id: str
@@ -35,6 +44,7 @@ class InboundWhatsAppEvent:
     content: dict[str, object]
     occurred_at: datetime
     raw_payload: dict[str, object]
+    contact_identity: WhatsAppContactIdentity | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

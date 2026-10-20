@@ -15,6 +15,7 @@ from pydantic import SecretStr, ValidationError
 
 from agents_factory.common.context import TenantContext
 from agents_factory.common.errors import DomainError
+from agents_factory.modules.whatsapp.contact_identity import meta_contact_identity
 from agents_factory.modules.whatsapp.contracts import (
     CoexistenceEligibility,
     DeliveryStatus,
@@ -233,6 +234,16 @@ class MetaCloudApiProvider:
                             occurred_at=_provider_timestamp(message.timestamp),
                             raw_payload=raw_payload,
                         )
+                            contact_identity=meta_contact_identity(
+                                message={
+                                    **message.model_dump(by_alias=True),
+                                    "sender_phone_number": message.sender_phone_number,
+                                    "sender_user_id": message.sender_user_id,
+                                },
+                                contacts=(change.value.model_extra or {}).get(
+                                    "contacts"
+                                ),
+                            ),
                     )
                 for status in change.value.statuses:
                     if status.status not in _SUPPORTED_DELIVERY_STATUSES:

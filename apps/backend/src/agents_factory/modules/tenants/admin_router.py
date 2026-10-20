@@ -4,18 +4,114 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Request, status
+from fastapi import APIRouter, Header, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 from agents_factory.common.errors import DomainError
 from agents_factory.common.security import PlatformAdmin
 from agents_factory.dependencies import TransactionSession
+from agents_factory.database import set_tenant_context
+from agents_factory.modules.whatsapp.contact_projection import (
+    CONTACT_COLUMNS,
+    CONTACT_JOINS,
+)
 from agents_factory.modules.tenants.models import Tenant, TenantStatus
 from agents_factory.modules.tenants.repository import TenantRepository
 from agents_factory.modules.tenants.service import TenantService
 
 
 router = APIRouter(prefix="/admin/tenants", tags=["platform-admin-tenants"])
+
+
+class ConversationReadResponse(BaseModel):
+    id: UUID
+    customer_wa_id: str
+    contact_name: str | None = None
+    contact_username: str | None = None
+    contact_phone_number: str | None = None
+    control_state: str
+    updated_at: datetime
+
+
+class MessageReadResponse(BaseModel):
+    id: UUID
+    direction: str
+    message_type: str
+    text: str | None
+    created_at: datetime
+
+
+@router.get("/{tenant_id}/conversations", response_model=list[ConversationReadResponse])
+async def list_admin_conversations(
+    tenant_id: UUID,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+) -> list[ConversationReadResponse]:
+    _ = principal
+    await set_tenant_context(session, tenant_id)
+    rows = await session.execute(
+        text(
+            f"SELECT c.id, c.customer_wa_id, c.control_state, c.updated_at, {CONTACT_COLUMNS} "
+            f"FROM public.conversations c {CONTACT_JOINS} WHERE c.tenant_id=:tenant "
+            "ORDER BY c.updated_at DESC, c.id DESC LIMIT :limit OFFSET :offset"
+        ),
+        {"tenant": tenant_id, "limit": limit, "offset": offset},
+    )
+    return [
+        ConversationReadResponse.model_validate(dict(row)) for row in rows.mappings()
+    ]
+
+
+@router.get(
+    "/{tenant_id}/conversations/{conversation_id}/messages",
+    response_model=list[MessageReadResponse],
+)
+async def list_admin_conversation_messages(
+    tenant_id: UUID,
+    conversation_id: UUID,
+    principal: PlatformAdmin,
+    session: TransactionSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+) -> list[MessageReadResponse]:
+    _ = principal
+    found = await session.scalar(
+        text(
+            "SELECT id FROM public.conversations WHERE id=:conversation AND tenant_id=:tenant"
+        ),
+        {"conversation": conversation_id, "tenant": tenant_id},
+    )
+    if found is None:
+        raise DomainError(
+            type="https://agents-factory.dev/problems/conversation-not-found",
+            title="Conversation Not Found",
+            status=404,
+            detail="The conversation was not found for this tenant.",
+            code="conversation_not_found",
+        )
+    rows = await session.execute(
+        text(
+            "SELECT m.id, m.direction, m.message_type, "
+            "CASE WHEN jsonb_typeof(m.content->'text')='string' THEN m.content->>'text' ELSE NULL END AS text, m.created_at "
+            "FROM public.messages m JOIN public.conversations c ON c.id=m.conversation_id AND c.tenant_id=m.tenant_id "
+            "WHERE m.tenant_id=:tenant AND c.tenant_id=:tenant AND c.id=:conversation "
+            "ORDER BY m.arrival_sequence DESC, m.id DESC LIMIT :limit OFFSET :offset"
+        ),
+        {
+            "tenant": tenant_id,
+            "conversation": conversation_id,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+    return list(
+        reversed(
+            [MessageReadResponse.model_validate(dict(row)) for row in rows.mappings()]
+        )
+    )
 
 
 class TenantCreateRequest(BaseModel):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .contact_profile_repository import persist_contact_profile
+
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -178,6 +180,9 @@ class WhatsAppWebhookRepository:
             },
         )
         if created_id is not None:
+            await persist_contact_profile(
+                self._session, context=context, mapping=mapping, event=event
+            )
             return PersistedWebhookEvent(event_id=created_id, created=True)
 
         existing_id = await self._session.scalar(
