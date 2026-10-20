@@ -2,6 +2,7 @@ import "server-only";
 import { callAuthenticatedBackend } from "./api";
 import { isWorkspaceId } from "./agent-workspace";
 import { validContactIdentity, type ContactIdentity } from "./contact-identity";
+import { validAudioFields, type AudioReadFields } from "./audio-transcription";
 export type ConversationRow = ContactIdentity & {
   id: string;
   account_id: string;
@@ -11,7 +12,7 @@ export type ConversationRow = ContactIdentity & {
   last_activity_at?: string;
   agent_ids: string[];
 };
-export type MessageRow = {
+export type MessageRow = AudioReadFields & {
   id: string;
   arrival_sequence: number;
   direction: string;
@@ -141,6 +142,7 @@ export async function readMessages(
       typeof r.arrival_sequence === "number" &&
       ["inbound", "outbound", "system"].includes(String(r.direction)) &&
       typeof r.message_type === "string" &&
+      validAudioFields(r) &&
       (r.text === null || typeof r.text === "string") &&
       date(r.created_at) &&
       (r.agent_id === null || id(r.agent_id)) &&

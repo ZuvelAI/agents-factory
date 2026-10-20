@@ -191,7 +191,8 @@ class LeadReadRepository:
         scope = _scope_key("prospect-events", tenant, identity)
         at, after = _decode(cursor, scope)
         sql = """SELECT e.id,e.conversation_id,e.inbound_message_id,e.agent_instance_id,e.agent_version_id,
-        v.version_number,v.configuration->>'agent_display_name' AS agent_name,e.operation,e.evidence,e.created_at
+        v.version_number,v.configuration->>'agent_display_name' AS agent_name,e.operation,e.evidence,e.created_at,
+        coalesce(e.changes->'transcription_sources','[]'::jsonb) AS transcription_sources
         FROM public.lead_capture_events e JOIN public.lead_prospects p ON p.tenant_id=e.tenant_id
         JOIN public.agent_spec_versions v ON v.tenant_id=e.tenant_id AND v.agent_instance_id=e.agent_instance_id AND v.id=e.agent_version_id
         WHERE e.tenant_id=:tenant AND p.id=:prospect AND (e.prospect_id=p.id OR e.changes->'conflicting_subject_ids' @> jsonb_build_array(p.subject_id::text))

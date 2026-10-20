@@ -172,7 +172,18 @@ class AudioIngestionService:
                         transcript = await self.transcriber.transcribe(path, inspection)
                         await permit.check()
                         async with self._repository(context) as repo:
-                            await repo.complete(claim, transcript)
+                            if await repo.complete(claim, transcript):
+                                from agents_factory.modules.leads.privacy import (
+                                    persist_direct_refusal,
+                                )
+
+                                await persist_direct_refusal(
+                                    repo.session,
+                                    context,
+                                    conversation_id=claim.source.conversation_id,
+                                    inbound_message_id=message_id,
+                                    body=transcript.text,
+                                )
             except AudioCapacityLost:
                 await self._finish(
                     context,

@@ -193,6 +193,11 @@ class LeadCaptureService:
         prospect_id: UUID | None,
         changes: dict[str, object],
     ) -> None:
+        sources = await self.repository.transcription_sources(
+            trusted, tuple(e.message_id for e in proposal.evidence)
+        )
+        if sources:
+            changes = {**changes, "transcription_sources": sources}
         await self.repository.execute(
             "INSERT INTO public.lead_capture_events(id,tenant_id,prospect_id,conversation_id,inbound_message_id,agent_instance_id,agent_version_id,operation,evidence,changes) "
             "VALUES(:id,:tenant,:prospect,:conversation,:inbound,:agent,:version,:operation,:evidence,:changes) ON CONFLICT(tenant_id,inbound_message_id,operation) DO NOTHING",

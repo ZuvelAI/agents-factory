@@ -101,7 +101,16 @@ export function ProspectDetail({
                 })}
               </p>
               {e.evidence.map((v, i) => (
-                <blockquote key={`${v.message_id}-${i}`}>{v.quote}</blockquote>
+                <blockquote key={`${v.message_id}-${i}`}>
+                  <p>{v.quote}</p>
+                  <small>
+                    {e.transcription_sources?.some(
+                      (source) => source.message_id === v.message_id,
+                    )
+                      ? "Fuente: transcripción automática de audio"
+                      : "Fuente: texto escrito por el contacto"}
+                  </small>
+                </blockquote>
               ))}
               <Link href={prospectConversationLink(tenant, e.conversation_id)}>
                 Abrir conversación de esta fuente

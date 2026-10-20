@@ -22,6 +22,8 @@ def effective_message(
     if row.get("message_type") == "audio":
         state, ident = row.get("audio_state"), row.get("transcription_id")
         if state == "READY" and isinstance(ident, UUID) and transcript is not None:
+            if row.get("transcription_digest") != transcript.digest:
+                raise ValueError("audio_transcript_integrity_failed")
             return EffectiveAudioMessage(
                 transcript.text, "AUDIO_TRANSCRIPT", ident, transcript.digest, "READY"
             )

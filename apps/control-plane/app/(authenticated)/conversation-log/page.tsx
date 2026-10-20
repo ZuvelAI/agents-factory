@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AudioTranscription } from "../../../components/audio-transcription";
 import {
   isWorkspaceId,
   readAgents,
@@ -345,10 +346,17 @@ export default async function ConversationLog({
                             {date(message.created_at)}
                           </time>
                         </div>
-                        <p>
-                          {message.text ??
-                            `Mensaje ${message.message_type}; vista multimedia no disponible.`}
-                        </p>
+                        {message.message_type === "audio" ? (
+                          <AudioTranscription
+                            state={message.audio_state}
+                            text={message.text}
+                          />
+                        ) : (
+                          <p>
+                            {message.text ??
+                              `Mensaje ${message.message_type}; vista multimedia no disponible.`}
+                          </p>
+                        )}
                         <small>
                           {message.agent_id
                             ? `Agente ${message.agent_id}`

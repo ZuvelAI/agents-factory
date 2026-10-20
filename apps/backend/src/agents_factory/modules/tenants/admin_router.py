@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from agents_factory.common.errors import DomainError
+from agents_factory.common.context import TenantContext
+from agents_factory.common.ids import new_uuid7
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
 from agents_factory.common.security import PlatformAdmin
 from agents_factory.dependencies import TransactionSession
 from agents_factory.database import set_tenant_context
@@ -40,6 +43,10 @@ class MessageReadResponse(BaseModel):
     message_type: str
     text: str | None
     created_at: datetime
+    audio_state: str | None = None
+    transcription_id: UUID | None = None
+    transcription_digest: str | None = None
+    text_source: str | None = None
 
 
 @router.get("/{tenant_id}/conversations", response_model=list[ConversationReadResponse])
@@ -109,7 +116,12 @@ async def list_admin_conversation_messages(
     )
     return list(
         reversed(
-            [MessageReadResponse.model_validate(dict(row)) for row in rows.mappings()]
+            [
+                MessageReadResponse.model_validate(row)
+                for row in await AudioRepository(
+                    session, TenantContext(tenant_id, None, "system", new_uuid7())
+                ).project_rows([dict(row) for row in rows.mappings()])
+            ]
         )
     )
 

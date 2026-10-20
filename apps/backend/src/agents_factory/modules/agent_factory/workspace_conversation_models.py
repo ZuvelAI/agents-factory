@@ -33,6 +33,10 @@ class OperationalMessage(BaseModel):
     agent_id: UUID | None
     agent_spec_id: UUID | None
     delivery_status: str | None
+    audio_state: str | None = None
+    transcription_id: UUID | None = None
+    transcription_digest: str | None = None
+    text_source: str | None = None
 
 
 class MessagePage(BaseModel):

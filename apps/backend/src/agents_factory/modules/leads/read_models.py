@@ -31,6 +31,13 @@ class ProspectPage(BaseModel):
     next_cursor: str | None = None
 
 
+class TranscriptionSource(BaseModel):
+    message_id: UUID
+    source_kind: Literal["AUDIO_TRANSCRIPT"]
+    transcription_id: UUID
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class ProspectEvent(BaseModel):
     id: UUID
     conversation_id: UUID
@@ -41,6 +48,9 @@ class ProspectEvent(BaseModel):
     version_number: int
     operation: Literal["CAPTURE", "SUPPRESS", "CONFLICT"]
     evidence: list[LeadEvidence] = Field(max_length=5)
+    transcription_sources: list[TranscriptionSource] = Field(
+        default_factory=list, max_length=5
+    )
     created_at: datetime
 
 

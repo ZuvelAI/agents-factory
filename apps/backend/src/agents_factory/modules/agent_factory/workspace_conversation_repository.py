@@ -5,6 +5,9 @@ from typing import Any
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from agents_factory.common.context import TenantContext
+from agents_factory.common.ids import new_uuid7
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
 from agents_factory.modules.whatsapp.contact_projection import (
     CONTACT_COLUMNS,
     CONTACT_JOINS,
@@ -117,4 +120,6 @@ class WorkspaceConversationRepository:
                 "limit": limit,
             },
         )
-        return [dict(r) for r in rows.mappings()]
+        return await AudioRepository(
+            self.session, TenantContext(tenant, None, "system", new_uuid7())
+        ).project_rows([dict(row) for row in rows.mappings()])

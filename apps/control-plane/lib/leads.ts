@@ -29,6 +29,12 @@ export type ProspectEvent = {
   version_number: number;
   operation: "CAPTURE" | "SUPPRESS" | "CONFLICT";
   evidence: { message_id: string; quote: string }[];
+  transcription_sources?: {
+    message_id: string;
+    source_kind: "AUDIO_TRANSCRIPT";
+    transcription_id: string;
+    digest: string;
+  }[];
   created_at: string;
 };
 export type LeadPage<T> = { items: T[]; next_cursor: string | null };
@@ -86,6 +92,18 @@ function isEvent(v: unknown): v is ProspectEvent {
     Number(v.version_number) > 0 &&
     ["CAPTURE", "SUPPRESS", "CONFLICT"].includes(String(v.operation)) &&
     date(v.created_at) &&
+    (v.transcription_sources === undefined ||
+      (Array.isArray(v.transcription_sources) &&
+        v.transcription_sources.length <= 5 &&
+        v.transcription_sources.every(
+          (source) =>
+            record(source) &&
+            id(source.message_id) &&
+            source.source_kind === "AUDIO_TRANSCRIPT" &&
+            id(source.transcription_id) &&
+            typeof source.digest === "string" &&
+            /^[0-9a-f]{64}$/.test(source.digest),
+        ))) &&
     Array.isArray(v.evidence) &&
     v.evidence.length <= 5 &&
     v.evidence.every(

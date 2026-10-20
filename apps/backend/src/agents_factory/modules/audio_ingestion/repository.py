@@ -1,6 +1,7 @@
 """Durable voice preparation. Mutations join the caller's short transaction."""
 
 from datetime import datetime, timedelta
+from collections.abc import Mapping, Sequence
 import re
 from typing import cast
 from uuid import UUID, uuid4
@@ -21,6 +22,7 @@ from .models import (
     AudioTranscript,
 )
 from .source import load_audio_source
+from .projection import effective_message
 
 
 def _aware(now: datetime) -> None:
@@ -348,7 +350,7 @@ class AudioRepository:
         rows = (
             await self.session.execute(
                 text(
-                    "SELECT inbound_message_id,id,status FROM public.whatsapp_audio_transcriptions WHERE tenant_id=:t AND inbound_message_id IN :ids"
+                    "SELECT inbound_message_id,id,status,transcript_digest FROM public.whatsapp_audio_transcriptions WHERE tenant_id=:t AND inbound_message_id IN :ids"
                 ).bindparams(bindparam("ids", expanding=True)),
                 {"t": self.context.tenant_id, "ids": message_ids},
             )
@@ -357,9 +359,35 @@ class AudioRepository:
             row["inbound_message_id"]: {
                 "transcription_id": row["id"],
                 "audio_state": row["status"],
+                "transcription_digest": row["transcript_digest"],
             }
             for row in rows
         }
+
+    async def project_rows(
+        self, rows: Sequence[Mapping[str, object]]
+    ) -> list[dict[str, object]]:
+        identities = tuple(
+            cast(UUID, row["id"]) for row in rows if row["message_type"] == "audio"
+        )
+        transcripts = await self.read_ready(identities)
+        states = await self.read_states(identities)
+        result = []
+        for row in rows:
+            identity = cast(UUID, row["id"])
+            value = dict(row) | states.get(identity, {})
+            value.setdefault("content", {"text": value.get("text")})
+            projected = effective_message(value, transcripts.get(identity))
+            value.pop("content", None)
+            value.update(
+                text=projected.text,
+                audio_state=projected.state,
+                transcription_id=projected.transcription_id,
+                transcription_digest=projected.digest,
+                text_source=projected.source_kind,
+            )
+            result.append(value)
+        return result
 
     async def blocked_until(
         self, conversation_id: UUID, before_sequence: int, now: datetime

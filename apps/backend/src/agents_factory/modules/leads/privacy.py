@@ -10,6 +10,7 @@ from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
 from .identity import LeadIdentityResolver
 from .repository import LeadRepository
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
 
 _DIRECT_REFUSAL = re.compile(
     r"(?:por favor[, ]+)?(?:no (?:guardes|registres|almacenes) mis datos(?: como prospecto)?"
@@ -59,6 +60,18 @@ async def persist_direct_refusal(
     )
     if trusted is None:
         return
+    kind = (
+        await repo.execute(
+            "SELECT message_type FROM public.messages WHERE tenant_id=:tenant AND id=:id",
+            {"id": inbound_message_id},
+        )
+    ).scalar_one_or_none()
+    if kind == "audio":
+        ready = await AudioRepository(session, context).read_ready(
+            (inbound_message_id,)
+        )
+        if inbound_message_id not in ready or ready[inbound_message_id].text != body:
+            return
     resolution = await LeadIdentityResolver(repo).resolve(trusted)
     subject_ids = (
         resolution.conflict_subject_ids

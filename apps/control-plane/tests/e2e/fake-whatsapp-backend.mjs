@@ -4,6 +4,7 @@ import { handleAgentWorkspace } from "./fake-agent-workspace.mjs";
 import { handleAgentConfiguration } from "./fake-agent-configuration.mjs";
 import { handleWorkspacePublication } from "./fake-workspace-publication.mjs";
 import { handleProspects } from "./fake-prospects.mjs";
+import { handleAudioConversations } from "./fake-audio-conversations.mjs";
 
 const port = Number(process.env.FAKE_WHATSAPP_BACKEND_PORT ?? "3132");
 const tenantId = "019c2000-0000-7000-8000-000000000102";
@@ -56,6 +57,7 @@ createServer(async (request, response) => {
   if (await handleAgentConfiguration(request, response, url, json, readJson))
     return;
   if (handleProspects(request, response, url, json)) return;
+  if (handleAudioConversations(request, response, url, json)) return;
   if (handleAgentWorkspace(request, response, url, json)) return;
   if (url.pathname === `${stalledAvailabilityPath}/signup/availability`) {
     // The account endpoints work, but this optional request never resolves.

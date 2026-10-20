@@ -1,5 +1,6 @@
 // Synthetic UI fixture only. Database behavior is tested separately against PostgreSQL.
 export const workspaceTenant = "019c2000-0000-7000-8000-000000000102";
+import { audioMessages } from "./fake-audio-conversations.mjs";
 const other = "019c2000-0000-7000-8000-000000000103";
 const empty = "019c2000-0000-7000-8000-000000000104";
 function agent(id, tenant, name) {
@@ -120,19 +121,25 @@ export function handleAgentWorkspace(request, response, url, json) {
         return true;
       }
       json(response, 200, {
-        items: [
-          {
-            id: first.id,
-            arrival_sequence: 1,
-            direction: "outbound",
-            message_type: "text",
-            text: "En Zuvel te ayudamos a mejorar tus ventas.",
-            created_at: "2026-10-14T15:00:00Z",
-            agent_id: first.id,
-            agent_spec_id: first.id,
-            delivery_status: "DELIVERED",
-          },
-        ],
+        items: url.searchParams.get("cursor")?.startsWith("audio-")
+          ? audioMessages(
+              url.searchParams.get("cursor") === "audio-pending"
+                ? "QUEUED"
+                : "READY",
+            )
+          : [
+              {
+                id: first.id,
+                arrival_sequence: 1,
+                direction: "outbound",
+                message_type: "text",
+                text: "En Zuvel te ayudamos a mejorar tus ventas.",
+                created_at: "2026-10-14T15:00:00Z",
+                agent_id: first.id,
+                agent_spec_id: first.id,
+                delivery_status: "DELIVERED",
+              },
+            ],
         next_cursor: null,
       });
       return true;

@@ -1,4 +1,9 @@
 import Link from "next/link";
+import { AudioTranscription } from "../../../components/audio-transcription";
+import {
+  validAudioFields,
+  type AudioReadFields,
+} from "../../../lib/audio-transcription";
 import { callAuthenticatedBackend } from "../../../lib/api";
 import {
   contactTitle,
@@ -20,7 +25,7 @@ type Conversation = ContactIdentity & {
   control_state: string;
   updated_at: string;
 };
-type Message = {
+type Message = AudioReadFields & {
   id: string;
   direction: string;
   message_type: string;
@@ -126,6 +131,7 @@ export default async function ConversationsPage({
             uuid.test(row.id) &&
             ["inbound", "outbound", "system"].includes(String(row.direction)) &&
             typeof row.message_type === "string" &&
+            validAudioFields(row) &&
             (row.text === null || typeof row.text === "string") &&
             validDate(row.created_at),
         )
@@ -236,15 +242,22 @@ export default async function ConversationsPage({
                                 : "Sistema"}
                           </strong>{" "}
                           · {date(message.created_at)}
-                          <p
-                            style={{
-                              whiteSpace: "pre-wrap",
-                              overflowWrap: "anywhere",
-                            }}
-                          >
-                            {message.text ??
-                              `Mensaje de tipo ${message.message_type}. Vista multimedia no disponible.`}
-                          </p>
+                          {message.message_type === "audio" ? (
+                            <AudioTranscription
+                              state={message.audio_state}
+                              text={message.text}
+                            />
+                          ) : (
+                            <p
+                              style={{
+                                whiteSpace: "pre-wrap",
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {message.text ??
+                                `Mensaje de tipo ${message.message_type}. Vista multimedia no disponible.`}
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ol>

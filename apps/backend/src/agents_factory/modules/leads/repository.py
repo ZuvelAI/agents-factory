@@ -18,6 +18,7 @@ from agents_factory.modules.whatsapp.contact_identity import meta_contact_identi
 from agents_factory.modules.whatsapp.schemas import MetaChangeValue, MetaWebhookPayload
 
 from .models import TrustedLeadContext
+from agents_factory.modules.audio_ingestion.repository import AudioRepository
 
 
 class LeadRepository:
@@ -140,7 +141,7 @@ class LeadRepository:
         await set_tenant_context(self.session, self.context.tenant_id)
         result = await self.session.execute(
             text(
-                "SELECT id,content->>'text' AS body FROM public.messages WHERE tenant_id=:tenant "
+                "SELECT id,message_type,content FROM public.messages WHERE tenant_id=:tenant "
                 "AND conversation_id=:conversation AND direction='inbound' AND sender_type='customer' "
                 "AND id IN :ids AND arrival_sequence <= (SELECT arrival_sequence FROM public.messages WHERE tenant_id=:tenant AND id=:inbound)"
             ).bindparams(bindparam("ids", expanding=True)),
@@ -151,11 +152,32 @@ class LeadRepository:
                 "inbound": trusted.inbound_message_id,
             },
         )
-        return tuple(
-            TurnMessage(row.id, "user", row.body)
-            for row in result
-            if isinstance(row.body, str) and row.body.strip()
+        projected = await AudioRepository(self.session, self.context).project_rows(
+            [dict(row) for row in result.mappings()]
         )
+        return tuple(
+            TurnMessage(cast(UUID, row["id"]), "user", row["text"])
+            for row in projected
+            if isinstance(row["text"], str) and row["text"].strip()
+        )
+
+    async def transcription_sources(
+        self, trusted: TrustedLeadContext, message_ids: tuple[UUID, ...]
+    ) -> list[dict[str, str]]:
+        effective = await self.evidence_messages(trusted, message_ids)
+        allowed = tuple(message.id for message in effective)
+        audio = AudioRepository(self.session, self.context)
+        states = await audio.read_states(allowed)
+        transcripts = await audio.read_ready(allowed)
+        return [
+            {
+                "message_id": str(identity),
+                "source_kind": "AUDIO_TRANSCRIPT",
+                "transcription_id": str(states[identity]["transcription_id"]),
+                "digest": transcript.digest,
+            }
+            for identity, transcript in transcripts.items()
+        ]
 
     async def prospect(self, subject_id: UUID) -> RowMapping | None:
         return (
