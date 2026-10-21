@@ -1,8 +1,11 @@
 # Entrega compartida de notas de voz
 
 Fecha: 2026-10-20. Estado: instalada en producción con autorización de Daniel.
-Proveedor real y recepción de una nota nueva aún pendientes. Ver
-`notas-voz-instalacion-20261020.md` para respaldo, imágenes y comprobaciones.
+Una prueba sintética real de OpenAI pasó con autorización específica posterior.
+La primera nota real encontró una identidad interna ausente al consultar la
+credencial; corregido y desplegado en `3c43818`, con Meta metadata200 verificado.
+Pendiente aceptar una nota nueva de extremo a extremo. Ver
+`notas-voz-identidad-20261020.md` y `notas-voz-instalacion-20261020.md`.
 
 ## Qué cambia
 
@@ -14,7 +17,8 @@ del usuario. El agente responde por texto con su modelo, marca y versión asigna
 
 Se conserva la clave OpenAI existente, sin modificarla. El transcriptor está
 fijado a `gpt-4o-mini-transcribe-2025-12-15`, JSON, timeout60 y max_retries0. Su
-disponibilidad real con esa cuenta aún debe comprobarse con autorización de costo.
+disponibilidad con esa cuenta se comprobó mediante una única frase sintética de
+4.074958 segundos después de obtener autorización específica de costo.
 No se ha recuperado ni reenviado ningún audio histórico.
 
 ## Límites y recuperación
