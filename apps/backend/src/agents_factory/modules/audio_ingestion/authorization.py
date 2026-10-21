@@ -29,6 +29,23 @@ class AudioAuthority:
         now: datetime | None = None,
     ) -> AgentSpecSnapshot | None:
         await set_tenant_context(session, context.tenant_id)
+        from agents_factory.modules.agent_operations.admission import (
+            check_message_eligibility,
+        )
+        from agents_factory.modules.agent_operations.runtime_guard import (
+            lock_message_operation,
+        )
+
+        if lock:
+            eligible = await lock_message_operation(
+                session, context, message_id=message_id
+            )
+        else:
+            eligible = await check_message_eligibility(
+                session, context, message_id=message_id
+            )
+        if not eligible:
+            return None
         row = (
             await session.execute(
                 text(

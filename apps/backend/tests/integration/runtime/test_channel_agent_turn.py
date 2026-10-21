@@ -29,7 +29,9 @@ async def test_published_context_reaches_runtime_and_draft_changes_do_not_replac
     )
     from agents_factory.modules.runtime.tool_registry import RuntimeToolRegistry
 
-    operation, conversation, message = await _seed_inbound(session_factory)
+    operation, conversation, message = await _seed_inbound(
+        session_factory, with_authority=False
+    )
     tenant = operation.tenant_id
     config = configuration()
     async with session_factory.begin() as session:
@@ -68,6 +70,14 @@ async def test_published_context_reaches_runtime_and_draft_changes_do_not_replac
             ),
             {"tenant": tenant},
         )
+    from apps.backend.tests.integration.operation_fixtures import admit_fixture_event
+
+    async with session_factory.begin() as session:
+        event_id = await session.scalar(
+            text("SELECT source_event_id FROM public.messages WHERE id=:m"),
+            {"m": message},
+        )
+        await admit_fixture_event(session, tenant, selected, event_id)
     runtime = _FakeRuntime()
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
@@ -171,7 +181,9 @@ async def test_unbound_account_uses_legacy_but_missing_conversation_does_not(
     )
     from agents_factory.modules.runtime.turn_service import Milestone2AgentSpecProvider
 
-    operation, conversation, _ = await _seed_inbound(session_factory)
+    operation, conversation, _ = await _seed_inbound(
+        session_factory, with_authority=False
+    )
     legacy = Milestone2AgentSpecProvider()
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))

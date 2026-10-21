@@ -266,10 +266,10 @@ async def test_binding_revision_changed_during_model_discards_everything(
                 {"account": world[1]},
             )
 
-    with pytest.raises(LeadAuthorityChanged):
-        await run(
-            session_factory, world, snapshot, message, PreparedRuntime(after=rebind)
-        )
+    result = await run(
+        session_factory, world, snapshot, message, PreparedRuntime(after=rebind)
+    )
+    assert result.status == "blocked_by_agent_operation"
     assert await rows(session_factory, "lead_prospects") == []
     async with session_factory.begin() as session:
         assert (

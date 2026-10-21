@@ -294,6 +294,23 @@ class AudioRepository:
         )
         if value is None:
             return False
+        from agents_factory.modules.agent_operations.runtime_guard import (
+            lock_message_operation,
+        )
+
+        if not await lock_message_operation(
+            self.session, self.context, message_id=claim.source.message_id
+        ):
+            from agents_factory.common.audit import AuditService
+
+            await AuditService(self.session).record(
+                context=self.context,
+                event_type="agent.audio_turn.skipped",
+                entity_type="message",
+                entity_id=claim.source.message_id,
+                payload={"reason": "agent_operation_ineligible"},
+            )
+            return True
         await OutboxService(self.session).enqueue(
             context=self.context,
             idempotency_key=f"agent.turn:{claim.source.message_id}",

@@ -69,7 +69,15 @@ async def seed(factory, *, tenant=None, phone="573000000001", opaque=None):
     return context, account, conversation, agent, version, phone, opaque
 
 
-async def inbound(factory, world, body=TEXT, sequence=1, *, event_only=False):
+async def inbound(
+    factory,
+    world,
+    body=TEXT,
+    sequence=1,
+    *,
+    event_only=False,
+    operational_admission=True,
+):
     context, account, conversation, agent, version, phone, opaque = world
     event, message = uuid4(), uuid4()
     provider_message = {
@@ -116,6 +124,12 @@ async def inbound(factory, world, body=TEXT, sequence=1, *, event_only=False):
                 "body": {"text": body},
             },
         )
+        if operational_admission:
+            from apps.backend.tests.integration.operation_fixtures import (
+                admit_fixture_event,
+            )
+
+            await admit_fixture_event(session, context.tenant_id, account, event)
         if event_only:
             return event, ()
         await session.execute(

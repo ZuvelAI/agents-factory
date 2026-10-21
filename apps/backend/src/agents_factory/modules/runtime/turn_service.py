@@ -12,7 +12,7 @@ from uuid import UUID, NAMESPACE_URL, uuid5
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import RowMapping
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.audit import AuditService
 from agents_factory.common.context import TenantContext
@@ -56,6 +56,7 @@ TurnExecutionStatus = Literal[
     "already_processed",
     "blocked_by_conversation_control",
     "inactive_agent_spec",
+    "blocked_by_agent_operation",
 ]
 
 
@@ -152,6 +153,7 @@ class AgentTurnService:
         tools: RuntimeToolRegistry,
         relevance: CapabilityRelevanceResolver | None = None,
         awaiting_human_policy: AwaitingHumanPolicy = AwaitingHumanPolicy.SILENT,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._session = session
         self._context = context
@@ -160,6 +162,7 @@ class AgentTurnService:
         self._tools = tools
         self._relevance = relevance or AllActiveCapabilities()
         self._awaiting_human_policy = awaiting_human_policy
+        self._session_factory = session_factory
         self._repository = _RuntimeTurnRepository(session)
         self._state_machine = ConversationStateMachine()
         self._outbox = OutboxService(session)
@@ -193,6 +196,19 @@ class AgentTurnService:
 
         if loaded.superseded_by_human or not self._may_ai_respond(loaded.control_state):
             return AgentTurnExecution(status="blocked_by_conversation_control")
+
+        from agents_factory.modules.agent_operations.admission import (
+            check_message_eligibility,
+        )
+        from agents_factory.modules.agent_operations.runtime_guard import (
+            guard_tool,
+            lock_message_operation,
+        )
+
+        if not await check_message_eligibility(
+            self._session, self._context, message_id=inbound_message_id
+        ):
+            return await self._operation_blocked(inbound_message_id)
 
         agent_spec = await self._agent_specs.get_active(
             tenant_id=self._context.tenant_id,
@@ -250,7 +266,34 @@ class AgentTurnService:
                 + lead_tools_for_turn(turn, simulation=False),
             )
             authority = await lead_effects.prepare(turn)
+
+        async def eligible() -> bool:
+            if self._session_factory is None:
+                return await check_message_eligibility(
+                    self._session, self._context, message_id=inbound_message_id
+                )
+            async with self._session_factory.begin() as operation_session:
+                await operation_session.execute(
+                    text("SET LOCAL ROLE agents_factory_app")
+                )
+                return await check_message_eligibility(
+                    operation_session, self._context, message_id=inbound_message_id
+                )
+
+        turn = replace(
+            turn, tools=tuple(guard_tool(tool, eligible) for tool in turn.tools)
+        )
+        # Worker-owned sessions release their read/audit transaction before the
+        # provider call. Tool checks use independent short transactions.
+        if self._session_factory is not None:
+            await self._session.commit()
         result = await self._runtime.run(turn)
+        if self._session_factory is not None:
+            await self._session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        if not await lock_message_operation(
+            self._session, self._context, message_id=inbound_message_id
+        ):
+            return await self._operation_blocked(inbound_message_id)
         if lead_effects is not None:
             await lead_effects.lock_current(turn, authority)
         persisted = await self._repository.persist_assistant_reply(
@@ -304,6 +347,16 @@ class AgentTurnService:
             status="completed",
             assistant_message_id=persisted.message_id,
         )
+
+    async def _operation_blocked(self, message_id: UUID) -> AgentTurnExecution:
+        await self._audit.record(
+            context=self._context,
+            event_type="agent.turn.skipped",
+            entity_type="message",
+            entity_id=message_id,
+            payload={"reason": "agent_operation_ineligible"},
+        )
+        return AgentTurnExecution(status="blocked_by_agent_operation")
 
     def _may_ai_respond(self, state: ConversationControlState) -> bool:
         return self._state_machine.may_ai_respond(

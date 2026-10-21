@@ -83,6 +83,10 @@ async def test_retry_and_new_service_do_not_repeat_welcome(session_factory):
             ),
             {"id": later, "tenant": context.tenant_id, "conversation": conversation},
         )
+    from apps.backend.tests.integration.operation_fixtures import admit_fixture_message
+
+    async with session_factory.begin() as session:
+        await admit_fixture_message(session, later)
     _, second = await reply(
         session_factory,
         context,
@@ -194,6 +198,10 @@ async def test_later_inbound_can_receive_welcome_when_first_turn_failed(
             ),
             {"id": later, "tenant": context.tenant_id, "conversation": conversation},
         )
+    from apps.backend.tests.integration.operation_fixtures import admit_fixture_message
+
+    async with session_factory.begin() as session:
+        await admit_fixture_message(session, later)
     _, second_body = await reply(
         session_factory, context, conversation, later, snapshot
     )

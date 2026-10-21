@@ -44,7 +44,7 @@ async def test_full_publication_waits_before_account_row_and_allows_first_captur
     _, draft = await ready_agent(client)
     tenant = UUID(draft["tenant_id"])
     world = await seed(session_factory, tenant=tenant)
-    message, history = await inbound(session_factory, world)
+    message, history = await inbound(session_factory, world, operational_admission=False)
     async with session_factory.begin() as session:
         await session.execute(
             text(

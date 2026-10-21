@@ -247,7 +247,7 @@ async def handle_agent_turn(
 ) -> None:
     if envelope.kind != "agent.turn":
         raise InvalidAgentTurnJob("unexpected job kind")
-    async with database.session_factory.begin() as session:
+    async with database.session_factory() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
         await set_tenant_context(session, envelope.tenant_id)
         payload = await session.scalar(
@@ -269,6 +269,7 @@ async def handle_agent_turn(
         )
         await AgentTurnService(
             session=session,
+            session_factory=database.session_factory,
             context=context,
             runtime=runtime,
             agent_specs=(
@@ -288,6 +289,7 @@ async def handle_agent_turn(
             conversation_id=conversation_id,
             inbound_message_id=inbound_message_id,
         )
+        await session.commit()
 
 
 def _parse_payload(

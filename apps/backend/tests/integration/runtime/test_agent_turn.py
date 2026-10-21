@@ -93,6 +93,8 @@ def _spec(tenant_id: UUID, *, active: bool = True) -> AgentSpecSnapshot:
 
 async def _seed_inbound(
     session_factory: async_sessionmaker[AsyncSession],
+    *,
+    with_authority: bool = True,
 ) -> tuple[TenantContext, UUID, UUID]:
     tenant_id = new_uuid7()
     account_id = new_uuid7()
@@ -140,6 +142,12 @@ async def _seed_inbound(
                 "content": {"text": "Necesito ayuda"},
             },
         )
+        if with_authority:
+            from apps.backend.tests.integration.operation_fixtures import (
+                admit_fixture_event,
+            )
+
+            await admit_fixture_event(session, tenant_id, account_id, event_id)
     context = _context(tenant_id)
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
@@ -483,6 +491,13 @@ async def test_delayed_older_inbound_cannot_run_after_mobile_echo_and_resume(
         )
     async with session_factory.begin() as session:
         await session.execute(text("SET LOCAL ROLE agents_factory_app"))
+        from apps.backend.tests.integration.operation_fixtures import (
+            admit_fixture_event,
+        )
+
+        await admit_fixture_event(
+            session, context.tenant_id, account["id"], fresh_event_id
+        )
         fresh = await ConversationService(
             session=session,
             context=context,
