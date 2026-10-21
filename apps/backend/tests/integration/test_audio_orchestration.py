@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from agents_factory.common.queue import DurableJobRunner, JobEnvelope
+from agents_factory.common.queue import DurableJobRunner, JobEnvelope, OutboxDispatcher
 from agents_factory.modules.audio_ingestion.authorization import AudioAuthority
 from agents_factory.modules.audio_ingestion.models import (
     AudioInspection,
@@ -87,6 +87,83 @@ async def state(factory, message):
             {"m": message},
         )
         return row, replies
+
+
+async def test_abrupt_worker_death_recovers_through_dispatcher_without_paid_retry(session_factory):
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+    old = datetime.now(UTC) - timedelta(seconds=151)
+    claim = await operation(session_factory, world[0], lambda repo: repo.claim(message, uuid4(), old))
+    await operation(session_factory, world[0], lambda repo: repo.start_provider(claim, old))
+    runner = DurableJobRunner(session_factory=session_factory, preflight=AudioJobPreflight(session_factory).admit)
+    # Persist exactly the state a SIGKILL leaves; no handled exception/cleanup.
+    await runner._start_attempt(envelope=envelope)
+    async with session_factory.begin() as session:
+        await session.execute(text("UPDATE public.outbox_jobs SET updated_at=:old WHERE id=:id"), {"old": old, "id": envelope.job_id})
+    deliveries = []
+
+    async def deliver(function, payload, **kwargs):
+        deliveries.append((payload, kwargs))
+        return object()
+
+    dispatcher = OutboxDispatcher(session_factory=session_factory, queue=SimpleNamespace(enqueue_job=deliver), queue_by_kind={"whatsapp.audio.transcribe": "agent"})
+    assert (await dispatcher.dispatch_once()).dispatched == 1
+    assert deliveries[0][1]["_job_id"] != str(envelope.job_id)
+    recovered = JobEnvelope.from_arq_payload(deliveries[0][0])
+    assert (await runner.run(envelope=recovered, handler=service.process)).status == "succeeded"
+    row, replies = await state(session_factory, message)
+    assert row["status"] == "UNCERTAIN" and replies == 1
+    assert transcriber.transcribe.await_count == 0
+
+
+async def test_capacity_loss_schedules_separately_authorized_durable_fallback(session_factory):
+    from agents_factory.modules.audio_ingestion.preflight import current_capacity
+
+    world, message, envelope, service, _, transcriber = await setup(session_factory)
+    admission = AudioJobPreflight(session_factory)
+    runner = DurableJobRunner(session_factory=session_factory, preflight=admission.admit)
+
+    async def lose(*args):
+        permit = current_capacity.get()
+        await permit.connection.invalidate()
+        await permit.connection.rollback()
+        return AudioTranscript("Lost result", TRANSCRIPTION_MODEL)
+
+    transcriber.transcribe.side_effect = lose
+    assert (await runner.run(envelope=envelope, handler=service.process)).status == "succeeded"
+    assert (await state(session_factory, message))[1] == 0
+    async with session_factory.begin() as session:
+        finalizer = await session.scalar(text("SELECT id FROM public.outbox_jobs WHERE tenant_id=:t AND idempotency_key=:key"), {"t": world[0].tenant_id, "key": f"whatsapp.audio.finalize:{message}"})
+        assert finalizer is not None
+        await session.execute(text("UPDATE public.outbox_jobs SET status='queued' WHERE id=:id"), {"id": finalizer})
+    recovery = JobEnvelope(finalizer, envelope.tenant_id, envelope.kind, envelope.aggregate_id)
+    assert (await runner.run(envelope=recovery, handler=service.process)).status == "succeeded"
+    assert (await state(session_factory, message))[1] == 1
+    assert transcriber.transcribe.await_count == 1
+
+
+async def test_healthy_slow_preparation_renews_lease_without_extending_deadline(session_factory):
+    now = datetime.now(UTC)
+    current = [now]
+    world, message, envelope, service, downloader, transcriber = await setup(session_factory, clock=lambda: current[0])
+    service.heartbeat_seconds = 0.01
+
+    async def slow_download(*args):
+        current[0] = now + timedelta(seconds=30)
+        for _ in range(100):
+            row, _ = await state(session_factory, message)
+            if row["lease_expires_at"] > now + timedelta(seconds=60):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("healthy preparation lease was never renewed")
+        assert row["deadline"] == now + timedelta(seconds=120)
+        current[0] = now + timedelta(seconds=46)
+        return SimpleNamespace(size_bytes=3, sha256="1" * 64)
+
+    downloader.download.side_effect = slow_download
+    await service.process(envelope)
+    assert (await state(session_factory, message))[0]["status"] == "READY"
+    assert transcriber.transcribe.await_count == 1
 
 
 async def test_audio_failure_reply_is_idempotent_and_never_a_lead(session_factory):

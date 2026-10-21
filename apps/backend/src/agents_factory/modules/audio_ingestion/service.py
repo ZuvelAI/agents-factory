@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agents_factory.common.context import TenantContext
+from agents_factory.common.outbox import OutboxService
 from agents_factory.common.queue import JobEnvelope
 from agents_factory.database import set_tenant_context
 from .authorization import AudioAuthority
@@ -61,6 +62,7 @@ class AudioIngestionService:
         authority: AudioAuthority,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         enabled: Callable[[], bool] = lambda: True,
+        heartbeat_seconds: float = 1.0,
     ) -> None:
         self.factory, self.downloader, self.inspector, self.transcriber = (
             session_factory,
@@ -69,6 +71,9 @@ class AudioIngestionService:
             transcriber,
         )
         self.authority, self.clock, self.enabled = authority, clock, enabled
+        if not 0 < heartbeat_seconds <= 5:
+            raise ValueError("audio_heartbeat_interval_invalid")
+        self.heartbeat_seconds = heartbeat_seconds
 
     @asynccontextmanager
     async def _repository(
@@ -79,16 +84,27 @@ class AudioIngestionService:
             await set_tenant_context(session, context.tenant_id)
             yield AudioRepository(session, context)
 
-    async def _external(self, work: Awaitable[T], permit: AudioCapacityLease) -> T:
+    async def _external(
+        self,
+        work: Awaitable[T],
+        permit: AudioCapacityLease,
+        *,
+        preparation: tuple[TenantContext, AudioClaim] | None = None,
+    ) -> T:
         external = asyncio.ensure_future(work)
         stop = asyncio.Event()
 
         async def watch_capacity() -> None:
             while not stop.is_set():
                 try:
-                    await asyncio.wait_for(stop.wait(), timeout=1)
+                    await asyncio.wait_for(stop.wait(), timeout=self.heartbeat_seconds)
                 except TimeoutError:
                     await permit.check()
+                    if preparation is not None:
+                        context, claim = preparation
+                        async with self._repository(context) as repo:
+                            if not await repo.renew(claim, self.clock()):
+                                raise AudioCapacityLost("audio_preparation_lease_lost")
 
         monitor = asyncio.create_task(watch_capacity())
         try:
@@ -174,14 +190,16 @@ class AudioIngestionService:
                                     if not await repo.begin_download(claim, self.clock()):
                                         raise AudioDownloadError("audio_download_budget_exhausted")
                                 downloaded = await self._external(
-                                    self.downloader.download(claim.source, path), permit
+                                    self.downloader.download(claim.source, path), permit,
+                                    preparation=(context, claim),
                                 )
                                 break
                             except AudioDownloadError as exc:
                                 if str(exc) != "audio_download_failed" or attempt == 1:
                                     raise
                         inspection = await self._external(
-                            self.inspector.inspect(path), permit
+                            self.inspector.inspect(path), permit,
+                            preparation=(context, claim),
                         )
                         await permit.check()
                         async with self._repository(context) as repo:
@@ -289,4 +307,18 @@ class AudioIngestionService:
         error: str,
     ) -> bool:
         async with self._repository(context) as repo:
-            return await repo.finish(claim, status, error)
+            finished = await repo.finish(claim, status, error)
+            if finished and error == "audio_capacity_lost":
+                # The worker that lost its permit cannot respond. A new durable
+                # delivery reloads terminal state and independently checks authority.
+                await OutboxService(repo.session).enqueue(
+                    context=context,
+                    idempotency_key=f"whatsapp.audio.finalize:{claim.source.message_id}",
+                    topic="whatsapp.audio.transcribe",
+                    payload={
+                        "aggregate_id": str(claim.source.conversation_id),
+                        "conversation_id": str(claim.source.conversation_id),
+                        "inbound_message_id": str(claim.source.message_id),
+                    },
+                )
+            return finished

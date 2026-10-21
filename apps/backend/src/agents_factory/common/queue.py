@@ -185,7 +185,13 @@ class OutboxDispatcher:
                 queued = await self._queue.enqueue_job(
                     "process_job",
                     envelope.to_arq_payload(),
-                    _job_id=str(envelope.job_id),
+                    # A recovered audio delivery must not be hidden by Redis's
+                    # old result/running marker. SQL still owns execution fencing.
+                    _job_id=(
+                        f"{envelope.job_id}:{job.lease_id}"
+                        if envelope.kind == "whatsapp.audio.transcribe"
+                        else str(envelope.job_id)
+                    ),
                     _queue_name=self._queue_by_kind[envelope.kind],
                 )
             except Exception as error:
@@ -215,7 +221,9 @@ class OutboxDispatcher:
             "SELECT id FROM public.outbox_jobs "
             "WHERE topic IN :kinds AND ("
             "(status IN ('pending', 'failed') AND available_at <= :now) OR "
-            "(status = 'dispatching' AND dispatch_lease_expires_at <= :now)"
+            "(status = 'dispatching' AND dispatch_lease_expires_at <= :now) OR "
+            "(topic = 'whatsapp.audio.transcribe' AND status = 'processing' "
+            "AND updated_at <= :now - interval '150 seconds')"
             ") ORDER BY available_at, created_at, id "
             "FOR UPDATE SKIP LOCKED LIMIT :limit"
             ") UPDATE public.outbox_jobs AS job "
