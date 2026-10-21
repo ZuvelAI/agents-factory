@@ -157,6 +157,11 @@ class AgentWorkspaceService:
         if editable is not None:
             candidate = editable_configuration_view(editable["configuration"])
         display = active or candidate
+        from agents_factory.modules.agent_operations.repository import (
+            AgentOperationRepository,
+        )
+
+        operation = await AgentOperationRepository(self.session, context).get(agent_id)
         summary = AgentSummary(
             id=agent_id,
             tenant_id=tenant_id,
@@ -181,7 +186,9 @@ class AgentWorkspaceService:
                 else None,
             ),
             purpose=candidate.purpose if candidate else None,
-            execution_status="unknown" if channels else "unassigned",
+            execution_status="paused"
+            if operation is not None and not operation.enabled
+            else ("unknown" if channels else "unassigned"),
             channel_accounts=channels,
         )
         return AgentOverview(

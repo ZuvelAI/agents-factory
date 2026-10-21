@@ -5,6 +5,8 @@ import type {
   FeatureSummary,
 } from "../../lib/agent-workspace";
 import { StatusSummary } from "./status-summary";
+import { AgentOperationControls } from "./agent-operation-controls";
+import type { AgentOperationView } from "../../lib/agent-operations";
 
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -102,7 +104,13 @@ function ConfigurationDetails({
     </div>
   );
 }
-export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
+export function AgentOverviewPanel({
+  overview,
+  operation = null,
+}: {
+  overview: AgentOverview;
+  operation?: AgentOperationView | null;
+}) {
   const { summary, published, draft } = overview;
   const channelVersions = overview.channel_versions ?? [];
   return (
@@ -140,6 +148,11 @@ export function AgentOverviewPanel({ overview }: { overview: AgentOverview }) {
           </small>
         </div>
       </header>
+      <AgentOperationControls
+        tenantId={summary.tenant_id}
+        agentId={summary.id}
+        initial={operation}
+      />
       <div className="workspace-detail-grid">
         <div>
           <article className="workspace-card">

@@ -20,3 +20,7 @@ class OperationRequest(BaseModel):
 
     enabled: StrictBool
     expected_revision: int = Field(strict=True, ge=1)
+
+
+class AgentOperationView(AgentOperationState):
+    controls_available: bool = False

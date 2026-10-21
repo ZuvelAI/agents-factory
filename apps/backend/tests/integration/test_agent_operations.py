@@ -14,6 +14,33 @@ configuration_client = _configuration_client
 
 
 @pytest.mark.asyncio
+async def test_controls_are_disabled_until_compatible_workers_are_verified(
+    configuration_client,
+):
+    client, app = configuration_client
+    root, draft = await create_company_and_agent(client)
+    app.state.agent_operation_controls_enabled = False
+    path = root + f"/agents/{draft['agent_instance_id']}/operation"
+    assert (await client.get(path)).json()["controls_available"] is False
+    response = await client.post(path, json={"enabled": False, "expected_revision": 1})
+    assert response.status_code == 503
+    assert (await client.get(path)).json()["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_workspace_reports_pause_without_changing_connection(
+    configuration_client,
+):
+    client, _ = configuration_client
+    root, draft = await create_company_and_agent(client)
+    path = root + f"/agents/{draft['agent_instance_id']}/operation"
+    await client.post(path, json={"enabled": False, "expected_revision": 1})
+    agents = (await client.get(root + "/agents")).json()["items"]
+    assert agents[0]["execution_status"] == "paused"
+    assert agents[0]["channel_accounts"] == []
+
+
+@pytest.mark.asyncio
 async def test_pause_resume_preserves_revisions_and_audits_only_changes(
     configuration_client, session_factory
 ):

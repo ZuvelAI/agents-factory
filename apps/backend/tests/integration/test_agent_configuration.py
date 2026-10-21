@@ -73,6 +73,9 @@ async def configuration_client(session_factory):
     from agents_factory.main import create_app
 
     app = create_app()
+    # Test fixture explicitly confirms compatible local workers. Production's
+    # administrative pause control stays disabled until release verification.
+    app.state.agent_operation_controls_enabled = True
 
     class Verifier:
         async def verify(self, access_jwt):

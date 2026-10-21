@@ -12,8 +12,9 @@ SELECT i.id,i.tenant_id,count(*) OVER() AS agent_count,p.id AS published_id,p.na
        e.revision AS editable_revision,e.configuration->>'purpose' AS purpose,
        e.company_revision AS editable_company_revision,cp.revision AS current_company_revision,
        pc.draft_revision AS published_draft_revision,pc.company_revision AS published_company_revision,
-       coalesce(ch.items,'[]'::jsonb) AS channels
+       coalesce(ch.items,'[]'::jsonb) AS channels,op.enabled AS operation_enabled
 FROM public.agent_instances i
+LEFT JOIN public.agent_operation_states op ON (op.tenant_id,op.agent_instance_id)=(i.tenant_id,i.id)
 LEFT JOIN public.agent_configuration_drafts e ON (e.tenant_id,e.agent_instance_id)=(i.tenant_id,i.id)
 LEFT JOIN LATERAL (
   SELECT v.id,v.version_number,v.configuration#>>'{persona,business_name}' AS name

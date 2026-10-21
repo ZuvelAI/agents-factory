@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { readAgent } from "../../../../../../lib/agent-workspace";
 import { AgentOverviewPanel } from "../../../../../../components/agent-workspace/agent-overview";
+import { readAgentOperation } from "../../../../../../lib/agent-operations";
 
 export default async function AgentPage({
   params,
@@ -9,8 +10,12 @@ export default async function AgentPage({
 }) {
   const { tenantId, agentId } = await params;
   let overview;
+  let operation = null;
   try {
-    overview = await readAgent(tenantId, agentId);
+    [overview, operation] = await Promise.all([
+      readAgent(tenantId, agentId),
+      readAgentOperation(tenantId, agentId).catch(() => null),
+    ]);
   } catch {
     return (
       <section className="workspace">
@@ -22,5 +27,11 @@ export default async function AgentPage({
       </section>
     );
   }
-  return <AgentOverviewPanel overview={overview} />;
+  return (
+    <AgentOverviewPanel
+      key={`${tenantId}:${agentId}`}
+      overview={overview}
+      operation={operation}
+    />
+  );
 }

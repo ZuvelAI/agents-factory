@@ -129,6 +129,7 @@ def create_app(
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         settings = settings_loader()
         application.state.settings = settings
+        application.state.agent_operation_controls_enabled = settings.agent_operation_controls_enabled
         verifier = token_verifier or JwksTokenVerifier(
             issuer=settings.supabase_jwt_issuer,
             audience=settings.supabase_jwt_audience,

@@ -180,6 +180,8 @@ def agent_summary(row: dict[str, Any]) -> AgentSummary:
             published_company_revision=row.get("published_company_revision"),
         ),
         purpose=row.get("purpose"),
-        execution_status="unknown" if channels else "unassigned",
+        execution_status="paused"
+        if row.get("operation_enabled") is False
+        else ("unknown" if channels else "unassigned"),
         channel_accounts=channels,
     )

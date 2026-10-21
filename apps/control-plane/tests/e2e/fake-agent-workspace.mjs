@@ -1,6 +1,7 @@
 // Synthetic UI fixture only. Database behavior is tested separately against PostgreSQL.
 export const workspaceTenant = "019c2000-0000-7000-8000-000000000102";
 import { audioMessages } from "./fake-audio-conversations.mjs";
+import { fixtureOperation } from "./fake-agent-operations.mjs";
 const other = "019c2000-0000-7000-8000-000000000103";
 const empty = "019c2000-0000-7000-8000-000000000104";
 function agent(id, tenant, name) {
@@ -44,6 +45,10 @@ const companies = [
   { id: empty, name: "Empresa homónima", agent_count: 0, agents: [] },
 ];
 export function handleAgentWorkspace(request, response, url, json) {
+  for (const agent of [first, second, third])
+    agent.execution_status = fixtureOperation(agent.tenant_id, agent.id).enabled
+      ? "unassigned"
+      : "paused";
   if (url.pathname === "/admin/agent-workspace/company-options") {
     json(response, 200, {
       items: companies.map(({ id, name }) => ({ id, name })),

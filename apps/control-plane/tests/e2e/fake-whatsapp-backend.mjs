@@ -5,6 +5,7 @@ import { handleAgentConfiguration } from "./fake-agent-configuration.mjs";
 import { handleWorkspacePublication } from "./fake-workspace-publication.mjs";
 import { handleProspects } from "./fake-prospects.mjs";
 import { handleAudioConversations } from "./fake-audio-conversations.mjs";
+import { handleAgentOperations } from "./fake-agent-operations.mjs";
 
 const port = Number(process.env.FAKE_WHATSAPP_BACKEND_PORT ?? "3132");
 const tenantId = "019c2000-0000-7000-8000-000000000102";
@@ -52,6 +53,8 @@ createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (await handleAgentOperations(request, response, url, json, readJson))
+    return;
   if (await handleWorkspacePublication(request, response, url, json, readJson))
     return;
   if (await handleAgentConfiguration(request, response, url, json, readJson))

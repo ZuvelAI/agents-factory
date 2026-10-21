@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     meta_app_secret: NonEmptySecret
     meta_webhook_verify_token: NonEmptySecret
     whatsapp_audio_enabled: bool = True
+    agent_operation_controls_enabled: bool = False
     agent_publication_code_digest: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$"
     )
