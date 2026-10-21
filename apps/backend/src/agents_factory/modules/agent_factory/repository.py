@@ -39,7 +39,11 @@ class AgentSpecRepository:
             ),
             {"id": new_uuid7(), "tenant_id": self._context.tenant_id},
         )
-        return AgentInstance.from_mapping(result.mappings().one())
+        instance = AgentInstance.from_mapping(result.mappings().one())
+        from agents_factory.modules.agent_operations.repository import AgentOperationRepository
+
+        await AgentOperationRepository(self._session, self._context).initialize(instance.id)
+        return instance
 
     async def get_instance(self, agent_instance_id: UUID) -> AgentInstance | None:
         await self._scope()

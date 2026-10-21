@@ -20,6 +20,7 @@ from agents_factory.common.security import (
 from agents_factory.config import Settings, load_settings
 from agents_factory.database import Database
 from agents_factory.modules.actions.router import router as admin_action_router
+from agents_factory.modules.agent_operations.router import router as agent_operations_router
 from agents_factory.modules.agent_factory.router import (
     router as admin_agent_spec_router,
 )
@@ -166,6 +167,7 @@ def create_app(
     application.include_router(admin_agent_spec_router)
     application.include_router(admin_publication_router)
     application.include_router(admin_workspace_router)
+    application.include_router(agent_operations_router)
     application.include_router(admin_prospect_router)
     application.include_router(admin_configuration_router)
     application.include_router(workspace_publication_router)

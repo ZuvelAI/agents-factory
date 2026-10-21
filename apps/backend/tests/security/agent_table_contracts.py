@@ -15,6 +15,7 @@ class AgentTableContract:
 
 
 AGENT_TABLE_CONTRACTS = (
+    AgentTableContract("public.agent_operation_states", "agent_instance_id"),
     AgentTableContract("public.agent_approved_knowledge_versions"),
     AgentTableContract("public.panel_agent_candidates", "version_id"),
     AgentTableContract("public.agent_publication_test_runs"),
@@ -42,6 +43,11 @@ async def seed_agent_tables(
         "digest": "a" * 64,
     }
     statements = (
+        (
+            "public.agent_operation_states",
+            parameters["agent"],
+            "INSERT INTO public.agent_operation_states(tenant_id,agent_instance_id) VALUES(:tenant,:agent)",
+        ),
         (
             "public.agent_approved_knowledge_versions",
             uuid4(),
