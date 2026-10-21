@@ -1,7 +1,8 @@
 # Entrega compartida de notas de voz
 
-Fecha: 2026-10-20. Estado: implementación local y correcciones de revisión verificadas.
-No instalada en producción. Proveedores reales no comprobados en esta entrega.
+Fecha: 2026-10-20. Estado: instalada en producción con autorización de Daniel.
+Proveedor real y recepción de una nota nueva aún pendientes. Ver
+`notas-voz-instalacion-20261020.md` para respaldo, imágenes y comprobaciones.
 
 ## Qué cambia
 
@@ -51,7 +52,7 @@ No se ha recuperado ni reenviado ningún audio histórico.
 
 ## Datos y panel
 
-Una migración nueva: `20261020205147_whatsapp_audio_transcriptions.sql`. Su única
+Una migración nueva: `20261021014333_whatsapp_audio_transcriptions.sql`. Su única
 tabla pública nueva es empresarial, con RLS forzada, referencias compuestas,
 grants mínimos, transiciones y presupuesto monotónico. No amplía Data API ni usa
 security-definer. Los roles administrativos solo leen la transcripción.
@@ -134,7 +135,11 @@ Pendiente menor aplazado: conservar el código específico de duración al tradu
 el error del inspector para mejorar el aviso de cinco minutos. No se ocultó ni
 se convirtió en excepción para obtener suites verdes.
 
-## Instalación futura: requiere autorización separada
+## Procedimiento de instalación y recuperación
+
+La instalación descrita fue autorizada y completada. La prueba de API con costo
+requiere aprobación específica adicional; no se ejecutó. Los pasos se conservan
+como referencia para instalaciones futuras.
 
 1. Preparar respaldo productivo y verificar recuperación antes de mutar la base.
    Registrar imágenes, digest y versiones/bindings activos; no imprimir secretos.
