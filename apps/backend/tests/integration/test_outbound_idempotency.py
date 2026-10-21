@@ -585,6 +585,7 @@ async def _seed_text_reply(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     inbound_at: datetime | None = None,
+    operational_admission: bool = True,
 ) -> tuple[UUID, UUID, UUID, UUID]:
     tenant_id = new_uuid7()
     account_id = new_uuid7()
@@ -672,6 +673,9 @@ async def _seed_text_reply(
                 "agent_spec_version": "m2-test",
             },
         )
+        if operational_admission:
+            from apps.backend.tests.integration.operation_fixtures import admit_fixture_message
+            await admit_fixture_message(session,inbound_id)
     return tenant_id, account_id, conversation_id, assistant_id
 
 

@@ -274,7 +274,7 @@ class OutboundMessageService:
         async with engine.connect() as connection:
             factory = async_sessionmaker(connection, expire_on_commit=False)
             try:
-                key = await self._acquire_dispatch_fence(factory, message_id)
+                keys = await self._acquire_dispatch_fence(factory, message_id)
                 bound_service = OutboundMessageService(
                     session_factory=factory,
                     context=self._context,
@@ -285,12 +285,14 @@ class OutboundMessageService:
                     ),
                 )
                 result = await bound_service._send_under_fence(message_id)
-                if key is not None:
-                    await connection.execute(
+                for key in reversed(keys):
+                    unlocked = await connection.scalar(
                         text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
                         {"key": key},
                     )
-                    await connection.commit()
+                    if unlocked is not True:
+                        raise RuntimeError("dispatch fence release failed")
+                await connection.commit()
                 return result
             except BaseException:
                 await connection.invalidate()
@@ -298,7 +300,7 @@ class OutboundMessageService:
 
     async def _acquire_dispatch_fence(
         self, factory: async_sessionmaker[AsyncSession], message_id: UUID
-    ) -> str | None:
+    ) -> tuple[str, ...]:
         async with factory.begin() as session:
             await _prepare_app_session(session, self._context.tenant_id)
             target = (
@@ -317,6 +319,7 @@ class OutboundMessageService:
                 .mappings()
                 .one_or_none()
             )
+            keys = []
             if target is not None:
                 key = _dispatch_key(
                     self._context.tenant_id,
@@ -327,8 +330,17 @@ class OutboundMessageService:
                     text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
                     {"key": key},
                 )
-                return key
-            return None
+                keys.append(key)
+            from agents_factory.modules.agent_operations.delivery_guard import (
+                acquire_delivery_fences,
+            )
+
+            keys.extend(
+                await acquire_delivery_fences(
+                    session, self._context, outbound_id=message_id
+                )
+            )
+            return tuple(keys)
 
     async def _send_under_fence(self, message_id: UUID) -> OutboundSendResult:
         claimed, existing = await self._claim(message_id)
@@ -431,6 +443,24 @@ class OutboundMessageService:
                     status="BLOCKED",
                     occurred_at=now,
                     error_code="whatsapp_account_inactive",
+                )
+                return None, blocked
+
+            from agents_factory.modules.agent_operations.delivery_guard import (
+                outbound_operation_allowed,
+            )
+
+            if not await outbound_operation_allowed(
+                session, self._context, outbound_id=message_id
+            ):
+                blocked = await _set_status(
+                    session,
+                    tenant_id=self._context.tenant_id,
+                    message_id=message_id,
+                    current_history=row["status_history"],
+                    status="BLOCKED",
+                    occurred_at=now,
+                    error_code="agent_operation_ineligible",
                 )
                 return None, blocked
 
