@@ -1,6 +1,6 @@
 # Entrega compartida de notas de voz
 
-Fecha: 2026-10-20. Estado: implementación local; cierre de verificación y revisión en curso.
+Fecha: 2026-10-20. Estado: implementación local y correcciones de revisión verificadas.
 No instalada en producción. Proveedores reales no comprobados en esta entrega.
 
 ## Qué cambia
@@ -22,8 +22,18 @@ No se ha recuperado ni reenviado ningún audio histórico.
   sesión AUTOCOMMIT. Se comprueba pérdida de sesión durante IO y se cancela el
   trabajo local. Cancelar una petición no garantiza ausencia de cobro externo.
 - Espera inicial180 segundos; procesamiento120 desde el primer claim; lease45
-  en preparación y hasta65 al iniciar proveedor. Las renovaciones no extienden
+  en preparación, renovado durante IO saludable, y hasta65 al iniciar proveedor.
+  Las renovaciones no extienden
   el deadline. Dos descargas máximas con contador duradero entre recuperaciones.
+- El dispatcher recupera solo trabajos de audio que llevan150 segundos en
+  `processing`, más que el plazo máximo del procesamiento. Cada despacho de audio
+  usa una identidad Redis nueva; el ledger SQL conserva el bloqueo y el número
+  de intento. Una caída abrupta tras iniciar proveedor termina en UNCERTAIN,
+  sin nueva llamada pagada. El aviso de recuperación puede demorarse150 segundos.
+- Si se pierde la conexión que reserva capacidad, ese trabajador no contesta:
+  guarda el estado terminal y un trabajo idempotente de finalización en la misma
+  transacción. El siguiente trabajador recarga el estado y verifica autoridad
+  antes del aviso; no descarga ni transcribe otra vez.
 - HTTPS443 al host exacto `lookaside.fbsbx.com`; IP pública validada y usada en
   el TCP real, con TLS/SNI original, sin redirects/proxies de entorno ni destinos
   privados, reservados o multicast. Hash y bytes reales comprobados.
@@ -64,15 +74,65 @@ esta entrega no autoriza borrar historial ni afirma cumplimiento legal por sí s
 ## Evidencia de verificación
 
 - Base anterior:860 pruebas backend. T1:884; T3:928; T4:951; T5:966.
-- T5 panel:154 pruebas unitarias/26 archivos; 3 pruebas Chromium de audio para ambas
-  rutas, móvil, teclado, escape y fallo de consulta. Tipos y lint sin errores.
+- Cierre con las tres correcciones importantes:978 pruebas backend pasaron87.14s.
+  Cada caso nuevo falló antes de corregirlo: recuperación real vía dispatcher,
+  aviso durable tras pérdida de capacidad y renovación de preparación lenta.
+- Fuente guardada `215dd31`: copia Git limpia sin superponer fuentes,975 pruebas
+  backend84.26s. Panel154 pruebas unitarias/26 archivos,45 Chromium43.2s,
+  tipos/lint/build sin errores. Incluye audio en ambas rutas, móvil, teclado,
+  escape y fallo de consulta. Las correcciones posteriores solo cambian backend.
+  Las dependencias generadas se materializaron dentro de la copia temporal:
+  Turbopack rechaza enlaces que salen de su raíz; no se cambió ninguna versión.
 - Seguridad oficial con migración final:72 pruebas de seguridad iniciales,
   51 de aislamiento tras reset; pgTAP434+115; lint SQL sin errores. Advisors
   conservan avisos de rendimiento (índices/legacy policies), no exclusiones nuevas.
 - Imagen local: un tono sintético de1s producido con ffmpeg e inspeccionado por
   el ffprobe instalado (OGG/Opus,1.0065s,9391bytes). Ninguna voz de clientes en Git.
-- Cierre: resultados completos de fuente guardada, ensayo aditivo y revisión
-  independiente se añadirán al terminar. No confundir mocks con disponibilidad real.
+  Imagen final de la fuente guardada `b261c52`, arquitectura local ARM64:
+  `aiworkers-voice-runtime:verified-b261c52`, identificador local
+  `sha256:5452e0309ea482645df8f55facaa3923d47199e12ba2a6f3caada51d50979202`.
+  Este identificador no es un digest publicado ni certifica AMD64 productivo.
+- Ensayo aditivo en copia Git `b261c52`: reset local hasta la migración anterior,
+  cuatro registros ficticios (empresa, cuenta, conversación, mensaje) y aplicación
+  con `supabase migration up --local`. Sus cuatro huellas completas quedaron
+  iguales; la tabla nueva quedó vacía con RLS activada y forzada (`t|t|0`).
+  Solo se cambió el project_id del entorno temporal para usar la base local.
+- Una revisión independiente del conjunto no encontró críticos y señaló tres
+  importantes, corregidos con pruebas RED→GREEN y suite completa. No se realizó
+  una segunda revisión. Pendiente menor: un audio mayor de cinco minutos puede
+  recibir el aviso genérico de reenvío, en lugar de explicar el límite específico;
+  sigue rechazándose antes de la llamada pagada.
+- Meta/OpenAI y entrega al celular no se comprobaron. Las pruebas de adaptadores
+  son simuladas; la inspección ffprobe sí usa un archivo sintético real. No
+  confundir estos resultados con disponibilidad del proveedor o aceptación final.
+
+## Decisiones de ejecución y riesgos conservados
+
+1. Validación de origen en `source.py`, no dentro del repositorio: frontera
+   enfocada; coste si se reconsidera, mantener/reubicar un archivo adicional.
+2. La ruta pgTAP propuesta no existía: se amplió `rls_matrix_test.sql`, que es
+   el control real; ninguna prueba omitida ni excepción de seguridad.
+3. La admisión conserva la reserva de capacidad durante todo el handler: una
+   comprobación que la liberase antes introduciría una carrera. Coste: contrato
+   genérico adicional de contexto asíncrono, sin servicio nuevo.
+4. Autorización compartida en `authorization.py` para evitar reglas distintas
+   entre audio y aviso fijo; coste: otro archivo, sin permisos ampliados.
+5. Descubrimiento Vitest ampliado de `.test.ts` a incluir `.test.tsx`: las nuevas
+   pruebas de interfaz deben ejecutarse. Coste: descubrimiento más amplio, sin
+   excluir las existentes.
+6. Contador duradero de dos descargas dentro de la única migración aún inédita:
+   impide reiniciar presupuesto al recuperar un claim. Un crash antes de IO
+   puede consumir conservadoramente un intento reservado.
+7. Proveedor y celular no se juzgaron con mocks: requieren autorización aparte;
+   coste: disponibilidad y aceptación real siguen pendientes.
+8. Recuperación de `processing` limitada a audio después de150 segundos y una
+   identidad Redis por despacho: permite alcanzar el estado incierto tras SIGKILL
+   sin repetir pago. Coste: demora del aviso y posibles entregas Redis duplicadas,
+   neutralizadas por el ledger SQL; otros tipos de trabajo no cambian.
+
+Pendiente menor aplazado: conservar el código específico de duración al traducir
+el error del inspector para mejorar el aviso de cinco minutos. No se ocultó ni
+se convirtió en excepción para obtener suites verdes.
 
 ## Instalación futura: requiere autorización separada
 
