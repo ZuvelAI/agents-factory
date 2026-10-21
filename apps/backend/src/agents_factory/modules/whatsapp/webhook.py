@@ -178,6 +178,18 @@ class MetaWebhookProcessor:
             )
             if mapping is not None:
                 authority_accounts.add((mapping.tenant_id, mapping.account_id))
+        for update in batch.account_updates:
+            if (
+                update.event == "PARTNER_REMOVED"
+                and update.display_phone_digits is not None
+            ):
+                mappings = await self._repository.resolve_partner_removed_accounts(
+                    waba_id=update.waba_id,
+                    display_phone_digits=update.display_phone_digits,
+                )
+                authority_accounts.update(
+                    (mapping.tenant_id, mapping.account_id) for mapping in mappings
+                )
         for tenant, account in sorted(authority_accounts):
             await lock_account_lifecycle(self._session, tenant, account)
         authority_agents: set[tuple[UUID, UUID]] = set()
@@ -336,6 +348,7 @@ class MetaWebhookProcessor:
                 waba_id=update.waba_id,
                 display_phone_digits=update.display_phone_digits,
                 occurred_at=update.occurred_at,
+                prelocked_accounts=frozenset(authority_accounts),
             )
             if result in {"unmatched", "unverified"}:
                 await self._repository.queue_account_update_alert(

@@ -33,6 +33,8 @@ values
   ('public.conversation_state_events', 'tenant_id'),
   ('public.outbound_messages', 'tenant_id'),
   ('public.agent_instances', 'tenant_id'),
+  ('public.agent_operation_states', 'tenant_id'),
+  ('public.agent_message_admissions', 'tenant_id'),
   ('public.agent_spec_versions', 'tenant_id'),
   ('public.agent_spec_deployments', 'tenant_id'),
   ('public.identity_subjects', 'tenant_id'),

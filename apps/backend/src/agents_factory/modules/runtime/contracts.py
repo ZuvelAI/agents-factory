@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Protocol
@@ -167,6 +167,9 @@ class AgentTurnInput:
     tools: tuple[RuntimeTool, ...]
     trace: RuntimeTraceMetadata
     is_first_contact: bool | None = None
+    model_eligible: Callable[[], Awaitable[bool]] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if not self.messages or self.messages[-1].role != "user":

@@ -281,7 +281,9 @@ class AgentTurnService:
                 )
 
         turn = replace(
-            turn, tools=tuple(guard_tool(tool, eligible) for tool in turn.tools)
+            turn,
+            tools=tuple(guard_tool(tool, eligible) for tool in turn.tools),
+            model_eligible=eligible,
         )
         if not await eligible():
             return await self._operation_blocked(inbound_message_id)
@@ -289,7 +291,16 @@ class AgentTurnService:
         # provider call. Tool checks use independent short transactions.
         if self._session_factory is not None:
             await self._session.commit()
-        result = await self._runtime.run(turn)
+        from agents_factory.modules.runtime.openai_adapter import AgentRuntimeError
+
+        try:
+            result = await self._runtime.run(turn)
+        except AgentRuntimeError as error:
+            if error.code != "agent_operation_ineligible":
+                raise
+            if self._session_factory is not None:
+                await self._session.execute(text("SET LOCAL ROLE agents_factory_app"))
+            return await self._operation_blocked(inbound_message_id)
         if self._session_factory is not None:
             await self._session.execute(text("SET LOCAL ROLE agents_factory_app"))
         if not await lock_message_operation(

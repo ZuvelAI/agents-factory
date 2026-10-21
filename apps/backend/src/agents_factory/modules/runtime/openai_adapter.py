@@ -5,7 +5,15 @@ import json
 import os
 from typing import Any, Protocol, cast
 
-from agents import Agent, FunctionTool, ModelSettings, RunConfig, Runner, Tool
+from agents import (
+    Agent,
+    AgentHooks,
+    FunctionTool,
+    ModelSettings,
+    RunConfig,
+    Runner,
+    Tool,
+)
 from openai.types.shared import Reasoning
 from agents_factory.modules.runtime.first_contact import (
     compose_welcome,
@@ -37,6 +45,24 @@ class AgentRuntimeError(RuntimeError):
 
 class RuntimeToolLimitExceeded(RuntimeError):
     pass
+
+
+class _OperationModelHooks(AgentHooks[Any]):
+    def __init__(self, turn: AgentTurnInput) -> None:
+        self._turn = turn
+
+    async def on_llm_start(
+        self,
+        context: Any,
+        agent: Agent[Any],
+        system_prompt: str | None,
+        input_items: list[Any],
+    ) -> None:
+        if (
+            self._turn.model_eligible is not None
+            and not await self._turn.model_eligible()
+        ):
+            raise AgentRuntimeError("agent_operation_ineligible", retryable=False)
 
 
 class _SdkRunner(Protocol):
@@ -107,6 +133,7 @@ class OpenAIAgentsRuntime:
             model_settings=model_settings,
             tools=sdk_tools,
             handoffs=[],
+            hooks=_OperationModelHooks(turn),
         )
         run_config = RunConfig(
             workflow_name="Agents Factory Customer Service Turn",

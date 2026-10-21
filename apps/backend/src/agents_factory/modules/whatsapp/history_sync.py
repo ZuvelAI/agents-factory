@@ -19,13 +19,13 @@ from agents_factory.modules.whatsapp.repository import WhatsAppAccountMapping
 from agents_factory.modules.whatsapp.schemas import (
     MetaHistoryChunk,
     MetaHistoryFailure,
-    MetaInboundMessage,
+    MetaHistoricalMessage,
 )
 
 
 class HistoryInboxPayload(BaseModel):
     chunks: list[MetaHistoryChunk | MetaHistoryFailure]
-    media_messages: list[MetaInboundMessage]
+    media_messages: list[MetaHistoricalMessage]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,9 +234,12 @@ async def import_history_inbox(
                 .mappings()
                 .one()
             )
+            timestamp = media["timestamp"]
+            if not isinstance(timestamp, str):
+                raise ValueError("Invalid historical media timestamp")
             if existing["content"].get("from") != media["from"] or existing[
                 "provider_timestamp"
-            ] != datetime.fromtimestamp(int(media["timestamp"]), tz=UTC):
+            ] != datetime.fromtimestamp(int(timestamp), tz=UTC):
                 raise ValueError("Conflicting historical media identity")
             if existing["content"] == media:
                 continue
@@ -312,4 +315,4 @@ async def persist_history(
             "payload": payload,
         },
     )
-    return inserted
+    return inserted if isinstance(inserted, UUID) else None

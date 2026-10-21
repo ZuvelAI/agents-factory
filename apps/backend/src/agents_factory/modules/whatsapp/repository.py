@@ -68,13 +68,12 @@ class WhatsAppWebhookRepository:
             },
         )
 
-    async def apply_partner_removed(
+    async def resolve_partner_removed_accounts(
         self,
         *,
         waba_id: str,
         display_phone_digits: str,
-        occurred_at: datetime,
-    ) -> str:
+    ) -> tuple[WhatsAppAccountMapping, ...]:
         tenant_id = await self._session.scalar(
             text(
                 "SELECT agents_factory_private.resolve_whatsapp_update_tenant("
@@ -83,9 +82,8 @@ class WhatsAppWebhookRepository:
             {"waba_id": waba_id, "display_phone_digits": display_phone_digits},
         )
         if not isinstance(tenant_id, UUID):
-            return "unmatched"
+            return ()
         await set_tenant_context(self._session, tenant_id)
-        from agents_factory.common.account_lifecycle import lock_account_lifecycle
 
         account_ids = (
             (
@@ -103,8 +101,35 @@ class WhatsAppWebhookRepository:
             .scalars()
             .all()
         )
-        for account_id in account_ids:
-            await lock_account_lifecycle(self._session, tenant_id, account_id)
+        return tuple(
+            WhatsAppAccountMapping(account_id, tenant_id) for account_id in account_ids
+        )
+
+    async def apply_partner_removed(
+        self,
+        *,
+        waba_id: str,
+        display_phone_digits: str,
+        occurred_at: datetime,
+        prelocked_accounts: frozenset[tuple[UUID, UUID]] | None = None,
+    ) -> str:
+        from agents_factory.common.account_lifecycle import lock_account_lifecycle
+
+        mappings = await self.resolve_partner_removed_accounts(
+            waba_id=waba_id,
+            display_phone_digits=display_phone_digits,
+        )
+        if not mappings:
+            return "unmatched"
+        for mapping in mappings:
+            key = (mapping.tenant_id, mapping.account_id)
+            if prelocked_accounts is not None:
+                if key not in prelocked_accounts:
+                    # Do not acquire a newly discovered account after an agent
+                    # fence. Roll back and let the webhook retry its full batch.
+                    raise RuntimeError("account update authority changed")
+            else:
+                await lock_account_lifecycle(self._session, *key)
         result = await self._session.scalar(
             text(
                 "SELECT agents_factory_private.apply_whatsapp_partner_removed("

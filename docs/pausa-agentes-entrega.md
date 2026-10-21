@@ -1,7 +1,7 @@
 # Pausa y reactivación de agentes
 
-Estado: implementación local; instalación en producción no realizada. La revisión
-independiente y las comprobaciones finales se registran al cerrar esta entrega.
+Estado: implementación y revisión independiente completadas en local; instalación
+en producción no realizada. Los controles permanecen deshabilitados por defecto.
 
 ## Uso
 
@@ -79,6 +79,13 @@ Las respuestas pendientes no elegibles quedan BLOCKED con motivo
 UNCERTAIN; no se vuelven a enviar. Un fallo de lectura no concede permiso.
 Cancelación o fallo libera/invalida la conexión para no dejar bloqueos pendientes.
 
+Cada llamada al modelo dentro del ciclo del SDK vuelve a comprobar la admisión,
+incluida la que seguiría a una herramienta ya iniciada. Si pierde autoridad,
+el turno queda bloqueado y auditado, sin respuesta ni consumo de otra iteración.
+Los lotes mixtos de mensajes y desconexiones resuelven todas sus cuentas antes
+de adquirir un bloqueo de agente; un cambio de mapeo obliga a reintentar el lote
+completo en vez de adquirir una cuenta nueva en orden inverso.
+
 Una plantilla aprobada no constituye autoridad automática. Las plantillas manuales
 con preparación auditada de un administrador siguen siendo manuales y no se
 confunden con respuestas del agente. No se añadió envío humano desde el panel.
@@ -133,8 +140,30 @@ Se usan PostgreSQL/Redis locales y modelos, transporte y transcripción falsos.
 No se consultó ni modificó información de clientes en producción. No hubo llamadas
 pagas, mensajes reales de prueba, cambios de claves ni publicación de agentes.
 
-Evidencia anterior al cierre final: backend 1.011 pruebas; panel 161 unitarias,
-49 de navegador, tipos, lint y compilación correctos. Los nuevos casos integrados
-de dos empresas, texto/audio, corte antes del modelo y fechas inválidas pasaron
-junto con los contratos Meta seleccionados (51 pruebas). El cierre final registra
-los resultados completos posteriores a esos ajustes y la revisión independiente.
+Resultados finales del 21 de octubre de 2026:
+
+- Backend completo: 1.024 pruebas aprobadas, incluidos dos clientes, texto/audio,
+  mensajes pendientes, reactivación, fechas inválidas y las regresiones finales.
+- Panel: 161 unitarias y 49 Chromium; tipos, lint y compilación correctos.
+- Seguridad: 72 pruebas generales, 53 de aislamiento con roles reales, 454 pgTAP
+  de matriz RLS, 115 de fundamento y 18 específicas de operación. Lint de base
+  sin errores; asesores sin errores de seguridad.
+- Ruff limpio; mypy sin errores en los siete módulos finales revisados.
+- Restauración completa de una base local artificial: pausa en revisión 7,
+  admisión denegada en revisión 6, dependencias y RLS forzada conservadas.
+  No sustituye el respaldo/ensayo aislado de producción previo a instalar.
+
+La revisión independiente encontró dos problemas importantes: otra iteración de
+modelo después de pausar durante una herramienta e inversión de bloqueos en un
+lote mixto de ingreso/desconexión. Ambos se reprodujeron RED y se corrigieron GREEN
+en una única pasada; la suite completa posterior pasó. No hubo hallazgos críticos.
+También se restauró el contrato estricto de fechas del historial con tres casos
+RED y sus regresiones GREEN, sin debilitar la retención de mensajes vivos.
+
+Pendiente menor: evaluar índices de las claves foráneas de admisiones con carga
+representativa. El asesor los marca como información de rendimiento, no como fallo
+de seguridad. No se agregaron índices por intuición ni se alteraron tablas ajenas.
+
+La revisión no acredita inventario/emisores, recuperación real de producción ni
+comportamiento de proveedores reales: esas comprobaciones siguen siendo requisito
+de una instalación posterior autorizada. No se hizo push, merge ni despliegue.

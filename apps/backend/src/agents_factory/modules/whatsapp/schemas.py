@@ -32,8 +32,11 @@ class MetaInboundMessage(MetaWebhookModel):
     type: str = Field(min_length=1, max_length=100)
 
 
-class MetaMobileEcho(MetaInboundMessage):
+class MetaHistoricalMessage(MetaInboundMessage):
     timestamp: str = Field(min_length=1, max_length=20)
+
+
+class MetaMobileEcho(MetaHistoricalMessage):
     recipient_wa_id: str = Field(alias="to", min_length=1, max_length=100)
 
 
@@ -85,7 +88,7 @@ class MetaHistoryProgress(MetaWebhookModel):
 
 class MetaHistoryThread(MetaWebhookModel):
     id: str = Field(min_length=1, max_length=100)
-    messages: list[MetaInboundMessage]
+    messages: list[MetaHistoricalMessage]
 
 
 class MetaHistoryChunk(MetaWebhookModel):

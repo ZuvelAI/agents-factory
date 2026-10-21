@@ -72,6 +72,43 @@ async def test_pause_before_turn_avoids_model_and_reply(
 
 
 @pytest.mark.asyncio
+async def test_model_boundary_loss_is_audited_as_blocked_without_reply(
+    session_factory, operation_world
+):
+    from agents_factory.modules.runtime.openai_adapter import AgentRuntimeError
+
+    message = await incoming(session_factory, operation_world)
+
+    class BoundaryRuntime(_FakeRuntime):
+        async def run(self, turn):
+            assert turn.model_eligible is not None
+            assert await turn.model_eligible()
+            await change_state(session_factory, operation_world, False, 1)
+            assert not await turn.model_eligible()
+            raise AgentRuntimeError("agent_operation_ineligible", retryable=False)
+
+    result = await run_turn(
+        session_factory, operation_world, message, BoundaryRuntime()
+    )
+    assert result.status == "blocked_by_agent_operation"
+    async with session_factory.begin() as session:
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM public.messages WHERE sender_type='ai'")
+            )
+            == 0
+        )
+        assert (
+            await session.scalar(
+                text(
+                    "SELECT count(*) FROM public.audit_events WHERE event_type='agent.turn.skipped'"
+                )
+            )
+            == 1
+        )
+
+
+@pytest.mark.asyncio
 async def test_pause_resume_during_model_discards_old_reply(
     session_factory, operation_world
 ):
