@@ -22,8 +22,7 @@ from agents_factory.modules.agent_factory.publication_service import (
 )
 
 
-@pytest_asyncio.fixture
-async def operation_world(session_factory):
+async def build_operation_world(session_factory):
     tenant = await seed(session_factory, configuration())
     admin = context(tenant)
     channel = await account(session_factory, tenant)
@@ -38,6 +37,11 @@ async def operation_world(session_factory):
             expected_binding_revision=0,
         )
     return admin, channel, candidate.agent_instance_id
+
+
+@pytest_asyncio.fixture
+async def operation_world(session_factory):
+    return await build_operation_world(session_factory)
 
 
 async def change_state(factory, world, enabled, revision):

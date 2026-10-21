@@ -283,6 +283,8 @@ class AgentTurnService:
         turn = replace(
             turn, tools=tuple(guard_tool(tool, eligible) for tool in turn.tools)
         )
+        if not await eligible():
+            return await self._operation_blocked(inbound_message_id)
         # Worker-owned sessions release their read/audit transaction before the
         # provider call. Tool checks use independent short transactions.
         if self._session_factory is not None:

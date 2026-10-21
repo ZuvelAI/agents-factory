@@ -21,6 +21,8 @@ async def persist_contact_profile(
     event: InboundWhatsAppEvent,
 ) -> None:
     identity = event.contact_identity
+    if not event.provider_timestamp_valid:
+        return
     if identity is None or not any(
         (identity.profile_name, identity.username, identity.phone_number)
     ):

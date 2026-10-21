@@ -33,11 +33,16 @@ async def test_workspace_reports_pause_without_changing_connection(
 ):
     client, _ = configuration_client
     root, draft = await create_company_and_agent(client)
+    second = (await client.post(root + "/agents", json={"name": "Soporte"})).json()
     path = root + f"/agents/{draft['agent_instance_id']}/operation"
     await client.post(path, json={"enabled": False, "expected_revision": 1})
     agents = (await client.get(root + "/agents")).json()["items"]
     assert agents[0]["execution_status"] == "paused"
     assert agents[0]["channel_accounts"] == []
+    other = (
+        await client.get(root + f"/agents/{second['agent_instance_id']}/operation")
+    ).json()
+    assert other["enabled"] is True and other["revision"] == 1
 
 
 @pytest.mark.asyncio

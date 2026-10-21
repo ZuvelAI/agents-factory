@@ -26,11 +26,14 @@ class MetaInboundMessage(MetaWebhookModel):
         min_length=1,
         max_length=100,
     )
-    timestamp: str = Field(min_length=1, max_length=20)
+    # Retain signed live messages with unknown time; admission must deny them.
+    # History and mobile echoes retain their strict timestamp contracts.
+    timestamp: object | None = None
     type: str = Field(min_length=1, max_length=100)
 
 
 class MetaMobileEcho(MetaInboundMessage):
+    timestamp: str = Field(min_length=1, max_length=20)
     recipient_wa_id: str = Field(alias="to", min_length=1, max_length=100)
 
 

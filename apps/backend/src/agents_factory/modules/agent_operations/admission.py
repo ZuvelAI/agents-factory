@@ -104,7 +104,18 @@ async def admit_event(
         .mappings()
         .one()
     )
-    return MessageAdmission.model_validate(dict(row))
+    admission = MessageAdmission.model_validate(dict(row))
+    if not admission.eligible:
+        from agents_factory.common.audit import AuditService
+
+        await AuditService(session).record(
+            context=context,
+            event_type="agent.message.not_admitted",
+            entity_type="whatsapp_event",
+            entity_id=event_id,
+            payload={"reason": reason},
+        )
+    return admission
 
 
 async def check_message_eligibility(

@@ -45,6 +45,7 @@ class InboundWhatsAppEvent:
     occurred_at: datetime
     raw_payload: dict[str, object]
     contact_identity: WhatsAppContactIdentity | None = field(default=None, repr=False)
+    provider_timestamp_valid: bool = field(default=True, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

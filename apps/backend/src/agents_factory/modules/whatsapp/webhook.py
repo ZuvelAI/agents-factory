@@ -286,7 +286,9 @@ class MetaWebhookProcessor:
                 context,
                 event_id=persisted.event_id,
                 account_id=mapping.account_id,
-                provider_timestamp=inbound_event.occurred_at,
+                provider_timestamp=inbound_event.occurred_at
+                if inbound_event.provider_timestamp_valid
+                else None,
             )
             await self._outbox.enqueue(
                 context=context,

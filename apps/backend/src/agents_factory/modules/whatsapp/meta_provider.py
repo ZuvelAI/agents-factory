@@ -225,6 +225,10 @@ class MetaCloudApiProvider:
                 for message in change.value.messages:
                     if message.type not in _SUPPORTED_MESSAGE_TYPES:
                         raise InvalidWebhookPayload
+                    occurred_at, timestamp_valid = _inbound_timestamp(message.timestamp)
+                    normalized = _normalized_content(message.model_dump())
+                    if not timestamp_valid:
+                        normalized["_provider_timestamp_valid"] = False
                     inbound_events.append(
                         InboundWhatsAppEvent(
                             waba_id=entry.id,
@@ -232,8 +236,9 @@ class MetaCloudApiProvider:
                             whatsapp_message_id=message.id,
                             sender_wa_id=message.sender_wa_id,
                             message_type=cast(WhatsAppMessageType, message.type),
-                            content=_normalized_content(message.model_dump()),
-                            occurred_at=_provider_timestamp(message.timestamp),
+                            content=normalized,
+                            occurred_at=occurred_at,
+                            provider_timestamp_valid=timestamp_valid,
                             raw_payload=raw_payload,
                             contact_identity=meta_contact_identity(
                                 message={
@@ -601,7 +606,9 @@ def _coexistence_status(
     return "ELIGIBLE" if on_business_app and platform == "CLOUD_API" else "INELIGIBLE"
 
 
-def _provider_timestamp(value: str) -> datetime:
+def _provider_timestamp(value: object) -> datetime:
+    if not isinstance(value, str) or not 1 <= len(value) <= 20:
+        raise InvalidWebhookPayload
     try:
         seconds = int(value)
         if seconds < 0:
@@ -609,6 +616,14 @@ def _provider_timestamp(value: str) -> datetime:
         return datetime.fromtimestamp(seconds, tz=UTC)
     except (OverflowError, ValueError):
         raise InvalidWebhookPayload from None
+
+
+def _inbound_timestamp(value: object) -> tuple[datetime, bool]:
+    try:
+        return _provider_timestamp(value), True
+    except InvalidWebhookPayload:
+        # Receipt time, not provider-known time. Never authorize automation.
+        return datetime.now(UTC), False
 
 
 def _normalized_mobile_content(message: Mapping[str, object]) -> dict[str, object]:
