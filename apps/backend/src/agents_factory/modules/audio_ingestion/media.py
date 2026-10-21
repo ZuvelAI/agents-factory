@@ -12,6 +12,7 @@ from pathlib import Path
 import socket
 from typing import AsyncIterator, Awaitable, Callable, Iterable
 from urllib.parse import urlsplit
+from uuid import NAMESPACE_URL, uuid5
 
 import httpcore
 import httpx
@@ -172,7 +173,17 @@ class MetaAudioDownloader:
             ):
                 raise AudioDownloadError("audio_media_id_invalid")
             _mime(source.mime_type)
-            context = TenantContext(source.tenant_id, None, "system", source.event_id)
+            # Internal service identity for vault audit, not a user or a grant.
+            # Tenant RLS and the exact account/secret binding still authorize access.
+            context = TenantContext(
+                source.tenant_id,
+                uuid5(
+                    NAMESPACE_URL,
+                    f"urn:agents-factory:service:whatsapp-media:{source.tenant_id}",
+                ),
+                "system",
+                source.event_id,
+            )
             resolved_access = await self.access_tokens.resolve(
                 context=context, whatsapp_account_id=source.account_id
             )
