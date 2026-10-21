@@ -52,6 +52,16 @@ class AccountAgentBindingRepository:
         await set_tenant_context(self.session, self.context.tenant_id)
         await lock_account_lifecycle(self.session, self.context.tenant_id, account_id)
         current = await self.get_for_account(account_id)
+        from agents_factory.modules.agent_operations.repository import (
+            AgentOperationRepository,
+        )
+
+        authority = AgentOperationRepository(self.session, self.context)
+        agents = {version.agent_instance_id}
+        if current is not None:
+            agents.add(current.agent_instance_id)
+        for agent_id in sorted(agents):
+            await authority.lock(agent_id)
         if (0 if current is None else current.revision) != expected_revision:
             raise publication_problem(
                 "stale_account_binding", "Reload the current account binding"

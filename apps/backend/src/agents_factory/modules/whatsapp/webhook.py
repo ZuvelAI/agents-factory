@@ -161,6 +161,37 @@ class MetaWebhookProcessor:
                 account_id=mapping.account_id,
                 customer_wa_id=customer_wa_id,
             )
+        # A batch can span multiple accounts/agents. Acquire authority fences in
+        # stable global order before persisting any event, never worker-time.
+        from agents_factory.common.account_lifecycle import lock_account_lifecycle
+        from agents_factory.modules.agent_operations.repository import (
+            AgentOperationRepository,
+        )
+        from agents_factory.modules.agent_factory.channel_binding import (
+            AccountAgentBindingRepository,
+        )
+
+        authority_accounts: set[tuple[UUID, UUID]] = set()
+        for inbound in batch.inbound_events:
+            mapping = await self._repository.resolve_active_mapping(
+                waba_id=inbound.waba_id, phone_number_id=inbound.phone_number_id
+            )
+            if mapping is not None:
+                authority_accounts.add((mapping.tenant_id, mapping.account_id))
+        for tenant, account in sorted(authority_accounts):
+            await lock_account_lifecycle(self._session, tenant, account)
+        authority_agents: set[tuple[UUID, UUID]] = set()
+        for tenant, account in sorted(authority_accounts):
+            authority_context = TenantContext(tenant, None, "system", correlation_id)
+            binding = await AccountAgentBindingRepository(
+                self._session, authority_context
+            ).get_for_account(account)
+            if binding is not None:
+                authority_agents.add((tenant, binding.agent_instance_id))
+        for tenant, agent in sorted(authority_agents):
+            await AgentOperationRepository(
+                self._session, TenantContext(tenant, None, "system", correlation_id)
+            ).lock(agent)
         accepted_messages = 0
         duplicate_messages = 0
         for history_event in batch.history_sync:
@@ -248,6 +279,15 @@ class MetaWebhookProcessor:
             if not persisted.created:
                 duplicate_messages += 1
                 continue
+            from agents_factory.modules.agent_operations.admission import admit_event
+
+            await admit_event(
+                self._session,
+                context,
+                event_id=persisted.event_id,
+                account_id=mapping.account_id,
+                provider_timestamp=inbound_event.occurred_at,
+            )
             await self._outbox.enqueue(
                 context=context,
                 idempotency_key=f"whatsapp.inbound:{inbound_event.whatsapp_message_id}",

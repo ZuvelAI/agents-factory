@@ -16,6 +16,7 @@ class AgentTableContract:
 
 AGENT_TABLE_CONTRACTS = (
     AgentTableContract("public.agent_operation_states", "agent_instance_id"),
+    AgentTableContract("public.agent_message_admissions", "source_event_id"),
     AgentTableContract("public.agent_approved_knowledge_versions"),
     AgentTableContract("public.panel_agent_candidates", "version_id"),
     AgentTableContract("public.agent_publication_test_runs"),
@@ -43,6 +44,11 @@ async def seed_agent_tables(
         "digest": "a" * 64,
     }
     statements = (
+        (
+            "public.agent_message_admissions",
+            rows["public.whatsapp_webhook_events"],
+            "INSERT INTO public.agent_message_admissions(tenant_id,source_event_id,whatsapp_account_id,agent_instance_id,operation_revision,binding_revision,eligible,reason) VALUES(:tenant,:id,:account,:agent,1,1,true,'eligible')",
+        ),
         (
             "public.agent_operation_states",
             parameters["agent"],
