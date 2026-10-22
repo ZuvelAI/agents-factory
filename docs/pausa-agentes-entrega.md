@@ -1,7 +1,9 @@
 # Pausa y reactivación de agentes
 
-Estado: implementación y revisión independiente completadas en local; instalación
-en producción no realizada. Los controles permanecen deshabilitados por defecto.
+Estado: implementación y revisión independiente completadas. Instalación en
+producción terminada el 2026-10-22, con autorización de Daniel y controles
+habilitados tras verificar los emisores. Por defecto siguen deshabilitados para
+instalaciones nuevas. Registro: `pausa-agentes-produccion-20261022.md`.
 
 ## Uso
 
@@ -97,7 +99,8 @@ administración; desactivarla nunca hace que los trabajadores ignoren pausas ya
 persistidas. La API informa `controls_available`; el panel deshabilita el control
 si falta esa evidencia o no puede consultar el estado.
 
-Esta entrega no autoriza cambios de producción. Antes de instalar:
+La entrega local original requería autorización separada para producción. Daniel
+la otorgó después; el registro citado documenta la instalación. Para otra instalación:
 
 1. Inventariar nuevamente imágenes, Compose, emisores, procesos y revisiones reales.
    No asumir que los nombres/tags de documentos anteriores siguen vigentes.
@@ -164,6 +167,6 @@ Pendiente menor: evaluar índices de las claves foráneas de admisiones con carg
 representativa. El asesor los marca como información de rendimiento, no como fallo
 de seguridad. No se agregaron índices por intuición ni se alteraron tablas ajenas.
 
-La revisión no acredita inventario/emisores, recuperación real de producción ni
-comportamiento de proveedores reales: esas comprobaciones siguen siendo requisito
-de una instalación posterior autorizada. No se hizo push, merge ni despliegue.
+La revisión de código no acreditaba inventario/emisores ni recuperación productiva;
+la instalación posterior comprobó ambos según el registro de producción. No se
+ejecutaron pruebas reales de Meta/OpenAI ni se pausó Zuvel para simular aceptación.
