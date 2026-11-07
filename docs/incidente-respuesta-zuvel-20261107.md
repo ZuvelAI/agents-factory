@@ -29,7 +29,10 @@ No se relajan la evidencia, la identidad ni los controles de pausa.
   conservaron sus contenedores; no hubo migraciones ni reejecución de trabajos.
 - En el VPS, el turno exacto volvió a generar texto en una comprobación de
   diagnóstico sin persistir ni enviar el resultado y sin preparar un prospecto.
-  La validación de entrega real requiere un mensaje nuevo de prueba.
+- Daniel envió un mensaje nuevo a las 07:13:48 (Bogotá). Recepción, turno y
+  envío finalizaron correctamente. Meta confirmó `DELIVERED` a las 07:14:30,
+  unos 41 segundos después de la recepción. El trabajo antiguo siguió sin
+  reintentarse.
 - Backend y panel sanos, con latidos de agente y envío correctos. El scheduler
   registró un error aislado al serializar un resultado al iniciar; continuó
   despachando y su contador de errores no aumentó en la comprobación posterior.
