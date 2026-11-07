@@ -1,6 +1,7 @@
 """Prepared tools are pure and bound to a single immutable turn."""
 
 from dataclasses import replace
+import json
 from uuid import uuid4
 
 import pytest
@@ -53,6 +54,40 @@ def invocation(turn):
         turn.trace.inbound_message_id,
         turn.trace.correlation_id,
     )
+
+
+async def test_old_lead_evidence_does_not_abort_customer_reply():
+    turn = lead_turn()
+    old_message = TurnMessage(uuid4(), "user", "Me interesa cotizar.")
+    turn = replace(turn, messages=(old_message, *turn.messages))
+    turn = replace(turn, tools=lead_tools_for_turn(turn, simulation=False))
+
+    class ToolRunner(_CapturedRunner):
+        async def run(self, agent, input_items, *, max_turns, run_config):
+            reply = await agent.tools[0].on_invoke_tool(
+                None,
+                json.dumps(
+                    {
+                        "operation": "CAPTURE",
+                        "evidence": [
+                            {
+                                "message_id": str(old_message.id),
+                                "quote": old_message.text,
+                            }
+                        ],
+                    }
+                ),
+            )
+            assert reply["status"] == "REJECTED"
+            return await super().run(
+                agent, input_items, max_turns=max_turns, run_config=run_config
+            )
+
+    result = await OpenAIAgentsRuntime(runner=ToolRunner(), require_api_key=False).run(
+        turn
+    )
+    assert result.output_text == "Tu pedido está en preparación."
+    assert result.tool_calls == ()
 
 
 async def test_prepared_tools_require_both_permissions_and_do_not_persist():

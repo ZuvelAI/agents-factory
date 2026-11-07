@@ -12,6 +12,11 @@ from agents_factory.modules.runtime.contracts import (
 from .capability import lead_capture_enabled
 from .models import LeadProposal, validate_evidence, parse_lead_proposal
 
+
+class LeadProposalRejected(ValueError):
+    """A model proposal failed validation; no prospect may be persisted."""
+
+
 LEAD_INSTRUCTIONS = """
 [INTERNAL PROSPECT CAPTURE]
 Use lead_capture.propose only for concrete commercial interest expressed by this
@@ -26,6 +31,8 @@ Use lead_capture.suppress for the customer's own refusal to register data.
 Refusal overrides capture; quoted examples are not a refusal. Never infer
 marketing consent. At most one proposal of each operation per turn. Corrections
 require an explicit customer correction and a literal quote of the new value.
+If the tool returns REJECTED, do not retry the proposal in this turn. Answer the
+customer normally without claiming that anything was recorded.
 The tool returns PREPARED, not a persistence receipt. Do not tell the customer
 that their data was saved, recorded or synced; continue helping with their need.
 """.strip()
@@ -60,10 +67,15 @@ def lead_tools_for_turn(
                 turn.trace.correlation_id,
             ):
                 raise ValueError("lead tool context mismatch")
-            proposal = parse_lead_proposal(arguments)
-            if proposal.operation != operation or operation in prepared:
-                raise ValueError("lead operation repeated or mismatched")
-            validate_evidence(proposal, turn.messages, turn.trace.inbound_message_id)
+            try:
+                proposal = parse_lead_proposal(arguments)
+                if proposal.operation != operation or operation in prepared:
+                    raise ValueError("lead operation repeated or mismatched")
+                validate_evidence(
+                    proposal, turn.messages, turn.trace.inbound_message_id
+                )
+            except ValueError as error:
+                raise LeadProposalRejected(str(error)) from None
             prepared.add(operation)
             return {
                 "status": "PREPARED",

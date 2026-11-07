@@ -21,6 +21,7 @@ from agents_factory.modules.runtime.first_contact import (
     orientation_only,
 )
 from agents_factory.modules.leads.runtime_tools import (
+    LeadProposalRejected,
     lead_instructions,
     model_input_items,
 )
@@ -203,7 +204,11 @@ class OpenAIAgentsRuntime:
                 inbound_message_id=turn.trace.inbound_message_id,
                 correlation_id=turn.trace.correlation_id,
             )
-            output = await tool.handler(invocation_context, arguments)
+            try:
+                output = await tool.handler(invocation_context, arguments)
+            except LeadProposalRejected:
+                # A rejected optional proposal is not a prepared effect.
+                return {"status": "REJECTED", "next_action": "reply_without_recording"}
             reject_sensitive_fields(output)
             try:
                 normalized_output = json.loads(json.dumps(output, allow_nan=False))
