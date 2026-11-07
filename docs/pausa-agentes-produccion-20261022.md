@@ -120,7 +120,7 @@ el mapa explícito de versiones anteriores y sus digests exactos.
 - Selección del snapshot exacto, sin fallback ni llamada al modelo.
 - Lectura real del servicio de operación: controles disponibles; Zuvel habilitado,
   revisión 1, sin corte de reactivación. Consulta sin escrituras.
-- Endpoint administrativo sin token: 401.
+- El endpoint administrativo devolvió 401 al consultarlo sin credenciales.
 - Comparación final de imágenes, configuración publicada y credenciales correcta.
 
 El registro privado final es `post-release-verification.json`. No se probó el botón
